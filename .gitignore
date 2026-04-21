@@ -2,6 +2,7 @@
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcworkspace/contents.xcworkspacedata
+*.xcuserstate
 DerivedData/
 .DS_Store
 
@@ -9,8 +10,8 @@ DerivedData/
 .build/
 *.resolved
 
-# ML model (generated — run Scripts/export_coreml.py)
-Shared/ML/VeloYOLO.mlpackage/
+# ML model (generated — run Scripts/export_coreml.py to rebuild)
+**/VeloYOLO.mlpackage/
 
 # Credentials (never commit)
 Shared/Integrations/Strava/Secrets.swift

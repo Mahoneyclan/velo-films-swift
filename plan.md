@@ -13,7 +13,7 @@ Hardware: iPad Air 11-inch M2 (8GB RAM), iPadOS 26.4. Mac Mini M1.
 
 | Tool | Source | Cost | Purpose |
 |---|---|---|---|
-| Xcode 16+ | Mac App Store | Free | IDE, Swift compiler, Simulator, Instruments |
+| Xcode 26.4.1 (17E202) | Mac App Store | Free | IDE, Swift compiler, Simulator, Instruments |
 | Apple Developer Program | developer.apple.com | $99/yr | Deploy to physical iPad, TestFlight |
 | FFmpegKit | Swift Package (in-project) | Free | iOS video processing — fetched automatically |
 | Git | Already installed | Free | Source control |
@@ -184,8 +184,8 @@ protocol FFmpegBridge {
 
 Do this before writing a single line of Swift.
 
-- [ ] Enrol in Apple Developer Program (allow up to 48 hrs to activate)
-- [ ] Install Xcode 16+, SF Symbols 6, Proxyman
+- [x] Enrol in Apple Developer Program (allow up to 48 hrs to activate)
+- [x] Install Xcode 26.4.1 (17E202)
 - [ ] Create GitHub repo `velo-films-swift`, clone locally
 - [ ] Create Xcode multiplatform project targeting macOS 14+ and iPadOS 26+
 - [ ] Add Swift Package dependency: FFmpegKit (iOS target only)
