@@ -1,0 +1,19 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/contents.xcworkspacedata
+DerivedData/
+.DS_Store
+
+# Swift Package Manager
+.build/
+*.resolved
+
+# ML model (generated — run Scripts/export_coreml.py)
+Shared/ML/VeloYOLO.mlpackage/
+
+# Credentials (never commit)
+Shared/Integrations/Strava/Secrets.swift
+
+# Build artefacts
+build/
