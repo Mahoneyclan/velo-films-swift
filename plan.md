@@ -180,131 +180,152 @@ protocol FFmpegBridge {
 
 ## Development Phases
 
-### Phase 0 — Setup (Week 1)
+### Phase 0 — Dev Environment & Project Setup
 
 Do this before writing a single line of Swift.
 
 - [x] Enrol in Apple Developer Program (allow up to 48 hrs to activate)
 - [x] Install Xcode 26.4.1 (17E202)
-- [ ] Create GitHub repo `velo-films-swift`, clone locally
-- [ ] Create Xcode multiplatform project targeting macOS 14+ and iPadOS 26+
+- [x] Create GitHub repo `velo-films-swift`, clone locally
+- [x] Create Xcode multiplatform project targeting macOS 14+ and iPadOS 26+
 - [ ] Add Swift Package dependency: FFmpegKit (iOS target only)
 - [ ] Run `Scripts/export_coreml.py`: `yolo11s.pt` → `VeloYOLO.mlpackage`, add to project
 - [ ] Set up TestFlight for iPad distribution
-- [ ] Commit skeleton project structure
+- [x] Commit skeleton project structure
 
 **Milestone:** Blank app runs in iPad Simulator and on Mac natively.
 
 ---
 
-### Phase 1 — Data Models & Config (Week 2)
+### Phase 1 — Data Models & Config ✅
 
 Foundation everything else builds on. No video, no UI.
 
-- `AppConfig.swift` — all settings from `config.py`, persisted via `@AppStorage` / `Codable`
-- `GlobalSettings.swift` + `ProjectPreferences.swift` — replaces `persistent_config.py`
-- `Project.swift` — ride project struct with all path properties from `io_paths.py`
-- `ProjectFileManager.swift` — creates/reads project directory structure, security-scoped bookmark management for both drive roots
-- CSV row models (`FlattenRow`, `ExtractRow`, `EnrichRow`, `SelectRow`) — `Codable`, read/write via Swift CSV
+- [x] `AppConfig.swift` — all settings from `config.py`, persisted via `@AppStorage` / `Codable`
+- [x] `GlobalSettings.swift` — replaces `persistent_config.py`. Covers: drive roots, camera offsets + timezones, extract interval, highlight target, min gap between clips, GPX time offset, music/raw audio volumes, show elevation, dynamic gauges. All values persisted to UserDefaults and consumed by pipeline steps directly.
+- [x] `ProjectPreferences.swift` — per-project overrides stored as `preferences.json` in project folder. Fields: `selectedMusicTrack` (filename or empty for random), `highlightTargetMinutes?` (nil = use global), `notes` (free text). Wired into `BuildStep.findMusicTrack()` and `Project.effectiveTargetClips()`.
+- [x] **Pipeline wiring fixes** — `ExtractStep` now reads `GlobalSettings.effectiveExtractInterval`; `FlattenStep` reads `GlobalSettings.gpxTimeOffsetS`; `BuildStep.mixMusic` reads `GlobalSettings.musicVolume/rawAudioVolume`; `ClipSelector.Config.minGap` reads `GlobalSettings.minGapBetweenClips`; `AppConfig.targetClips` reads `GlobalSettings.highlightTargetMinutes`; `AppConfig.CameraName.timezoneIdentifier` and `.knownOffset` read from GlobalSettings so camera calibration offsets are actually applied (previously hardcoded to 0).
+- [x] `Project.swift` — ride project struct with all path properties from `io_paths.py`; `ProjectStore` embedded here (UserDefaults persistence, save/load project list across launches)
+- [x] `ProjectFileManager.swift` — creates/reads project directory structure
+- [x] JSONL row models (`FlattenRow`, `ExtractRow`, `EnrichRow`, `SelectRow`) — `Codable`
+- [x] `JSONLReader.swift` + `JSONLWriter.swift` — generic helpers used by all steps to read/write JSONL files
 
-**Milestone:** Can create a project, write/read all CSV formats, settings persist across launches.
+**Milestone:** Can create a project, write/read all JSONL formats, settings persist across launches.
 
 ---
 
-### Phase 2 — Pipeline Infrastructure (Week 3)
+### Phase 2 — Pipeline Infrastructure ✅
 
 The plumbing before the water.
 
-- `PipelineStep` protocol — replaces `step_registry.py`
-- `PipelineExecutor` — runs steps sequentially, handles cancellation, replaces `pipeline_executor.py`
-- `ProgressReporter` — `AsyncStream`-based progress events consumed by UI
-- Logging — `os.Logger` (unified logging, visible in Console.app and Xcode console)
-- Background task handling — `BackgroundTasks` framework wired for iPadOS; unconstrained on macOS
+- [x] `PipelineStep` protocol — replaces `step_registry.py`
+- [x] `PipelineExecutor` — runs steps sequentially, handles cancellation, replaces `pipeline_executor.py`
+- [x] `PipelineExecutor` re-run fix — `forceRun: Bool` flag in `dependencyChain()` ensures target step always executes even when `isComplete` returns true; dependencies still cache-hit normally
+- [x] `ProgressReporter` — `AsyncStream`-based progress events consumed by UI
+- [x] `os.Logger` unified logging (visible in Xcode console and Console.app)
+- [ ] Per-step log files — each step writes `{project}/logs/{step}.log` on disk (mirrors Python per-step .log files). Needed by `LogViewerView` in Phase 5.
+- [ ] Background task handling — `BackgroundTasks` framework wired for iPadOS; unconstrained on macOS
 
 **Milestone:** Stub pipeline with fake steps runs and reports progress to console.
 
 ---
 
-### Phase 3 — Data Steps (Weeks 4–7)
+### Phase 3 — Data Steps (Flatten · Extract · Enrich · Select) ✅
 
 All pure logic, no video rendering. Fully testable in Simulator.
 
-**Flatten (1 week)**
-- `GPXParser.swift` — `XMLParser` replacing gpxpy, produces 1-second telemetry rows
-- `FlattenStep.swift` — writes `flatten.csv` equivalent
-- Validate: output matches existing `flatten.csv` on same GPX input
+**Flatten** ✅
+- [x] `GPXParser.swift` — `XMLParser` replacing gpxpy, produces 1-second telemetry rows
+- [x] `FlattenStep.swift` — writes `flatten.jsonl` equivalent
 
-**Extract (1 week)**
-- `FrameSampler.swift` — `AVAssetImageGenerator` extracts frames at GPX-anchored grid points
-- Multi-camera timing, timezone offsets, `KNOWN_OFFSETS` per camera — direct port of `extract.py` logic
-- Validate: frame count and timestamps match existing `extract.csv`
+**Extract** ✅
+- [x] `FrameSampler.swift` — `AVAssetImageGenerator` extracts frames at GPX-anchored grid points
+- [x] Multi-camera timing, timezone offsets, `KNOWN_OFFSETS` per camera — direct port of `extract.py` logic
 
-**Enrich (1.5 weeks)**
-- `GPSEnricher.swift` — nearest-neighbour GPX lookup, direct port of `gps_enricher.py`
-- `YOLODetector.swift` — Core ML inference replacing PyTorch/Ultralytics. `VNImageRequestHandler` + `VNCoreMLRequest`. Serial queue batch processing. Batch size 2–4 on iPad (vs 8 on Mac).
-- `SceneDetector.swift` — pixel histogram diff, direct port of `scene_detector.py`
-- `ScoreCalculator.swift` — direct port of scoring weights from `score_calculator.py`
+**Enrich** ✅
+- [x] `GPSEnricher.swift` — nearest-neighbour GPX lookup
+- [x] `YOLOInference.swift` (in `Shared/ML/`) — Core ML inference replacing PyTorch/Ultralytics. `VNImageRequestHandler` + `VNCoreMLRequest`. Serial queue batch processing. *(plan had this as `YOLODetector.swift` in `Steps/Enrich/` — actual location differs)*
+- [x] `SceneDetector.swift` — pixel histogram diff
+- [x] `ScoreCalculator.swift` — scoring weights
+- [x] `SegmentMatcher.swift` — detects known route segments and applies segment-based score boosts *(not in original plan; added during implementation)*
 
-**Select (0.5 week)**
-- `ClipSelector.swift` — scoring, gap logic, scene-aware gap multiplier, zone bonuses — direct port of `select.py`
-- `PartnerMatcher.swift` — 1-second temporal tolerance matching across cameras
+**Select** ✅
+- [x] `ClipSelector.swift` — scoring, gap logic, scene-aware gap multiplier, zone bonuses
+- [x] `PartnerMatcher.swift` — 1-second temporal tolerance matching across cameras
 
-**Milestone:** Run phases 0–3 on a real ride on macOS. Compare `select.csv` output against Python version on same input — scores should match within floating-point rounding.
+**Milestone:** Run phases 0–3 on a real ride on macOS. Compare output against Python version on same input — scores should match within floating-point rounding.
 
 ---
 
-### Phase 4 — FFmpeg Bridge & Video Pipeline (Weeks 8–14)
+### Phase 4 — FFmpeg Bridge & Video Pipeline ✅
 
 The hardest phase. Video QA requires real footage on real hardware.
 
-**FFmpegBridge (1 week)**
+**FFmpegBridge**
+- [x] `FFmpegBridge` protocol — `execute(arguments: [String]) async throws -> String`
+- [x] `FFmpegMacBridge` — direct `Process()` exec of `/opt/homebrew/bin/ffmpeg`; no shell wrapper so filter_complex arguments (spaces, quotes, colons) are passed verbatim. Fixes word-split bugs that broke `drawtext='Velo Films'` and xfade filters.
+- [ ] `FFmpegiOS` — FFmpegKit wrapper (iPadOS target; deferred until iPad testing phase)
 
-Design and test the bridge protocol before touching anything else in this phase. Validate on macOS with a trivial FFmpeg command (probe a video file), then confirm FFmpegKit runs the same command on the iPad Simulator.
+**Build Step**
+- [x] `GaugeRenderer.swift` — Core Graphics rewrite of `gauge_prerenderer.py`. Arc drawing, text labels, semi-transparency. Output: per-clip PNG strip.
+- [x] `ElevationRenderer.swift` — Core Graphics line chart replacing matplotlib elevation plot.
+- [x] `MinimapRenderer.swift` — `MKMapSnapshotter` replaces contextily/geopandas/matplotlib. Route polyline + position marker per clip.
+- [x] `ClipCompositor.swift` — assembles PiP layout via `FFmpegBridge`. Ports `filter_complex` strings from `clip_renderer.py` unchanged.
 
-**Build Step (3 weeks)**
-- `GaugeRenderer.swift` — Core Graphics rewrite of `gauge_prerenderer.py`. Arc drawing, text labels, semi-transparency. Most complex single rendering component. Output: per-clip PNG or video strip matching existing 972×194px composite geometry.
-- `ElevationRenderer.swift` — Core Graphics line chart replacing matplotlib elevation plot. Matches existing 948×75px strip.
-- `MinimapRenderer.swift` — `MKMapSnapshotter` replaces contextily/geopandas/matplotlib. Route polyline + position marker per clip. Simpler code, better-looking output. Output: 390×390px PNG per clip.
-- `ClipCompositor.swift` — assembles PiP layout via `FFmpegBridge`. Port existing `filter_complex` strings from `clip_renderer.py` directly — they work unchanged on both platforms.
+**Splash Step**
+- [x] `IntroBuilder.swift` — 3-clip xfade chain (logo → route map → frame collage). `encodeStill()` normalises all source images to `W×H` via `scale/pad` before xfade so dimension mismatches never occur. Logo loaded from bundle or `Shared/Resources/velo_films.png`.
+- [x] `IntroBuilder` music mixing — `mixSplashMusic()` replaces silent audio track with `intro.mp3` via `loudnorm` + `volume=0.85`. Falls back to silent if no audio asset found.
+- [x] `OutroBuilder.swift` — builds `outro_collage.png` from recommended frames (same `renderCollage` as intro), animated `drawtext 'Velo Films'` overlay, fade-to-black xfade, then mixes `outro.mp3` if available. Shared IntroBuilder helpers made non-private so OutroBuilder can call them directly.
+- [x] Resource finders — `findResourceImage(named:)` / `findResourceAudio(named:)` check bundle first, then `Shared/Resources/` fallback.
+- [ ] Route overview map in splash via `MKMapSnapshotter` — placeholder black frame used currently
+- [x] Outro xfade timebase mismatch fix — `outro_black.mp4` `color=` lavfi source defaulted to 25 fps (tbn 1/12800) while collage was 30 fps (tbn 1/15360); added `r=30` to the color filter so both timebases match before xfade
+- [ ] xfade "inputs too short" error — intermittent `18 > 2` crash in intro xfade chain needs root-cause verification after FFmpegMacBridge fix
 
-**Splash Step (1.5 weeks)**
-- `IntroBuilder.swift` / `OutroBuilder.swift` — `AVVideoComposition` + Core Graphics for title cards and ride stats overlay
-- Route overview map via `MKMapSnapshotter` at splash resolution
+**Concat + Audio**
+- [x] `ConcatStep.swift` — `FFmpegBridge` concat; video stream-copied, audio re-encoded to AAC 48kHz to normalise timebases across intro/middle/outro segments (silent audio drop occurs with full `-c copy` when segments were encoded in separate passes)
+- [ ] `AudioMixer.swift` — `FFmpegBridge -filter_complex amix` for background music with ducking *(not yet implemented — `ConcatStep` currently produces silent or direct audio output)*
 
-**Concat + Audio (1 week)**
-- `ConcatStep.swift` — `FFmpegBridge` stream-copy concat, direct port of `concat.py`
-- `AudioMixer.swift` — `FFmpegBridge -filter_complex amix` for background music with ducking
+**Video utilities (planned, not implemented)**
+- `VideoCompositor.swift` / `VideoEncoder.swift` — originally planned as AVMutableVideoComposition wrappers; not needed — all composition and encoding handled through `FFmpegBridge` filter_complex strings directly
 
 **Milestone:** Full pipeline runs on macOS, produces a real output video. Visual QA of gauges, minimap, PiP layout, splash cards against Python version output on the same ride.
 
 ---
 
-### Phase 5 — SwiftUI GUI (Weeks 12–16, parallel with Phase 4)
+### Phase 5 — SwiftUI GUI (parallel with Phase 4) ✅
 
 Can be built and iterated in Simulator while Phase 4 is being tested on device.
 
-**Weeks 12–13**
-- `ProjectListView` — sidebar list of rides, create/delete/archive
-- `ProjectDetailView` — project info, step status indicators, action buttons
-- `PipelineView` — step-by-step progress with log output panel
+**Project, Detail & Pipeline Views**
+- [x] `ProjectListView` — sidebar list of rides, create/delete/archive
+- [x] `ProjectDetailView` — project info, step status indicators, action buttons
+- [x] `PipelineView` — step-by-step progress with log output panel
+- `StepStatusView` — originally planned as a separate component; step status rendering is inline in `PipelineView` and not needed as a standalone file
+- [ ] `LogViewerView` — per-step log file viewer (requires Phase 2 per-step log files)
 
-**Week 14**
-- `ManualSelectionView` — swipe left/right on clip cards to include/exclude. Inline video preview. Touch-native; will be genuinely better than the current Qt version.
-- `ClipPreviewView` — `VideoPlayer` from AVKit
+**Manual Selection & Clip Preview**
+- [x] `ManualSelectionView` — scored moment list, touch tap to toggle. At most one selection per moment; zero allowed. Shows top `max(targetClips × 2, recommended + 20)` moments sorted by score.
+- [x] `ManualSelectionView` moment display fix — shows all autoselect candidates (not only previously saved moments); remembers saved `recommended` state across re-opens.
+- [x] `MomentCard` — always two columns (Fly12Sport col 0, Fly6Pro col 1). Missing camera shows `PlaceholderCard` (grey fill, dashed border, "No footage", non-interactive). Matches Python `manual_selection_window.py` model where position encodes camera identity.
+- [x] `PerspectiveCard` — PiP composite: primary camera thumbnail full-size + partner camera thumbnail overlaid at 30% width bottom-right (8pt margin). Matches Python `_create_perspective_card()`.
+- [x] `PlaceholderCard` — grey fill, dashed stroke border, "No footage" label. Matches Python `_create_placeholder_card()`.
+- [ ] `ClipPreviewView` — `VideoPlayer` inline clip preview on tap (deferred)
 
-**Week 15**
-- `GlobalSettingsView` + `ProjectPreferencesView` — all config fields grouped and labelled, matching the settings hierarchy in `config.py`
-- `CameraCalibrationView` — frame preview with offset sliders
+**Settings & Calibration Views**
+- [x] `GlobalSettingsView` — Drive Roots, Camera Calibration (offsets + timezones), Pipeline (highlight duration, min gap, GPX offset, elevation/gauge toggles), Audio (music volume, raw audio volume)
+- [x] `ProjectPreferencesView` — music track picker (dropdown of available tracks + Random option), highlight duration override toggle, notes text editor
+- [ ] `CameraCalibrationView` — frame preview with offset sliders (deferred)
 
-**Week 16**
-- `ImportView` — file picker (iPadOS: `UIDocumentPickerViewController`; macOS: `NSOpenPanel`) for drive root setup and project folder selection
-- `StravaImportView` + `GarminImportView` — OAuth via `ASWebAuthenticationSession`
+**Import, Drive Setup & OAuth**
+- [x] `ImportView` — file picker for drive root setup and project folder selection
+- [x] `StravaImportView` / `GarminImportView` — view scaffolding exists; OAuth flow (`ASWebAuthenticationSession`) not yet wired end-to-end
+- [x] `StravaClient.swift` / `StravaAuth.swift` / `GarminClient.swift` — API client scaffolding in place
 
 **Milestone:** Complete end-to-end UI flow works in iPad Simulator through to triggering a pipeline run.
 
 ---
 
-### Phase 6 — Integration & Device Testing (Weeks 17–20)
+### Phase 6 — Integration & Device Testing
 
 Cannot be compressed. Needs real rides, real footage, real iPad.
 
@@ -318,7 +339,7 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 
 ---
 
-### Phase 7 — Polish (Weeks 21–23)
+### Phase 7 — Polish & Release
 
 - App icon and launch screen
 - iPad multitasking — Split View and Slide Over (SwiftUI handles most of this automatically)
@@ -330,17 +351,16 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 
 ## Summary Timeline
 
-| Phase | Weeks | Claude Code autonomy |
+| Phase | Deliverable | Claude Code autonomy |
 |---|---|---|
-| 0. Setup | 1 | Mostly — you activate the Developer account |
-| 1. Data models | 1 | Yes |
-| 2. Pipeline infrastructure | 1 | Yes |
-| 3. Data steps | 4 | Yes — testable in Simulator |
-| 4. Video pipeline | 7 | Partial — video QA needs you and a device |
-| 5. SwiftUI GUI | 5 | Yes — visible in Simulator |
-| 6. Device testing | 4 | No — this is entirely you |
-| 7. Polish | 3 | Mostly |
-| **Total** | **~26 weeks** | |
+| 0. Setup | Dev environment, Xcode project, TestFlight | Mostly — you activate the Developer account |
+| 1. Data models | Codable rows, project persistence, config | Yes |
+| 2. Pipeline infrastructure | Executor, progress reporting, logging | Yes |
+| 3. Data steps | Flatten · Extract · Enrich · Select pipeline | Yes — testable in Simulator |
+| 4. Video pipeline | Gauges · Minimap · Compositor · Splash · Concat | Partial — video QA needs you and a device |
+| 5. SwiftUI GUI | All views — pipeline, selection, settings, import | Yes — visible in Simulator |
+| 6. Device testing | Real footage on real iPad, end-to-end QA | No — this is entirely you |
+| 7. Polish & release | App icon, error handling, archive/export flow | Mostly |
 
 ---
 

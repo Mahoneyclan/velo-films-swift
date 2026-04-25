@@ -5,9 +5,9 @@ import Foundation
 struct ClipSelector {
 
     struct Config {
-        var targetClips: Int          = AppConfig.targetClips
+        var targetClips: Int          = AppConfig.targetClips          // reads GlobalSettings
         var candidateFraction: Double = AppConfig.candidateFraction
-        var minGap: Double            = AppConfig.minGapBetweenClips
+        var minGap: Double            = GlobalSettings.shared.minGapBetweenClips
         var maxStartClips: Int        = AppConfig.maxStartZoneClips
         var maxEndClips: Int          = AppConfig.maxEndZoneClips
         var startZoneDuration: Double = AppConfig.startZoneDurationM * 60

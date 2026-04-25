@@ -27,7 +27,7 @@ struct StravaImportView: View {
 
     private var signInPrompt: some View {
         VStack(spacing: 20) {
-            Image(systemName: "figure.cycling").font(.system(size: 60)).foregroundStyle(.orange)
+            Image(systemName: "bicycle").font(.system(size: 60)).foregroundStyle(.orange)
             Text("Connect Strava to import GPX\nfrom your activities")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)

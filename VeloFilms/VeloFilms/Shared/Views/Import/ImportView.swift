@@ -18,7 +18,7 @@ struct ImportView: View {
                 }
                 Section("Import GPX from") {
                     Button { showStrava = true } label: {
-                        Label("Strava", systemImage: "figure.cycling")
+                        Label("Strava", systemImage: "bicycle")
                     }
                     Button { showGarmin = true } label: {
                         Label("Garmin Connect", systemImage: "arrow.down.circle")
@@ -34,6 +34,7 @@ struct ImportView: View {
             .sheet(isPresented: $showStrava)  { StravaImportView() }
             .sheet(isPresented: $showGarmin)  { GarminImportView() }
         }
+        .frame(minWidth: 360, minHeight: 280)
     }
 
     private func pickFolder() {

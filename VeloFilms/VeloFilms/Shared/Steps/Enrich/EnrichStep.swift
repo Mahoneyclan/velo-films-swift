@@ -1,30 +1,32 @@
 import Foundation
+import AVFoundation
 import CoreGraphics
 
 /// Runs YOLO detection, scene scoring, GPS enrichment, and composite scoring.
-/// Writes enriched.csv. Mirrors enrich.py.
+/// Writes enriched.jsonl. Mirrors enrich.py.
 struct EnrichStep: PipelineStep {
     let name = "enrich"
-    let csvWriter: CSVWriter
-    let csvReader: CSVReader
+    let jsonlWriter: JSONLWriter
+    let jsonlReader: JSONLReader
     let yoloModelURL: URL
 
     init(yoloModelURL: URL,
-         csvWriter: CSVWriter = CSVWriter(),
-         csvReader: CSVReader = CSVReader()) {
+         jsonlWriter: JSONLWriter = JSONLWriter(),
+         jsonlReader: JSONLReader = JSONLReader()) {
         self.yoloModelURL = yoloModelURL
-        self.csvWriter = csvWriter
-        self.csvReader = csvReader
+        self.jsonlWriter = jsonlWriter
+        self.jsonlReader = jsonlReader
     }
 
     func run(project: Project, reporter: ProgressReporter) async throws {
+        try project.createOutputDirectories()
         await reporter.report(current: 0, total: 100, message: "Loading CSV files...")
 
-        let extractRows: [ExtractRow] = try csvReader.read(from: project.extractCSV)
-        let flattenRows: [FlattenRow] = try csvReader.read(from: project.flattenCSV)
+        let extractRows: [ExtractRow] = try jsonlReader.read(from: project.extractJSONL)
+        let flattenRows: [FlattenRow] = try jsonlReader.read(from: project.flattenJSONL)
 
         guard !extractRows.isEmpty else {
-            throw PipelineError.missingInput("extract.csv is empty")
+            throw PipelineError.missingInput("extract.jsonl is empty")
         }
 
         let gpsEnricher = GPSEnricher(flattenRows: flattenRows)
@@ -42,18 +44,36 @@ struct EnrichStep: PipelineStep {
         enrichedRows.reserveCapacity(sorted.count)
 
         let total = sorted.count
-        for (i, row) in sorted.enumerated() {
-            if i % 50 == 0 {
-                await reporter.report(current: i, total: total,
-                                      message: "Enriching frame \(i)/\(total)...")
-            }
+        var globalIdx = 0
 
-            // Extract frame
-            let secIntoClip = row.absTimeEpoch - row.clipStartEpoch - AppConfig.clipPreRollS
-            let frame = await FrameSampler.extractFrame(
-                videoURL: URL(fileURLWithPath: row.videoPath),
-                atSecond: max(0, secIntoClip)
-            )
+        // Batch by video file — one AVAssetImageGenerator per clip, not per frame.
+        // This loads the moov box once per 2.2 GB file instead of once per frame.
+        var clipStart = 0
+        while clipStart < sorted.count {
+            let clipPath = sorted[clipStart].videoPath
+            var clipEnd = clipStart + 1
+            while clipEnd < sorted.count && sorted[clipEnd].videoPath == clipPath { clipEnd += 1 }
+
+            let generator = FrameSampler.makeGenerator(for: URL(fileURLWithPath: clipPath))
+
+            for rowIdx in clipStart..<clipEnd {
+                let row = sorted[rowIdx]
+
+                if globalIdx % 50 == 0 {
+                    await reporter.report(current: globalIdx, total: total,
+                                          message: "Enriching frame \(globalIdx)/\(total)...")
+                }
+                globalIdx += 1
+
+                // Extract frame
+                let secIntoClip = row.absTimeEpoch - row.clipStartEpoch - AppConfig.clipPreRollS
+                let frame = await FrameSampler.extractFrame(using: generator,
+                                                           atSecond: max(0, secIntoClip))
+                // Save thumbnail for ManualSelectionView
+                if let frame {
+                    let thumbURL = project.framesDir.appending(path: "\(row.index).jpg")
+                    FrameSampler.saveJPEG(frame, to: thumbURL)
+                }
 
             // YOLO detection
             var detectScore = 0.0
@@ -91,29 +111,33 @@ struct EnrichStep: PipelineStep {
 
             let momentId = Int(row.absTimeEpoch.rounded())
 
-            enrichedRows.append(EnrichRow(
-                index: row.index, camera: row.camera,
-                clipNum: row.clipNum, frameNumber: row.frameNumber,
-                videoPath: row.videoPath,
-                absTimeEpoch: row.absTimeEpoch, absTimeIso: row.absTimeIso,
-                sessionTsS: row.sessionTsS, clipStartEpoch: row.clipStartEpoch,
-                adjustedStartTime: row.adjustedStartTime, durationS: row.durationS,
-                source: row.source, fps: row.fps,
-                detectScore: detectScore, numDetections: numDetections,
-                bboxArea: bboxArea, detectedClasses: detectedClasses,
-                objectDetected: numDetections > 0,
-                sceneBoost: sceneBoost,
-                gpxEpoch: gps?.epoch, gpxTimeUtc: gps.map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0.epoch)) },
-                lat: gps?.lat, lon: gps?.lon, elevation: gps?.elevation,
-                hrBpm: gps?.hr, cadenceRpm: gps?.cadence,
-                speedKmh: gps?.speedKmh, gradientPct: gps?.gradientPct,
-                scoreComposite: composite, scoreWeighted: weighted,
-                segmentBoost: segBoost, momentId: momentId
-            ))
+                enrichedRows.append(EnrichRow(
+                    index: row.index, camera: row.camera,
+                    clipNum: row.clipNum, frameNumber: row.frameNumber,
+                    videoPath: row.videoPath,
+                    absTimeEpoch: row.absTimeEpoch, absTimeIso: row.absTimeIso,
+                    sessionTsS: row.sessionTsS, clipStartEpoch: row.clipStartEpoch,
+                    adjustedStartTime: row.adjustedStartTime, durationS: row.durationS,
+                    source: row.source, fps: row.fps,
+                    detectScore: detectScore, numDetections: numDetections,
+                    bboxArea: bboxArea, detectedClasses: detectedClasses,
+                    objectDetected: numDetections > 0,
+                    sceneBoost: sceneBoost,
+                    gpxEpoch: gps?.epoch, gpxTimeUtc: gps.map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0.epoch)) },
+                    lat: gps?.lat, lon: gps?.lon, elevation: gps?.elevation,
+                    hrBpm: gps?.hr, cadenceRpm: gps?.cadence,
+                    speedKmh: gps?.speedKmh, gradientPct: gps?.gradientPct,
+                    scoreComposite: composite, scoreWeighted: weighted,
+                    segmentBoost: segBoost, momentId: momentId
+                ))
+            }
+
+            generator.cancelAllCGImageGeneration()
+            clipStart = clipEnd
         }
 
         await reporter.report(current: total, total: total,
-                              message: "Writing enriched.csv (\(enrichedRows.count) rows)...")
-        try csvWriter.write(rows: enrichedRows, to: project.enrichedCSV)
+                              message: "Writing enriched.jsonl (\(enrichedRows.count) rows)...")
+        try jsonlWriter.write(rows: enrichedRows, to: project.enrichedJSONL)
     }
 }

@@ -15,15 +15,11 @@ struct VeloFilmsApp: App {
             CommandGroup(replacing: .newItem) { }
         }
 #endif
-    }
-
 #if os(macOS)
-    // Declared as a separate computed property to avoid #if inside the scene builder body,
-    // which causes a parse error in Swift 6's scene result builder.
-    var settingsScene: some Scene {
         Settings {
             GlobalSettingsView()
+                .frame(minWidth: 420, minHeight: 300)
         }
-    }
 #endif
+    }
 }

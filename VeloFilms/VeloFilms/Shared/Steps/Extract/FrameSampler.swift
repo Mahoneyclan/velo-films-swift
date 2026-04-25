@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import ImageIO
 
 /// Extracts frames from video files and reads clip metadata.
 /// Mirrors video_utils.py: fix_cycliq_utc_bug, infer_recording_start, frame extraction.
@@ -15,23 +16,51 @@ enum FrameSampler {
         return Double(rate)
     }
 
-    /// Returns the corrected UTC creation epoch, applying the Cycliq UTC bug fix.
+    /// Returns the corrected UTC creation epoch for a Cycliq MP4 file.
     ///
-    /// Cycliq cameras store LOCAL time in the file's creation_time metadata field
-    /// but mark it with 'Z' (UTC). We reinterpret the raw timestamp using the
-    /// camera's known timezone offset to get real UTC.
-    static func creationTime(for asset: AVAsset, camera: AppConfig.CameraName) async throws -> Double? {
-        let metadata = try await asset.load(.commonMetadata)
-        for item in metadata {
-            if item.commonKey == .commonKeyCreationDate {
-                guard let value = try? await item.load(.value) as? String,
-                      let rawDate = parseISO8601(value) else { continue }
-                // Cycliq bug: rawDate is actually local time, wrongly tagged as UTC.
-                // Shift it back to real UTC using the camera's timezone.
-                return applyCycliqUTCFix(rawDate: rawDate, camera: camera)
-            }
+    /// AVFoundation does not expose mvhd.creation_time for NOVATEK mp42 files,
+    /// so we read it directly from the binary. The Cycliq UTC bug means the
+    /// stored value is local time mislabelled as UTC — we correct for that.
+    static func creationTime(for url: URL, camera: AppConfig.CameraName) -> Double? {
+        guard let raw = readMVHDCreationTime(url: url) else { return nil }
+        return applyCycliqUTCFix(rawDate: raw, camera: camera)
+    }
+
+    /// Reads creation_time from the mvhd box by scanning the last 4 MB of the file.
+    /// NOVATEK mp42 files place moov at the end; mvhd is always the first child of moov.
+    private static func readMVHDCreationTime(url: URL) -> Date? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
+
+        let scanSize = UInt64(4 * 1024 * 1024)
+        let offset   = fileSize > scanSize ? fileSize - scanSize : 0
+        guard (try? handle.seek(toOffset: offset)) != nil,
+              let tail = try? handle.readToEnd() else { return nil }
+
+        // Find last occurrence of 'mvhd' — avoids false positives in video data
+        let magic = Data([0x6D, 0x76, 0x68, 0x64]) // "mvhd"
+        guard let range = tail.range(of: magic, options: .backwards) else { return nil }
+
+        let pos = range.lowerBound  // index of 'm' in 'mvhd'
+        // Layout after magic: version(1) flags(3) creation_time(4 or 8)
+        let versionIdx = pos + 4
+        guard versionIdx + 1 <= tail.endIndex else { return nil }
+        let version = tail[versionIdx]
+
+        let macToUnix: Int64 = 2_082_844_800
+        let ctIdx = versionIdx + 4  // skip version(1) + flags(3)
+
+        if version == 0 {
+            guard ctIdx + 4 <= tail.endIndex else { return nil }
+            let ct = readU32BE(tail, at: ctIdx)
+            return Date(timeIntervalSince1970: Double(Int64(ct) - macToUnix))
+        } else {
+            guard ctIdx + 8 <= tail.endIndex else { return nil }
+            let ct = readU64BE(tail, at: ctIdx)
+            return Date(timeIntervalSince1970: Double(Int64(bitPattern: ct) - macToUnix))
         }
-        return nil
     }
 
     /// Cycliq UTC bug: creation_time = local_time + 'Z'. Fix by subtracting the
@@ -49,44 +78,77 @@ enum FrameSampler {
 
     // MARK: - Frame extraction
 
-    /// Extract a single frame at a given second offset within a video file.
-    /// Returns nil if the frame cannot be read.
-    static func extractFrame(videoURL: URL, atSecond second: Double) async -> CGImage? {
+    static func makeGenerator(for videoURL: URL) -> AVAssetImageGenerator {
         let asset = AVURLAsset(url: videoURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.1, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter  = CMTime(seconds: 0.1, preferredTimescale: 600)
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true
+        gen.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
+        gen.requestedTimeToleranceAfter  = CMTime(seconds: 0.5, preferredTimescale: 600)
+        return gen
+    }
 
+    /// Extract one frame using a pre-built generator, with an 8-second timeout.
+    /// On timeout, cancels the generator so the next call doesn't also hang.
+    static func extractFrame(using generator: AVAssetImageGenerator,
+                             atSecond second: Double) async -> CGImage? {
         let time = CMTime(seconds: max(0, second), preferredTimescale: 600)
-        do {
-            let (image, _) = try await generator.image(at: time)
-            return image
-        } catch {
+        return await withTaskGroup(of: CGImage?.self) { group in
+            group.addTask {
+                guard let (img, _) = try? await generator.image(at: time) else { return nil }
+                return img
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(8))
+                generator.cancelAllCGImageGeneration()
+                return nil
+            }
+            for await result in group {
+                group.cancelAll()
+                return result
+            }
             return nil
         }
     }
 
-    /// Extract multiple frames at specified second offsets.
+    /// Convenience overload — creates its own generator (used from BuildStep / SplashStep).
+    static func extractFrame(videoURL: URL, atSecond second: Double) async -> CGImage? {
+        let gen = makeGenerator(for: videoURL)
+        defer { gen.cancelAllCGImageGeneration() }
+        return await extractFrame(using: gen, atSecond: second)
+    }
+
+    /// Extract multiple frames at specified second offsets (one generator, one asset load).
     static func extractFrames(videoURL: URL, atSeconds seconds: [Double]) async -> [(Double, CGImage?)] {
-        let asset = AVURLAsset(url: videoURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.1, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter  = CMTime(seconds: 0.1, preferredTimescale: 600)
-
-        let times = seconds.map { CMTime(seconds: max(0, $0), preferredTimescale: 600) }
-        var results: [(Double, CGImage?)] = Array(zip(seconds, Array(repeating: nil, count: seconds.count)))
-
-        for (i, time) in times.enumerated() {
-            if let (image, _) = try? await generator.image(at: time) {
-                results[i] = (seconds[i], image)
-            }
+        let gen = makeGenerator(for: videoURL)
+        defer { gen.cancelAllCGImageGeneration() }
+        var results: [(Double, CGImage?)] = seconds.map { ($0, nil) }
+        for (i, second) in seconds.enumerated() {
+            results[i].1 = await extractFrame(using: gen, atSecond: second)
         }
         return results
     }
 
+    // MARK: - Thumbnail persistence
+
+    static func saveJPEG(_ image: CGImage, to url: URL) {
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)
+        CGImageDestinationFinalize(dest)
+    }
+
     // MARK: - Helpers
+
+    private static func readU32BE(_ data: Data, at i: Data.Index) -> UInt32 {
+        UInt32(data[i]) << 24 | UInt32(data[i+1]) << 16 |
+        UInt32(data[i+2]) << 8  | UInt32(data[i+3])
+    }
+
+    private static func readU64BE(_ data: Data, at i: Data.Index) -> UInt64 {
+        UInt64(data[i])   << 56 | UInt64(data[i+1]) << 48 |
+        UInt64(data[i+2]) << 40 | UInt64(data[i+3]) << 32 |
+        UInt64(data[i+4]) << 24 | UInt64(data[i+5]) << 16 |
+        UInt64(data[i+6]) << 8  | UInt64(data[i+7])
+    }
 
     private static func parseISO8601(_ string: String) -> Date? {
         let fmt = ISO8601DateFormatter()

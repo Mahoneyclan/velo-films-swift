@@ -74,16 +74,13 @@ final class PipelineExecutor {
 
     private func dependencyChain(for target: StepName, project: Project) -> [StepName] {
         var chain: [StepName] = []
-        func visit(_ name: StepName) {
-            for dep in name.dependencies { visit(dep) }
-            if !name.isComplete(for: project) && !chain.contains(name) {
+        func visit(_ name: StepName, forceRun: Bool) {
+            for dep in name.dependencies { visit(dep, forceRun: false) }
+            if (forceRun || !name.isComplete(for: project)) && !chain.contains(name) {
                 chain.append(name)
             }
         }
-        visit(target)
-        if !chain.contains(target) && !target.isComplete(for: project) {
-            chain.append(target)
-        }
+        visit(target, forceRun: true)
         return chain
     }
 }

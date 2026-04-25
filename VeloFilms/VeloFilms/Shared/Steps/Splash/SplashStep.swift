@@ -6,18 +6,19 @@ import Foundation
 struct SplashStep: PipelineStep {
     let name = "splash"
     let bridge: any FFmpegBridge
-    let csvReader: CSVReader
+    let jsonlReader: JSONLReader
 
-    init(bridge: any FFmpegBridge, csvReader: CSVReader = CSVReader()) {
+    init(bridge: any FFmpegBridge, jsonlReader: JSONLReader = JSONLReader()) {
         self.bridge = bridge
-        self.csvReader = csvReader
+        self.jsonlReader = jsonlReader
     }
 
     func run(project: Project, reporter: ProgressReporter) async throws {
-        await reporter.report(current: 0, total: 4, message: "Loading select.csv...")
+        try project.createOutputDirectories()
+        await reporter.report(current: 0, total: 4, message: "Loading select.jsonl...")
 
-        let selectRows: [SelectRow] = try csvReader.read(from: project.selectCSV)
-        let flattenRows: [FlattenRow] = try csvReader.read(from: project.flattenCSV)
+        let selectRows: [SelectRow] = try jsonlReader.read(from: project.selectJSONL)
+        let flattenRows: [FlattenRow] = try jsonlReader.read(from: project.flattenJSONL)
 
         await reporter.report(current: 1, total: 4, message: "Building intro...")
         try await IntroBuilder.build(project: project, selectRows: selectRows,
@@ -25,7 +26,7 @@ struct SplashStep: PipelineStep {
 
         await reporter.report(current: 2, total: 4, message: "Building outro...")
         try await OutroBuilder.build(project: project, selectRows: selectRows,
-                                     bridge: bridge)
+                                     flattenRows: flattenRows, bridge: bridge)
 
         await reporter.report(current: 4, total: 4, message: "Splash complete")
     }

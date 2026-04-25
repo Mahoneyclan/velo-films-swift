@@ -1,24 +1,24 @@
 import Foundation
 import AVFoundation
 
-/// Generates extract.csv: one row per (camera, grid-point) pair.
+/// Generates extract.jsonl: one row per (camera, grid-point) pair.
 /// Mirrors extract.py: GPX-anchored global 5s grid → per-clip frame rows.
 struct ExtractStep: PipelineStep {
     let name = "extract"
-    let csvWriter: CSVWriter
-    let csvReader: CSVReader
+    let jsonlWriter: JSONLWriter
+    let jsonlReader: JSONLReader
 
-    init(csvWriter: CSVWriter = CSVWriter(), csvReader: CSVReader = CSVReader()) {
-        self.csvWriter = csvWriter
-        self.csvReader = csvReader
+    init(jsonlWriter: JSONLWriter = JSONLWriter(), jsonlReader: JSONLReader = JSONLReader()) {
+        self.jsonlWriter = jsonlWriter
+        self.jsonlReader = jsonlReader
     }
 
     func run(project: Project, reporter: ProgressReporter) async throws {
-        await reporter.report(current: 0, total: 4, message: "Loading flatten.csv...")
+        await reporter.report(current: 0, total: 4, message: "Loading flatten.jsonl...")
 
-        let flattenRows: [FlattenRow] = try csvReader.read(from: project.flattenCSV)
+        let flattenRows: [FlattenRow] = try jsonlReader.read(from: project.flattenJSONL)
         guard !flattenRows.isEmpty else {
-            throw PipelineError.missingInput("flatten.csv is empty — run flatten step first")
+            throw PipelineError.missingInput("flatten.jsonl is empty — run flatten step first")
         }
 
         let gpxStart = flattenRows.first!.gpxEpoch
@@ -26,7 +26,7 @@ struct ExtractStep: PipelineStep {
         let extension_ = AppConfig.gpxGridExtensionM * 60
         let gridStart  = gpxStart - extension_
         let gridEnd    = gpxEnd   + extension_
-        let interval   = AppConfig.extractIntervalSeconds
+        let interval   = GlobalSettings.shared.effectiveExtractInterval
 
         await reporter.report(current: 1, total: 4, message: "Discovering video files...")
 
@@ -53,7 +53,7 @@ struct ExtractStep: PipelineStep {
             let fps = try? await FrameSampler.fps(for: asset)
 
             // Fix Cycliq UTC bug: reinterpret creation_time using camera's known timezone
-            guard let creationTimeUTC = try? await FrameSampler.creationTime(for: asset, camera: camera) else { continue }
+            guard let creationTimeUTC = FrameSampler.creationTime(for: videoURL, camera: camera) else { continue }
 
             // real recording start = creation_time_utc - duration - known_offset
             let clipStartEpoch = creationTimeUTC - durationS - camera.knownOffset
@@ -95,7 +95,14 @@ struct ExtractStep: PipelineStep {
                                   message: "Processed \(filename)")
         }
 
-        await reporter.report(current: 4, total: 4, message: "Writing extract.csv (\(rows.count) rows)...")
-        try csvWriter.write(rows: rows, to: project.extractCSV)
+        guard !rows.isEmpty else {
+            throw PipelineError.missingInput(
+                "Extract produced 0 rows from \(videoFiles.count) clips — " +
+                "check that creation_time metadata is readable and camera timezones are correct"
+            )
+        }
+
+        await reporter.report(current: 4, total: 4, message: "Writing extract.jsonl (\(rows.count) rows)...")
+        try jsonlWriter.write(rows: rows, to: project.extractJSONL)
     }
 }

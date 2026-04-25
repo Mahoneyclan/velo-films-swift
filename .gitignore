@@ -14,7 +14,7 @@ DerivedData/
 **/VeloYOLO.mlpackage/
 
 # Credentials (never commit)
-Shared/Integrations/Strava/Secrets.swift
+**/Secrets.swift
 
-# Build artefacts
-build/
+# Build artefacts (top-level only, not source step directories)
+/build/

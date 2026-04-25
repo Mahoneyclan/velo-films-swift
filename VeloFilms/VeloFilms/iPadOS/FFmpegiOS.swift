@@ -7,12 +7,9 @@ import Foundation
 ///   https://github.com/arthenica/ffmpeg-kit  (package: FFmpegKit, product: ffmpeg-kit-https)
 struct FFmpegKitBridge: FFmpegBridge {
     func execute(arguments: [String]) async throws -> String {
-        // FFmpegKit takes a single command string, not an array.
-        // Computed here ready for FFmpegKit.executeAsync once the package is linked.
-        let _commandString = arguments
-            .map { arg in arg.contains(" ") ? "\"\(arg)\"" : arg }
-            .joined(separator: " ")
-
+        // FFmpegKit takes a joined command string (not an array).
+        // When the package is linked, build it with:
+        //   arguments.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
         return try await withCheckedThrowingContinuation { continuation in
             // FFmpegKit.executeAsync replaces the blocked call.
             // The callback fires on the calling thread pool.

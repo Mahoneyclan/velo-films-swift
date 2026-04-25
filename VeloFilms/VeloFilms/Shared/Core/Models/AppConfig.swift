@@ -13,8 +13,8 @@ enum AppConfig {
     static let gpxGridExtensionM: Double = 5.0
 
     // MARK: - Highlight target
-    static let highlightTargetDurationM: Double = 5.0
-    static var targetClips: Int { Int((highlightTargetDurationM * 60) / clipOutLenS) }  // 85
+    static let highlightTargetDurationM: Double = 5.0   // default; user override in GlobalSettings
+    static var targetClips: Int { Int((GlobalSettings.shared.highlightTargetMinutes * 60) / clipOutLenS) }
 
     // MARK: - Scene detection
     static let sceneHighThreshold: Double = 0.50
@@ -66,15 +66,22 @@ enum AppConfig {
 
         /// UTC offset string for timezone correction (Cycliq UTC bug).
         /// Cameras record local time but tag it with 'Z' — reinterpret with this offset.
+        /// Reads from GlobalSettings so the user can adjust per camera in Settings.
         var timezoneIdentifier: String {
             switch self {
-            case .fly12Sport: return "UTC+10"
-            case .fly6Pro:    return "UTC+10"
+            case .fly12Sport: return GlobalSettings.shared.fly12SportTimezone
+            case .fly6Pro:    return GlobalSettings.shared.fly6ProTimezone
             }
         }
 
-        /// Seconds to subtract from inferred start in addition to duration.
-        var knownOffset: Double { 0.0 }
+        /// Manual sync offset (seconds) applied on top of duration-derived start time.
+        /// Reads from GlobalSettings (Camera Calibration) so the user can dial it in.
+        var knownOffset: Double {
+            switch self {
+            case .fly12Sport: return GlobalSettings.shared.fly12SportOffset
+            case .fly6Pro:    return GlobalSettings.shared.fly6ProOffset
+            }
+        }
 
         static func from(filename: String) -> CameraName? {
             if filename.hasPrefix("Fly12Sport") || filename.hasPrefix("Fly12S") { return .fly12Sport }
@@ -129,7 +136,7 @@ enum AppConfig {
         static let routeWidth: Int = 6
         static let splashRouteWidth: Int = 24
         static let markerColor: (Int, Int, Int) = (230, 175, 0)
-        static let markerRadius: Int = 36
+        static let markerRadius: Int = 18
         static let paddingPct: Double = 0.25
         static let zoomPip: Int = 15
         static let zoomSplash: Int = 12

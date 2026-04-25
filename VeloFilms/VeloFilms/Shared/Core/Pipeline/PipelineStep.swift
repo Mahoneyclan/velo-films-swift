@@ -32,10 +32,10 @@ enum StepName: String, CaseIterable {
     /// The artifact file that marks this step as complete.
     func completionArtifact(for project: Project) -> URL? {
         switch self {
-        case .flatten:  return project.flattenCSV
-        case .extract:  return project.extractCSV
-        case .enrich:   return project.enrichedCSV
-        case .select:   return project.selectCSV
+        case .flatten:  return project.flattenJSONL
+        case .extract:  return project.extractJSONL
+        case .enrich:   return project.enrichedJSONL
+        case .select:   return project.selectJSONL
         case .build:    return nil  // clips/ directory populated
         case .splash:   return nil  // splash_assets/ directory populated
         case .concat:   return project.finalReelURL
@@ -47,9 +47,10 @@ enum StepName: String, CaseIterable {
             // For steps without a single completion file, check directory non-empty
             switch self {
             case .build:
-                return (try? FileManager.default.contentsOfDirectory(atPath: project.clipsDir.path))?.isEmpty == false
+                let files = (try? FileManager.default.contentsOfDirectory(atPath: project.clipsDir.path)) ?? []
+                return files.contains { $0.hasPrefix("_middle_") && $0.hasSuffix(".mp4") }
             case .splash:
-                return (try? FileManager.default.contentsOfDirectory(atPath: project.splashAssetsDir.path))?.isEmpty == false
+                return FileManager.default.fileExists(atPath: project.clipsDir.appending(path: "_intro.mp4").path)
             default:
                 return false
             }

@@ -7,9 +7,8 @@ import AuthenticationServices
 final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = StravaAuth()
 
-    // Replace with your Strava app credentials from developers.strava.com
-    private let clientID     = "YOUR_STRAVA_CLIENT_ID"
-    private let clientSecret = "YOUR_STRAVA_CLIENT_SECRET"
+    private let clientID     = StravaSecrets.clientID
+    private let clientSecret = StravaSecrets.clientSecret
     private let redirectURI  = "velofilms://oauth/strava"
     private let scope        = "activity:read_all"
 

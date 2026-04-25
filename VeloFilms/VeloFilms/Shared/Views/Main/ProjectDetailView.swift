@@ -2,8 +2,10 @@ import SwiftUI
 
 struct ProjectDetailView: View {
     let project: Project
+    @Environment(ProjectStore.self) private var store
     @State private var executor = PipelineExecutor()
     @State private var showManualSelection = false
+    @State private var showProjectPreferences = false
 
     var artifacts: ProjectArtifacts { ProjectArtifacts.check(project) }
 
@@ -38,11 +40,26 @@ struct ProjectDetailView: View {
             .padding()
         }
         .navigationTitle(project.name)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showProjectPreferences = true
+                } label: {
+                    Label("Project Preferences", systemImage: "slider.horizontal.3")
+                }
+            }
+        }
         .sheet(isPresented: $showManualSelection) {
             ManualSelectionView(project: project)
         }
+        .sheet(isPresented: $showProjectPreferences) {
+            ProjectPreferencesView(project: project)
+        }
         .onAppear {
             registerSteps()
+        }
+        .onChange(of: executor.isRunning) {
+            if !executor.isRunning { store.lastPipelineUpdate = .now }
         }
     }
 

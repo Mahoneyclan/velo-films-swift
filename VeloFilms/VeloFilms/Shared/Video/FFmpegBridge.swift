@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 /// Abstracts FFmpeg execution across platforms.
 /// macOS: shells out to /usr/local/bin/ffmpeg
@@ -20,37 +21,17 @@ protocol FFmpegBridge: Sendable {
 }
 
 extension FFmpegBridge {
+    // Default implementations use AVFoundation directly; override if needed.
     func probeDuration(url: URL) async throws -> Double? {
-        let output = try await execute(arguments: [
-            "-v", "quiet", "-print_format", "json", "-show_entries",
-            "format=duration", "-i", url.path
-        ])
-        // Parse {"format": {"duration": "123.45"}}
-        if let data = output.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let format = json["format"] as? [String: Any],
-           let durStr = format["duration"] as? String,
-           let dur = Double(durStr) {
-            return dur
-        }
-        return nil
+        let asset = AVURLAsset(url: url)
+        let dur = try? await asset.load(.duration)
+        return dur.map { $0.seconds }
     }
 
     func probeFPS(url: URL) async throws -> Double? {
-        let output = try await execute(arguments: [
-            "-v", "quiet", "-print_format", "json", "-show_entries",
-            "stream=r_frame_rate", "-select_streams", "v:0", "-i", url.path
-        ])
-        if let data = output.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let streams = json["streams"] as? [[String: Any]],
-           let rateStr = streams.first?["r_frame_rate"] as? String {
-            let parts = rateStr.split(separator: "/")
-            if parts.count == 2, let num = Double(parts[0]), let den = Double(parts[1]), den > 0 {
-                return num / den
-            }
-        }
-        return nil
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return nil }
+        return try? await Double(track.load(.nominalFrameRate))
     }
 }
 

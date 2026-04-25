@@ -43,10 +43,13 @@ struct ConcatStep: PipelineStep {
 
         await reporter.report(current: 2, total: 3, message: "Stream-copying \(parts.count) parts...")
 
+        // Stream-copy video; re-encode audio to guard against any remaining
+        // sample-rate or channel-layout drift between intro/middle/outro segments.
         _ = try await bridge.execute(arguments: [
-            "-hide_banner", "-loglevel", "error",
+            "-hide_banner", "-loglevel", "warning",
             "-f", "concat", "-safe", "0", "-i", concatList.path,
-            "-c", "copy",
+            "-c:v", "copy",
+            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
             "-movflags", "+faststart",
             "-y", project.finalReelURL.path
         ])
