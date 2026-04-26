@@ -223,7 +223,7 @@ The plumbing before the water.
 - [x] `PipelineExecutor` re-run fix — `forceRun: Bool` flag in `dependencyChain()` ensures target step always executes even when `isComplete` returns true; dependencies still cache-hit normally
 - [x] `ProgressReporter` — `AsyncStream`-based progress events consumed by UI
 - [x] `os.Logger` unified logging (visible in Xcode console and Console.app)
-- [ ] Per-step log files — each step writes `{project}/logs/{step}.log` on disk (mirrors Python per-step .log files). Needed by `LogViewerView` in Phase 5.
+- Per-step log files — deferred indefinitely; pipeline runs cleanly and Xcode console provides sufficient visibility during development.
 - [ ] Background task handling — `BackgroundTasks` framework wired for iPadOS; unconstrained on macOS
 
 **Milestone:** Stub pipeline with fake steps runs and reports progress to console.
@@ -301,7 +301,7 @@ Can be built and iterated in Simulator while Phase 4 is being tested on device.
 - [x] `ProjectDetailView` — project info, step status indicators, action buttons
 - [x] `PipelineView` — step-by-step progress with log output panel
 - `StepStatusView` — originally planned as a separate component; step status rendering is inline in `PipelineView` and not needed as a standalone file
-- [ ] `LogViewerView` — per-step log file viewer (requires Phase 2 per-step log files)
+- `LogViewerView` — deferred; not required.
 
 **Manual Selection & Clip Preview**
 - [x] `ManualSelectionView` — scored moment list, touch tap to toggle. At most one selection per moment; zero allowed. Shows top `max(targetClips × 2, recommended + 20)` moments sorted by score.
@@ -318,8 +318,11 @@ Can be built and iterated in Simulator while Phase 4 is being tested on device.
 
 **Import, Drive Setup & OAuth**
 - [x] `ImportView` — file picker for drive root setup and project folder selection
-- [x] `StravaImportView` / `GarminImportView` — view scaffolding exists; OAuth flow (`ASWebAuthenticationSession`) not yet wired end-to-end
-- [x] `StravaClient.swift` / `StravaAuth.swift` / `GarminClient.swift` — API client scaffolding in place
+- [x] `StravaImportView` — full end-to-end: OAuth2 via ASWebAuthenticationSession, token auto-refresh, cycling filter, GPX download via streams API (correct timestamps), project creation, cascade-dismiss on import
+- [x] `GarminImportView` — full end-to-end: email/password form, Garmin SSO (sso.garmin.com CSRF + ticket exchange), cycling filter, native GPX download, project creation
+- [x] `StravaClient.swift` / `StravaAuth.swift` — `StravaActivity` Codable model; `ensureValidToken()` auto-refresh; GPX built from streams with correct activity start timestamp
+- [x] `GarminAuth.swift` (new) — Garmin SSO flow; CSRF extract; service ticket exchange; session verification via `/currentuser-service/user/info`; MFA detection
+- [x] `GarminClient.swift` — `GarminActivity` Codable model; activity list; native GPX download
 
 **Milestone:** Complete end-to-end UI flow works in iPad Simulator through to triggering a pipeline run.
 
@@ -335,7 +338,7 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 - Memory pressure testing with 10GB+ footage across multiple clips
 - Background processing behaviour — document what renders survive app backgrounding; adapt UX (progress persistence, resume on foreground) if needed
 - Performance tuning: Core ML batch sizes, VideoToolbox encoder settings, gauge render throughput
-- Strava and Garmin OAuth end-to-end on both macOS and iPadOS
+- [x] Strava and Garmin OAuth end-to-end — complete on macOS; iPadOS needs device test
 
 ---
 

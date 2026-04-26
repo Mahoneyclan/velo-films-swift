@@ -31,8 +31,8 @@ struct ImportView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showStrava)  { StravaImportView() }
-            .sheet(isPresented: $showGarmin)  { GarminImportView() }
+            .sheet(isPresented: $showStrava)  { StravaImportView  { dismiss() } }
+            .sheet(isPresented: $showGarmin)  { GarminImportView  { dismiss() } }
         }
         .frame(minWidth: 360, minHeight: 280)
     }

@@ -1,62 +1,65 @@
 import Foundation
 
-/// Downloads GPX from Garmin Connect.
-/// Mirrors garmin_client.py but uses URLSession instead of the Python garminconnect library.
-/// NOTE: Garmin Connect does not have a public API — this uses the same undocumented
-///       endpoints as the Python library. Authentication may break with Garmin updates.
-struct GarminClient {
-    private let session = URLSession.shared
-    private var authCookies: [HTTPCookie] = []
+struct GarminActivity: Decodable, Identifiable {
+    let activityId: Int
+    let activityName: String
+    let startTimeLocal: String       // "YYYY-MM-DD HH:MM:SS"
+    let distance: Double?
+    let duration: Double?
+    let activityType: ActivityType?
 
-    // MARK: - Authentication (form-based, no OAuth)
+    var id: Int { activityId }
 
-    mutating func signIn(username: String, password: String) async throws {
-        // Garmin uses a multi-step SSO flow. The Python library handles this via
-        // multiple redirects. Full implementation requires replicating those steps.
-        // TODO: Phase 3 — implement Garmin SSO with URLSession + cookie handling.
-        throw GarminError.notImplemented
+    struct ActivityType: Decodable {
+        let typeKey: String
     }
+
+    private static let cyclingKeys: Set<String> = [
+        "road_biking", "mountain_biking", "gravel_cycling", "cycling",
+        "indoor_cycling", "virtual_ride", "e_bike_fitness", "e_bike_mountain",
+    ]
+    var isCycling: Bool { Self.cyclingKeys.contains(activityType?.typeKey ?? "") }
+    var displayDate: String { String(startTimeLocal.prefix(10)) }
+
+    var distanceKm: String {
+        guard let d = distance else { return "—" }
+        return String(format: "%.1f km", d / 1000)
+    }
+    var durationStr: String {
+        guard let d = duration else { return "—" }
+        let s = Int(d); let h = s / 3600; let m = (s % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+    var suggestedProjectName: String {
+        let date = String(startTimeLocal.prefix(10))
+        let safe = activityName
+            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return "\(date) \(safe)"
+    }
+}
+
+struct GarminClient {
+    private let auth = GarminAuth.shared
+    private let base = "https://connect.garmin.com"
 
     // MARK: - Activity list
 
-    func activities(limit: Int = 20) async throws -> [[String: Any]] {
-        let url = URL(string: "https://connect.garmin.com/activitylist-service/activities/search/activities?activityType=cycling&limit=\(limit)")!
-        let (data, _) = try await authenticatedGet(url: url)
-        let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        return json ?? []
+    func recentActivities(limit: Int = 30) async throws -> [GarminActivity] {
+        guard auth.isAuthenticated else { throw GarminError.notAuthenticated }
+        let url = URL(string: "\(base)/activitylist-service/activities/search/activities?start=0&limit=\(limit)")!
+        let data = try await auth.getData(url: url)
+        let decoder = JSONDecoder()
+        return try decoder.decode([GarminActivity].self, from: data)
     }
 
     // MARK: - GPX download
 
     func downloadGPX(activityID: Int, to outputURL: URL) async throws {
-        let url = URL(string: "https://connect.garmin.com/download-service/export/gpx/activity/\(activityID)")!
-        let (data, response) = try await authenticatedGet(url: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw GarminError.downloadFailed
-        }
+        guard auth.isAuthenticated else { throw GarminError.notAuthenticated }
+        let url = URL(string: "\(base)/modern/proxy/download-service/export/gpx/activity/\(activityID)")!
+        let data = try await auth.getData(url: url)
+        guard data.count > 100 else { throw GarminError.downloadFailed(0) }
         try data.write(to: outputURL, options: .atomic)
-    }
-
-    // MARK: - Private
-
-    private func authenticatedGet(url: URL) async throws -> (Data, URLResponse) {
-        var req = URLRequest(url: url)
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("Mozilla/5.0 VeloFilms", forHTTPHeaderField: "User-Agent")
-        for cookie in authCookies {
-            req.addValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
-        }
-        return try await session.data(for: req)
-    }
-}
-
-enum GarminError: LocalizedError {
-    case notAuthenticated, downloadFailed, notImplemented
-    var errorDescription: String? {
-        switch self {
-        case .notAuthenticated: return "Not signed in to Garmin Connect"
-        case .downloadFailed:   return "Garmin GPX download failed"
-        case .notImplemented:   return "Garmin Connect sign-in not yet implemented"
-        }
     }
 }

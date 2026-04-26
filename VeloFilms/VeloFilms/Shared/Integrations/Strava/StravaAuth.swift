@@ -27,6 +27,35 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
 
     var isAuthenticated: Bool { accessToken != nil }
 
+    /// Returns a valid access token, refreshing it automatically if near expiry.
+    func ensureValidToken() async throws -> String {
+        if let token = accessToken,
+           let expiry = tokenExpiry,
+           expiry > Date().addingTimeInterval(300) {
+            return token
+        }
+        if let refresh = refreshToken {
+            return try await refreshAccessToken(refresh)
+        }
+        throw StravaError.noToken
+    }
+
+    private func refreshAccessToken(_ refresh: String) async throws -> String {
+        var req = URLRequest(url: URL(string: "https://www.strava.com/oauth/token")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode([
+            "client_id": clientID, "client_secret": clientSecret,
+            "refresh_token": refresh, "grant_type": "refresh_token"
+        ])
+        let (data, _) = try await URLSession.shared.data(for: req)
+        let response = try JSONDecoder().decode(TokenResponse.self, from: data)
+        accessToken  = response.accessToken
+        refreshToken = response.refreshToken
+        tokenExpiry  = Date(timeIntervalSince1970: Double(response.expiresAt))
+        return response.accessToken
+    }
+
     /// Launch the OAuth web flow. Returns the access token on success.
     func authenticate() async throws -> String {
         var components = URLComponents(string: "https://www.strava.com/oauth/mobile/authorize")!
@@ -108,12 +137,13 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
 }
 
 enum StravaError: LocalizedError {
-    case missingCallbackURL, missingCode, noToken
+    case missingCallbackURL, missingCode, noToken, httpError(Int)
     var errorDescription: String? {
         switch self {
-        case .missingCallbackURL: return "Strava OAuth returned no callback URL"
-        case .missingCode:        return "Strava OAuth callback missing code parameter"
-        case .noToken:            return "Not authenticated with Strava"
+        case .missingCallbackURL:  return "Strava OAuth returned no callback URL"
+        case .missingCode:         return "Strava OAuth callback missing code parameter"
+        case .noToken:             return "Not authenticated with Strava"
+        case .httpError(let code): return "Strava API error (HTTP \(code))"
         }
     }
 }
