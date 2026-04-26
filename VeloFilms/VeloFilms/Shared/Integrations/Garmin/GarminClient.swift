@@ -39,27 +39,34 @@ struct GarminActivity: Decodable, Identifiable {
     }
 }
 
+/// Calls connectapi.garmin.com — the same subdomain garth uses — with OAuth2 Bearer token.
 struct GarminClient {
     private let auth = GarminAuth.shared
-    private let base = "https://connect.garmin.com"
-
-    // MARK: - Activity list
+    private let base = "https://connectapi.garmin.com"
 
     func recentActivities(limit: Int = 30) async throws -> [GarminActivity] {
-        guard auth.isAuthenticated else { throw GarminError.notAuthenticated }
+        let token = try await auth.ensureValidToken()
         let url = URL(string: "\(base)/activitylist-service/activities/search/activities?start=0&limit=\(limit)")!
-        let data = try await auth.getData(url: url)
-        let decoder = JSONDecoder()
-        return try decoder.decode([GarminActivity].self, from: data)
+        let data = try await bearer(url: url, token: token)
+        return try JSONDecoder().decode([GarminActivity].self, from: data)
     }
 
-    // MARK: - GPX download
-
     func downloadGPX(activityID: Int, to outputURL: URL) async throws {
-        guard auth.isAuthenticated else { throw GarminError.notAuthenticated }
-        let url = URL(string: "\(base)/modern/proxy/download-service/export/gpx/activity/\(activityID)")!
-        let data = try await auth.getData(url: url)
+        let token = try await auth.ensureValidToken()
+        let url = URL(string: "\(base)/download-service/export/gpx/activity/\(activityID)")!
+        let data = try await bearer(url: url, token: token)
         guard data.count > 100 else { throw GarminError.downloadFailed(0) }
         try data.write(to: outputURL, options: .atomic)
+    }
+
+    private func bearer(url: URL, token: String) async throws -> Data {
+        var req = URLRequest(url: url)
+        req.setValue("com.garmin.android.apps.connectmobile", forHTTPHeaderField: "User-Agent")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw GarminError.downloadFailed((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        return data
     }
 }

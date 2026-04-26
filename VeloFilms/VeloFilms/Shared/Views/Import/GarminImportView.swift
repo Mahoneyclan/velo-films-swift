@@ -40,7 +40,7 @@ struct GarminImportView: View {
             }
         }
         .frame(minWidth: 440, minHeight: 400)
-        .task { try? await auth.verifySession() }
+        .task { await auth.checkSession() }
     }
 
     // MARK: - Login form
