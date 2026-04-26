@@ -122,7 +122,7 @@ struct StravaImportView: View {
             let project    = Project(name: folderName, folderURL: folderURL)
             try ProjectFileManager.createDirectoryStructure(for: project)
 
-            let gpxURL = project.workingDir.appending(path: "activity.gpx")
+            let gpxURL = project.workingDir.appending(path: "ride.gpx")
             let startDate = ISO8601DateFormatter().date(from: activity.startDateLocal) ?? Date()
             try await StravaClient().downloadGPX(
                 activityID:   activity.id,

@@ -186,7 +186,7 @@ struct GarminImportView: View {
             let project    = Project(name: folderName, folderURL: folderURL)
             try ProjectFileManager.createDirectoryStructure(for: project)
 
-            let gpxURL = project.workingDir.appending(path: "activity.gpx")
+            let gpxURL = project.workingDir.appending(path: "ride.gpx")
             try await GarminClient().downloadGPX(activityID: activity.activityId, to: gpxURL)
             store.add(project)
             onComplete?()
