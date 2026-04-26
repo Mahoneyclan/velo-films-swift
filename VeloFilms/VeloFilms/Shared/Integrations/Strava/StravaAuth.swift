@@ -9,7 +9,8 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
 
     private let clientID     = StravaSecrets.clientID
     private let clientSecret = StravaSecrets.clientSecret
-    private let redirectURI  = "velofilms://oauth/strava"
+    // Host must match the "Authorization Callback Domain" in Strava API settings (localhost)
+    private let redirectURI  = "velofilms://localhost/strava"
     private let scope        = "activity:read_all"
 
     private(set) var accessToken: String? {
