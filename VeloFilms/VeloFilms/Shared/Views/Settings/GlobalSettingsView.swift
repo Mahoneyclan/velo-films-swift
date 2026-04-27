@@ -1,7 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct GlobalSettingsView: View {
     private var settings = GlobalSettings.shared
+    @State private var showInputPicker    = false
+    @State private var showProjectsPicker = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -22,26 +25,50 @@ struct GlobalSettingsView: View {
                     .padding(8)
                 }
 
+                // MARK: Camera Setup
+                GroupBox("Cameras") {
+                    VStack(spacing: 12) {
+                        Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
+                            .disabled(!settings.hasFly6Pro)   // must keep at least one
+                            .onChange(of: settings.hasFly12Sport) { settings.save() }
+                        Divider()
+                        Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
+                            .disabled(!settings.hasFly12Sport)
+                            .onChange(of: settings.hasFly6Pro) { settings.save() }
+                    }
+                    .padding(8)
+                }
+
                 // MARK: Camera Calibration
                 GroupBox("Camera Calibration") {
-                    VStack(spacing: 12) {
-                        NumRow(label: "Fly12Sport offset (s)",
-                               value: $settings.fly12SportOffset)
-                            .onChange(of: settings.fly12SportOffset) { settings.save() }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Camera clock timezone — the timezone the camera's internal clock is set to, not your local timezone. Cycliq cameras that sync via GPS use UTC+0.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Divider()
-                        NumRow(label: "Fly6Pro offset (s)",
-                               value: $settings.fly6ProOffset)
-                            .onChange(of: settings.fly6ProOffset) { settings.save() }
+                        Toggle("Camera stores local time (Cycliq UTC bug)", isOn: $settings.cameraCreationTimeIsLocalWrongZ)
+                            .onChange(of: settings.cameraCreationTimeIsLocalWrongZ) { settings.save() }
+                        Text("On by default — Cycliq cameras record local clock time but label it as UTC. Disable only if your cameras are GPS-synced and store genuine UTC.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Divider()
-                        StrRow(label: "Fly12Sport timezone",
-                               value: $settings.fly12SportTimezone,
-                               hint: "e.g. UTC+10")
-                            .onChange(of: settings.fly12SportTimezone) { settings.save() }
-                        Divider()
-                        StrRow(label: "Fly6Pro timezone",
-                               value: $settings.fly6ProTimezone,
-                               hint: "e.g. UTC+10")
-                            .onChange(of: settings.fly6ProTimezone) { settings.save() }
+                        if settings.hasFly12Sport {
+                            NumRow(label: "Fly12Sport offset (s)", value: $settings.fly12SportOffset)
+                                .onChange(of: settings.fly12SportOffset) { settings.save() }
+                            Divider()
+                            StrRow(label: "Fly12Sport clock tz", value: $settings.fly12SportTimezone, hint: "UTC+0 or UTC+10")
+                                .onChange(of: settings.fly12SportTimezone) { settings.save() }
+                        }
+                        if settings.hasFly12Sport && settings.hasFly6Pro {
+                            Divider()
+                        }
+                        if settings.hasFly6Pro {
+                            NumRow(label: "Fly6Pro offset (s)", value: $settings.fly6ProOffset)
+                                .onChange(of: settings.fly6ProOffset) { settings.save() }
+                            Divider()
+                            StrRow(label: "Fly6Pro clock tz", value: $settings.fly6ProTimezone, hint: "UTC+0 or UTC+10")
+                                .onChange(of: settings.fly6ProTimezone) { settings.save() }
+                        }
                     }
                     .padding(8)
                 }
@@ -61,8 +88,6 @@ struct GlobalSettingsView: View {
                                value: $settings.gpxTimeOffsetS)
                             .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
                         Divider()
-                        Toggle("Show elevation strip", isOn: $settings.showElevationPlot)
-                            .onChange(of: settings.showElevationPlot) { settings.save() }
                         Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
                             .onChange(of: settings.dynamicGauges) { settings.save() }
                     }
@@ -86,31 +111,49 @@ struct GlobalSettingsView: View {
             .padding(20)
         }
         .frame(width: 480)
+        .fileImporter(isPresented: $showInputPicker,
+                      allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                _ = url.startAccessingSecurityScopedResource()
+                GlobalSettings.shared.inputBaseDir = url
+            }
+        }
+        .fileImporter(isPresented: $showProjectsPicker,
+                      allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                _ = url.startAccessingSecurityScopedResource()
+                GlobalSettings.shared.projectsRoot = url
+            }
+        }
     }
 
     private func chooseInputDir() {
 #if os(macOS)
-        guard let url = runDirPanel() else { return }
-        GlobalSettings.shared.inputBaseDir = url
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            GlobalSettings.shared.inputBaseDir = url
+        }
+#else
+        showInputPicker = true
 #endif
     }
 
     private func chooseProjectsRoot() {
 #if os(macOS)
-        guard let url = runDirPanel() else { return }
-        GlobalSettings.shared.projectsRoot = url
-#endif
-    }
-
-    private func runDirPanel() -> URL? {
-#if os(macOS)
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        return panel.runModal() == .OK ? panel.url : nil
+        if panel.runModal() == .OK, let url = panel.url {
+            GlobalSettings.shared.projectsRoot = url
+        }
 #else
-        return nil
+        showProjectsPicker = true
 #endif
     }
 }

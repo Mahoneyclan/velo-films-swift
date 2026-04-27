@@ -15,8 +15,8 @@ struct ClipCompositor {
     ///   - elevationPath: Pre-rendered 948×75 elevation strip PNG.
     ///   - gaugePath: Pre-rendered 972×194 gauge PNG or ProRes .mov.
     ///   - clipIndex: 1-based index for output filename.
-    func renderClip(mainRow: SelectRow,
-                    pipRow: SelectRow?,
+    func renderClip(mainRow: EnrichRow,
+                    pipRow: EnrichRow?,
                     minimapPath: URL,
                     elevationPath: URL,
                     gaugePath: URL,

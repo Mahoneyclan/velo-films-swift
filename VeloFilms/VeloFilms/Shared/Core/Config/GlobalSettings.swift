@@ -20,18 +20,26 @@ final class GlobalSettings {
     var minGapBetweenClips: Double = AppConfig.minGapBetweenClips
     var gpxTimeOffsetS: Double = 0.0
 
+    // MARK: - Camera setup
+    var hasFly12Sport: Bool = true
+    var hasFly6Pro: Bool = true
+
     // MARK: - Camera calibration (offsets + timezones)
     var fly12SportOffset: Double = 0.0
     var fly6ProOffset: Double = 0.0
-    var fly12SportTimezone: String = "UTC+10"
-    var fly6ProTimezone: String = "UTC+10"
+    var fly12SportTimezone: String = "UTC+0"
+    var fly6ProTimezone: String = "UTC+0"
+    /// Mirrors Python's CAMERA_CREATION_TIME_IS_LOCAL_WRONG_Z.
+    /// True = camera stores local time mislabelled as UTC (subtract tz offset to correct).
+    ///        This is the Cycliq default — cameras record local time but tag it 'Z'.
+    /// False = camera stores genuine UTC (GPS-synced) — no correction needed.
+    var cameraCreationTimeIsLocalWrongZ: Bool = true
 
     // MARK: - Audio volumes
     var musicVolume: Double = AppConfig.musicVolume
     var rawAudioVolume: Double = AppConfig.rawAudioVolume
 
     // MARK: - Display
-    var showElevationPlot: Bool = true
     var dynamicGauges: Bool = true
 
     private init() {
@@ -49,13 +57,15 @@ final class GlobalSettings {
         gpxTimeOffsetS          = UserDefaults.standard.double(forKey: "gpxTimeOffsetS")
         fly12SportOffset        = UserDefaults.standard.double(forKey: "fly12SportOffset")
         fly6ProOffset           = UserDefaults.standard.double(forKey: "fly6ProOffset")
-        fly12SportTimezone      = UserDefaults.standard.string(forKey: "fly12SportTimezone") ?? "UTC+10"
-        fly6ProTimezone         = UserDefaults.standard.string(forKey: "fly6ProTimezone") ?? "UTC+10"
+        fly12SportTimezone      = UserDefaults.standard.string(forKey: "fly12SportTimezone") ?? "UTC+0"
+        fly6ProTimezone         = UserDefaults.standard.string(forKey: "fly6ProTimezone") ?? "UTC+0"
+        cameraCreationTimeIsLocalWrongZ = (UserDefaults.standard.object(forKey: "cameraCreationTimeIsLocalWrongZ") as? Bool) ?? true
+        hasFly12Sport = (UserDefaults.standard.object(forKey: "hasFly12Sport") as? Bool) ?? true
+        hasFly6Pro    = (UserDefaults.standard.object(forKey: "hasFly6Pro")    as? Bool) ?? true
         musicVolume             = UserDefaults.standard.double(forKey: "musicVolume").nonZero
                                     ?? AppConfig.musicVolume
         rawAudioVolume          = UserDefaults.standard.double(forKey: "rawAudioVolume").nonZero
                                     ?? AppConfig.rawAudioVolume
-        showElevationPlot       = (UserDefaults.standard.object(forKey: "showElevationPlot") as? Bool) ?? true
         dynamicGauges           = (UserDefaults.standard.object(forKey: "dynamicGauges") as? Bool) ?? true
     }
 
@@ -68,10 +78,12 @@ final class GlobalSettings {
         UserDefaults.standard.set(fly6ProOffset,           forKey: "fly6ProOffset")
         UserDefaults.standard.set(fly12SportTimezone,      forKey: "fly12SportTimezone")
         UserDefaults.standard.set(fly6ProTimezone,         forKey: "fly6ProTimezone")
+        UserDefaults.standard.set(cameraCreationTimeIsLocalWrongZ, forKey: "cameraCreationTimeIsLocalWrongZ")
         UserDefaults.standard.set(musicVolume,             forKey: "musicVolume")
         UserDefaults.standard.set(rawAudioVolume,          forKey: "rawAudioVolume")
-        UserDefaults.standard.set(showElevationPlot,       forKey: "showElevationPlot")
         UserDefaults.standard.set(dynamicGauges,           forKey: "dynamicGauges")
+        UserDefaults.standard.set(hasFly12Sport,            forKey: "hasFly12Sport")
+        UserDefaults.standard.set(hasFly6Pro,               forKey: "hasFly6Pro")
     }
 
     var effectiveExtractInterval: Double {

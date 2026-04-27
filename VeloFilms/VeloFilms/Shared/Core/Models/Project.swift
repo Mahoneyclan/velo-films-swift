@@ -26,6 +26,8 @@ extension Project {
     var splashAssetsDir: URL { folderURL.appending(path: "splash_assets") }
     var logsDir: URL         { folderURL.appending(path: "logs") }
 
+    var gpxFile: URL         { workingDir.appending(path: "ride.gpx") }
+
     var flattenJSONL: URL    { workingDir.appending(path: "flatten.jsonl") }
     var extractJSONL: URL   { workingDir.appending(path: "extract.jsonl") }
     var enrichedJSONL: URL  { workingDir.appending(path: "enriched.jsonl") }
@@ -33,6 +35,9 @@ extension Project {
     var segmentsJSON: URL    { workingDir.appending(path: "segments.json") }
     var finalConcatList: URL { workingDir.appending(path: "final_concat_list.txt") }
     var finalReelURL: URL    { folderURL.appending(path: "\(name).mp4") }
+
+    /// Source clips directory: inputBaseDir/{name}/
+    func sourceVideosDir(inputBase: URL) -> URL { inputBase.appending(path: name) }
 }
 
 extension Project {
@@ -41,17 +46,37 @@ extension Project {
     }
 }
 
-/// Tracks which pipeline artifacts exist for a project (drives button state in UI).
+/// Tracks which pipeline artifacts and prerequisites exist for a project.
 struct ProjectArtifacts {
+    // Prerequisites
+    let gpxExists: Bool
+    let sourceVideoCount: Int
+
+    // Analysis phase outputs
     let flattenExists: Bool
     let extractExists: Bool
     let enrichedExists: Bool
     let selectExists: Bool
+
+    // Build phase output
     let finalReelExists: Bool
 
-    static func check(_ project: Project) -> ProjectArtifacts {
+    var hasVideos: Bool { sourceVideoCount > 0 }
+    var analysisReady: Bool { gpxExists && hasVideos }
+
+    static func check(_ project: Project, inputBase: URL? = GlobalSettings.shared.inputBaseDir) -> ProjectArtifacts {
         let fm = FileManager.default
+        var videoCount = 0
+        if let base = inputBase {
+            let srcDir = project.sourceVideosDir(inputBase: base)
+            let contents = (try? fm.contentsOfDirectory(at: srcDir,
+                                                         includingPropertiesForKeys: nil,
+                                                         options: .skipsHiddenFiles)) ?? []
+            videoCount = contents.filter { $0.pathExtension.uppercased() == "MP4" }.count
+        }
         return ProjectArtifacts(
+            gpxExists:       fm.fileExists(atPath: project.gpxFile.path),
+            sourceVideoCount: videoCount,
             flattenExists:   fm.fileExists(atPath: project.flattenJSONL.path),
             extractExists:   fm.fileExists(atPath: project.extractJSONL.path),
             enrichedExists:  fm.fileExists(atPath: project.enrichedJSONL.path),

@@ -19,11 +19,19 @@ enum FrameSampler {
     /// Returns the corrected UTC creation epoch for a Cycliq MP4 file.
     ///
     /// AVFoundation does not expose mvhd.creation_time for NOVATEK mp42 files,
-    /// so we read it directly from the binary. The Cycliq UTC bug means the
-    /// stored value is local time mislabelled as UTC — we correct for that.
-    static func creationTime(for url: URL, camera: AppConfig.CameraName) -> Double? {
+    /// so we read it directly from the binary.
+    ///
+    /// isLocalWrongZ=true  → camera stores local time mislabelled as UTC (Cycliq bug): subtract tz offset.
+    /// isLocalWrongZ=false → camera stores genuine UTC (GPS-synced): use raw value directly.
+    static func creationTime(for url: URL, camera: AppConfig.CameraName, isLocalWrongZ: Bool) -> Double? {
         guard let raw = readMVHDCreationTime(url: url) else { return nil }
+        guard isLocalWrongZ else { return raw.timeIntervalSince1970 }
         return applyCycliqUTCFix(rawDate: raw, camera: camera)
+    }
+
+    /// Public accessor for the raw (uncorrected) mvhd creation time — used by diagnostics.
+    static func rawCreationTime(for url: URL) -> Date? {
+        readMVHDCreationTime(url: url)
     }
 
     /// Reads creation_time from the mvhd box by scanning the last 4 MB of the file.
@@ -69,11 +77,28 @@ enum FrameSampler {
     /// camera.timezoneIdentifier = "UTC+10" → offset = 36000s
     /// corrected_epoch = raw_epoch - offset
     static func applyCycliqUTCFix(rawDate: Date, camera: AppConfig.CameraName) -> Double {
-        // raw_epoch is local time parsed as UTC; subtract the local offset to get true UTC
-        let tz = TimeZone(identifier: camera.timezoneIdentifier)
-            ?? TimeZone(secondsFromGMT: 0)!
+        let identifier = camera.timezoneIdentifier
+        // TimeZone(identifier:) only accepts IANA names — "UTC+10" returns nil.
+        // Parse offset strings like "UTC+10", "UTC+10:30", "GMT-5", "+10" ourselves.
+        let tz = TimeZone(identifier: identifier) ?? parseUTCOffset(identifier) ?? TimeZone(secondsFromGMT: 0)!
         let offsetSeconds = Double(tz.secondsFromGMT(for: rawDate))
         return rawDate.timeIntervalSince1970 - offsetSeconds
+    }
+
+    /// Parses offset strings: "UTC+10", "UTC-5", "UTC+10:30", "+10", "-5:30", "GMT+11"
+    static func parseUTCOffset(_ s: String) -> TimeZone? {
+        var clean = s.uppercased()
+            .replacingOccurrences(of: "UTC", with: "")
+            .replacingOccurrences(of: "GMT", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return TimeZone(secondsFromGMT: 0) }
+        let sign: Double = clean.hasPrefix("-") ? -1 : 1
+        clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "+-"))
+        let parts = clean.components(separatedBy: ":")
+        guard let hours = Double(parts[0]) else { return nil }
+        let minutes = parts.count > 1 ? (Double(parts[1]) ?? 0) : 0
+        let totalSeconds = Int((hours * 3600 + minutes * 60) * sign)
+        return TimeZone(secondsFromGMT: totalSeconds)
     }
 
     // MARK: - Frame extraction

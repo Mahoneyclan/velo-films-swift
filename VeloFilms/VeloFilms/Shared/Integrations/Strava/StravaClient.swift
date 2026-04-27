@@ -129,10 +129,27 @@ struct StravaClient {
     private func getData(url: URL, token: String) async throws -> Data {
         var req = URLRequest(url: url)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req, delegate: AuthPreservingDelegate(token: token))
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw StravaError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         return data
+    }
+}
+
+private final class AuthPreservingDelegate: NSObject, URLSessionTaskDelegate {
+    let token: String
+    init(token: String) { self.token = token }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        var newReq = request
+        newReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        completionHandler(newReq)
     }
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Required for macOS to allow write access to removable/external volumes -->
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>VeloFilms copies video files from your Cycliq cameras and saves them to your chosen input folder.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>VeloFilms may read or write project files on your Desktop.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>VeloFilms reads and writes ride project files.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>VeloFilms may access Downloads when saving project files.</string>
+</dict>
+</plist>

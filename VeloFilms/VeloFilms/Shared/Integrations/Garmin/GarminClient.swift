@@ -61,12 +61,31 @@ struct GarminClient {
 
     private func bearer(url: URL, token: String) async throws -> Data {
         var req = URLRequest(url: url)
-        req.setValue("com.garmin.android.apps.connectmobile", forHTTPHeaderField: "User-Agent")
+        req.setValue("GCM-iOS-5.22.1.4", forHTTPHeaderField: "User-Agent")
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req, delegate: AuthPreservingDelegate(token: token))
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw GarminError.downloadFailed((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         return data
+    }
+}
+
+/// Re-adds Authorization header after cross-host redirects (URLSession strips it by default).
+/// Without this, redirected downloads fail with URLError.cancelled via an unhandled auth challenge.
+private final class AuthPreservingDelegate: NSObject, URLSessionTaskDelegate {
+    let token: String
+    init(token: String) { self.token = token }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        var newReq = request
+        newReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        completionHandler(newReq)
     }
 }

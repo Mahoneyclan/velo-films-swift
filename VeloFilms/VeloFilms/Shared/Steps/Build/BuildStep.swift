@@ -34,8 +34,8 @@ struct BuildStep: PipelineStep {
 
         // Group ALL rows so each moment has both camera perspectives available.
         // Then keep only moments where the primary camera was recommended.
-        let recommendedIds = Set(recommended.map { $0.momentId })
-        let allMoments = PartnerMatcher.group(selectRows.map { $0.asEnrichRow })
+        let recommendedIds = Set(recommended.map { $0.base.momentId })
+        let allMoments = PartnerMatcher.group(selectRows.map(\.base))
         let moments = allMoments.filter { recommendedIds.contains($0.momentId) }
 
         let total = moments.count
@@ -98,14 +98,8 @@ struct BuildStep: PipelineStep {
                   let elev = elevPaths[i+1],
                   let gauge = gaugePaths[i+1] else { continue }
 
-            // Convert EnrichRow → SelectRow equivalents for compositor
-            let mainSelectRow = selectRows.first { $0.index == primary.index }!
-            let pipSelectRow  = moment.secondary.flatMap { sec in
-                selectRows.first { $0.index == sec.index }
-            }
-
             let clipURL = try await compositor.renderClip(
-                mainRow: mainSelectRow, pipRow: pipSelectRow,
+                mainRow: primary, pipRow: moment.secondary,
                 minimapPath: minimap, elevationPath: elev, gaugePath: gauge,
                 clipIndex: i + 1
             )

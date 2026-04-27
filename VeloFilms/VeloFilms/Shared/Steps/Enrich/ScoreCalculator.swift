@@ -16,8 +16,10 @@ enum ScoreCalculator {
 
     static func composite(_ input: Input) -> Double {
         let speedNorm = min(1.0, input.speedKmh / AppConfig.speedNormDivisor)
-        let gradNorm  = abs(input.gradientPct) / AppConfig.gradNormDivisor
-        let bboxNorm  = input.bboxArea / AppConfig.bboxNormDivisor
+        // Zero out gradient when stopped — gradient on a parked bike isn't a highlight signal
+        let moving    = input.speedKmh >= 1.0
+        let gradNorm  = moving ? min(1.0, abs(input.gradientPct) / AppConfig.gradNormDivisor) : 0.0
+        let bboxNorm  = min(1.0, input.bboxArea / AppConfig.bboxNormDivisor)
 
         let w = AppConfig.ScoreWeights.self
         return input.detectScore  * w.detectScore

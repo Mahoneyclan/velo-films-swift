@@ -2,6 +2,8 @@ import SwiftUI
 
 struct GarminImportView: View {
     var onComplete: (() -> Void)? = nil
+    /// When set, GPX is saved to this project instead of creating a new one.
+    var targetProject: Project? = nil
 
     @Environment(ProjectStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -175,20 +177,24 @@ struct GarminImportView: View {
     }
 
     private func importActivity(_ activity: GarminActivity) async {
-        guard let root = GlobalSettings.shared.projectsRoot else {
-            error = "Set a Projects Root folder in Settings before importing"
-            return
-        }
         isImporting = true; error = nil
         do {
-            let folderName = activity.suggestedProjectName
-            let folderURL  = root.appending(path: folderName)
-            let project    = Project(name: folderName, folderURL: folderURL)
-            try ProjectFileManager.createDirectoryStructure(for: project)
+            let project: Project
+            if let existing = targetProject {
+                project = existing
+            } else {
+                guard let root = GlobalSettings.shared.projectsRoot else {
+                    error = "Set a Projects Root folder in Settings before importing"
+                    isImporting = false; return
+                }
+                let folderName = activity.suggestedProjectName
+                let folderURL  = root.appending(path: folderName)
+                project = Project(name: folderName, folderURL: folderURL)
+                try ProjectFileManager.createDirectoryStructure(for: project)
+            }
 
-            let gpxURL = project.workingDir.appending(path: "ride.gpx")
-            try await GarminClient().downloadGPX(activityID: activity.activityId, to: gpxURL)
-            store.add(project)
+            try await GarminClient().downloadGPX(activityID: activity.activityId, to: project.gpxFile)
+            if targetProject == nil { store.add(project) }
             onComplete?()
             dismiss()
         } catch {

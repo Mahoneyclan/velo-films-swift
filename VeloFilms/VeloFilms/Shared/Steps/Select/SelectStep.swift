@@ -35,28 +35,11 @@ struct SelectStep: PipelineStep {
             let isPR    = (row.segmentBoost >= AppConfig.StravaBoost.rank1)
 
             selectRows.append(SelectRow(
-                index: row.index, camera: row.camera,
-                clipNum: row.clipNum, frameNumber: row.frameNumber,
-                videoPath: row.videoPath,
-                absTimeEpoch: row.absTimeEpoch, absTimeIso: row.absTimeIso,
-                sessionTsS: row.sessionTsS, clipStartEpoch: row.clipStartEpoch,
-                adjustedStartTime: row.adjustedStartTime, durationS: row.durationS,
-                source: row.source, fps: row.fps,
-                detectScore: row.detectScore, numDetections: row.numDetections,
-                bboxArea: row.bboxArea, detectedClasses: row.detectedClasses,
-                objectDetected: row.objectDetected,
-                sceneBoost: row.sceneBoost,
-                gpxEpoch: row.gpxEpoch, gpxTimeUtc: row.gpxTimeUtc,
-                lat: row.lat, lon: row.lon, elevation: row.elevation,
-                hrBpm: row.hrBpm, cadenceRpm: row.cadenceRpm,
-                speedKmh: row.speedKmh, gradientPct: row.gradientPct,
-                scoreComposite: row.scoreComposite, scoreWeighted: row.scoreWeighted,
-                segmentBoost: row.segmentBoost, momentId: row.momentId,
+                base: row,
                 recommended: isRec,
                 stravaPR: isPR,
                 isSingleCamera: moment?.isSingleCamera ?? true,
-                paired: isPaired,
-                segmentName: nil, segmentDistance: nil, segmentGrade: nil
+                paired: isPaired
             ))
         }
 

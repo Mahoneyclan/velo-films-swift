@@ -317,12 +317,13 @@ Can be built and iterated in Simulator while Phase 4 is being tested on device.
 - [ ] `CameraCalibrationView` — frame preview with offset sliders (deferred)
 
 **Import, Drive Setup & OAuth**
-- [x] `ImportView` — file picker for drive root setup and project folder selection
+- [x] `ImportView` — file picker for drive root setup and project folder selection; + Copy from Camera button
 - [x] `StravaImportView` — full end-to-end: OAuth2 via ASWebAuthenticationSession, token auto-refresh, cycling filter, GPX download via streams API (correct timestamps), project creation, cascade-dismiss on import
 - [x] `GarminImportView` — full end-to-end: email/password form, Garmin SSO (sso.garmin.com CSRF + ticket exchange), cycling filter, native GPX download, project creation
-- [x] `StravaClient.swift` / `StravaAuth.swift` — `StravaActivity` Codable model; `ensureValidToken()` auto-refresh; GPX built from streams with correct activity start timestamp
-- [x] `GarminAuth.swift` (new) — Garmin SSO flow; CSRF extract; service ticket exchange; session verification via `/currentuser-service/user/info`; MFA detection
-- [x] `GarminClient.swift` — `GarminActivity` Codable model; activity list; native GPX download
+- [x] `StravaClient.swift` / `StravaAuth.swift` — `StravaActivity` Codable model; `ensureValidToken()` auto-refresh; GPX built from streams with correct activity start timestamp; `AuthPreservingDelegate` preserves Bearer header through cross-host redirects
+- [x] `GarminAuth.swift` — garth 0.5.3 mobile SSO flow (`/mobile/api/login` JSON POST, `audience=GARMIN_CONNECT_MOBILE_ANDROID_DI`); raw URL preauth (login-url unencoded to match garth); `NoRedirectDelegate` stops URLSession following service redirect; OAuth1 HMAC-SHA1 signing with explicit query params
+- [x] `GarminClient.swift` — `GarminActivity` Codable model; activity list; native GPX download; `AuthPreservingDelegate` preserves Bearer header through redirects
+- [x] `CopyVideosView` — copies MP4s from mounted Cycliq volumes (FLY12S, FLY6PRO) to `inputBaseDir/{date} {name}/`; date-filtered file scan; per-file progress + speed log; renames `RIDE_001.MP4` → `Fly12Sport_001.MP4`; creates project on completion
 
 **Milestone:** Complete end-to-end UI flow works in iPad Simulator through to triggering a pipeline run.
 
@@ -364,6 +365,54 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 | 5. SwiftUI GUI | All views — pipeline, selection, settings, import | Yes — visible in Simulator |
 | 6. Device testing | Real footage on real iPad, end-to-end QA | No — this is entirely you |
 | 7. Polish & release | App icon, error handling, archive/export flow | Mostly |
+
+---
+
+## Code Quality Backlog
+
+Complexity issues identified by audit (April 2026). Listed priority-first.
+
+### #1 — Row model field explosion (high)
+`SelectRow` repeats all 28 fields of `EnrichRow` verbatim, then `asEnrichRow` reconstructs an `EnrichRow` by spelling out all 28 by hand. Fix: `SelectRow` should *contain* an `EnrichRow` plus its 7 new fields (`recommended`, `stravaPR`, `isSingleCamera`, `paired`, `segmentName`, `segmentDistance`, `segmentGrade`). Adding a field to `EnrichRow` then flows through automatically; `asEnrichRow` disappears entirely.
+- [x] Refactor `SelectRow` to embed `EnrichRow` as `var base: EnrichRow`
+- [x] Remove `asEnrichRow` computed property
+- [x] Update all callsites (`ManualSelectionView`, `BuildStep`, `SelectStep`, etc.)
+
+### #2 — ISO8601 formatter instantiated in every loop iteration (high)
+`ISO8601DateFormatter()` is constructed fresh inside loops in `FlattenStep`, `ExtractStep` (×2 per grid-point), and `EnrichStep`. Formatters are expensive to initialise.
+- [ ] Add `static let shared` to a `DateFormatting` helper or `ISO8601DateFormatter` extension
+- [ ] Replace all inline `ISO8601DateFormatter().string(from:)` calls with the shared instance
+
+### #3 — FFmpeg audio encoding args duplicated 7+ times (high)
+`-c:a aac -ar 48000 -ac 2 -b:a 192k` (and the 128k variant) is copy-pasted across `BuildStep`, `IntroBuilder`, `OutroBuilder`, and `ConcatStep`.
+- [ ] Extract `enum FFmpegAudio` with `static let high` / `static let medium` string constants
+- [ ] Replace all copy-pasted argument strings with the enum values
+
+### #4 — Dual-camera grouping runs twice (medium)
+`PartnerMatcher.group()` is called in `SelectStep` and again in `BuildStep` (which first converts `SelectRow` → `EnrichRow` via `asEnrichRow`). Pure duplicate work on every build run.
+- [ ] After `SelectStep`, cache grouped moments or pass them through the pipeline output
+- [ ] `BuildStep` reads the cached result instead of re-grouping (depends on #1 fix)
+
+### #5 — Fade filter FFmpeg strings duplicated (medium)
+`fade=t=in/out` filter string construction appears independently in `BuildStep`, `IntroBuilder`, and `OutroBuilder`.
+- [ ] Extract `func fadeFilter(fadeInDuration:totalDuration:fadeOutDuration:) -> String` helper in `FFmpegBridge` or a shared utility
+
+### #6 — Resource lookup duplicated in IntroBuilder (medium)
+`findResourceImage(named:)` and `findResourceAudio(named:)` are near-identical functions that differ only in which file extensions they search.
+- [ ] Merge into `func findResource(named: String, extensions: [String]) -> URL?`
+
+### #7 — Single-clip concat branch duplicates main path (low)
+`BuildStep.concatenateWithXfade()` has a 20-line `segments.count == 1` branch that duplicates the full FFmpeg invocation.
+- [ ] Extract `encodeSingleClip(...)` helper to match the structure of the multi-clip path
+
+### #8 — IntroBuilder/OutroBuilder declared as enum (low)
+Both are `enum` namespaces with no cases. The intent is "static utility, no instances" but `struct` with `private init()` is the conventional Swift idiom and allows future dependency injection.
+- [ ] Convert both to `struct` with `private init()`
+
+### #9 — Step isComplete() logic split across files (low)
+Completion-check logic lives partly in `PipelineStep` enum and partly in individual step files / `PipelineExecutor`.
+- [ ] Make `isComplete(for: Project) -> Bool` a required protocol method on `PipelineStep`
+- [ ] Move all completion logic into each step's own implementation
 
 ---
 

@@ -23,15 +23,23 @@ struct ClipSelector {
         let startZoneEnd  = rideStart + config.startZoneDuration
         let endZoneStart  = rideEnd   - config.endZoneDuration
 
-        // 1. Candidate pool: top-K per clip, globally trimmed
-        let numClips   = Set(moments.compactMap { $0.primary?.clipNum }).count
+        // 1. Candidate pool: top-K per clip, globally trimmed.
+        // For dual-camera moments, use min(clipNum12, clipNum6) — matches Python's approach.
+        // This groups both cameras' coverage of the same time period under one clip number,
+        // giving higher K-per-clip and more balanced ride-wide coverage.
+        func clipKey(_ m: PartnerMatcher.Moment) -> Int {
+            let c12 = m.fly12Row?.clipNum
+            let c6  = m.fly6Row?.clipNum
+            if let a = c12, let b = c6 { return min(a, b) }
+            return c12 ?? c6 ?? 0
+        }
         let poolSize   = Int((Double(config.targetClips) * config.candidateFraction).rounded(.up))
+        let numClips   = Set(moments.map { clipKey($0) }).count
         let kPerClip   = max(1, Int(ceil(Double(poolSize) / Double(max(1, numClips)))))
 
         var byClip: [Int: [PartnerMatcher.Moment]] = [:]
         for m in moments {
-            let clip = m.primary?.clipNum ?? 0
-            byClip[clip, default: []].append(m)
+            byClip[clipKey(m), default: []].append(m)
         }
         var candidates: [PartnerMatcher.Moment] = []
         for (_, clipMoments) in byClip {

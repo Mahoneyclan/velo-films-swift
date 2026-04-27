@@ -177,7 +177,7 @@ enum IntroBuilder {
     // MARK: - Frame collection
 
     static func collectFrames(from dir: URL, selectRows: [SelectRow], max: Int) -> [URL] {
-        let recommended = Set(selectRows.filter { $0.recommended }.map { $0.index })
+        let recommended = Set(selectRows.filter { $0.recommended }.map { $0.base.index })
         let all = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil,
             options: .skipsHiddenFiles)) ?? []

@@ -43,17 +43,19 @@ struct ElevationRenderer {
         let elevRange = maxElev - minElev
 
         func xPos(_ distKm: Double) -> CGFloat { CGFloat(distKm / totalDistKm) * CGFloat(W) }
+        // y-UP: higher elevation → larger y → top of canvas → top of saved image
         func yPos(_ elev: Double) -> CGFloat {
-            CGFloat(H) - CGFloat((elev - minElev) / elevRange) * CGFloat(H - 4) - 2
+            CGFloat((elev - minElev) / elevRange) * CGFloat(H - 4) + 2
         }
+        let baseline: CGFloat = 2
 
         // Filled area
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: xPos(distances[0]), y: CGFloat(H)))
+        path.move(to: CGPoint(x: xPos(distances[0]), y: baseline))
         for (i, row) in flattenRows.enumerated() {
             path.addLine(to: CGPoint(x: xPos(distances[i]), y: yPos(row.elevation)))
         }
-        path.addLine(to: CGPoint(x: xPos(totalDistKm), y: CGFloat(H)))
+        path.addLine(to: CGPoint(x: xPos(totalDistKm), y: baseline))
         path.closeSubpath()
 
         ctx.setFillColor(CGColor(red: 0/255, green: 180/255, blue: 60/255, alpha: 0.5))

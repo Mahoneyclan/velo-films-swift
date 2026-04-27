@@ -5,15 +5,17 @@ struct ImportView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showStrava = false
     @State private var showGarmin = false
+    @State private var showCopyVideos = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section("From Disk") {
-                    Button {
-                        pickFolder()
-                    } label: {
+                    Button { pickFolder() } label: {
                         Label("Choose ride folder...", systemImage: "folder")
+                    }
+                    Button { showCopyVideos = true } label: {
+                        Label("Copy from Camera (Cycliq)", systemImage: "video.badge.plus")
                     }
                 }
                 Section("Import GPX from") {
@@ -31,8 +33,9 @@ struct ImportView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showStrava)  { StravaImportView  { dismiss() } }
-            .sheet(isPresented: $showGarmin)  { GarminImportView  { dismiss() } }
+            .sheet(isPresented: $showStrava)      { StravaImportView  { dismiss() } }
+            .sheet(isPresented: $showGarmin)      { GarminImportView  { dismiss() } }
+            .sheet(isPresented: $showCopyVideos)  { CopyVideosView    { dismiss() } }
         }
         .frame(minWidth: 360, minHeight: 280)
     }

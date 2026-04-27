@@ -55,11 +55,14 @@ struct ProjectListView: View {
         }
         .overlay {
             if store.projects.isEmpty {
-                ContentUnavailableView(
-                    "No Projects",
-                    systemImage: "film.stack",
-                    description: Text("Tap + to add a ride project")
-                )
+                ContentUnavailableView {
+                    Label("No Projects Yet", systemImage: "film.stack")
+                } description: {
+                    Text("Insert your Cycliq SD card, then tap **+** → Copy from Camera to create your first ride project.")
+                } actions: {
+                    Button("Add Project") { showImport = true }
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
     }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct StravaImportView: View {
     var onComplete: (() -> Void)? = nil
+    /// When set, GPX is saved to this project instead of creating a new one.
+    var targetProject: Project? = nil
 
     @Environment(ProjectStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -111,26 +113,30 @@ struct StravaImportView: View {
     }
 
     private func importActivity(_ activity: StravaActivity) async {
-        guard let root = GlobalSettings.shared.projectsRoot else {
-            error = "Set a Projects Root folder in Settings before importing"
-            return
-        }
         isImporting = true; error = nil
         do {
-            let folderName = activity.suggestedProjectName
-            let folderURL  = root.appending(path: folderName)
-            let project    = Project(name: folderName, folderURL: folderURL)
-            try ProjectFileManager.createDirectoryStructure(for: project)
+            let project: Project
+            if let existing = targetProject {
+                project = existing
+            } else {
+                guard let root = GlobalSettings.shared.projectsRoot else {
+                    error = "Set a Projects Root folder in Settings before importing"
+                    isImporting = false; return
+                }
+                let folderName = activity.suggestedProjectName
+                let folderURL  = root.appending(path: folderName)
+                project = Project(name: folderName, folderURL: folderURL)
+                try ProjectFileManager.createDirectoryStructure(for: project)
+            }
 
-            let gpxURL = project.workingDir.appending(path: "ride.gpx")
             let startDate = ISO8601DateFormatter().date(from: activity.startDateLocal) ?? Date()
             try await StravaClient().downloadGPX(
                 activityID:   activity.id,
                 startDate:    startDate,
                 activityName: activity.name,
-                to:           gpxURL
+                to:           project.gpxFile
             )
-            store.add(project)
+            if targetProject == nil { store.add(project) }
             onComplete?()
             dismiss()
         } catch {
