@@ -3,28 +3,16 @@ import SwiftUI
 struct ImportView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var showStrava = false
-    @State private var showGarmin = false
     @State private var showCopyVideos = false
 
     var body: some View {
         NavigationStack {
             List {
-                Section("From Disk") {
-                    Button { pickFolder() } label: {
-                        Label("Choose ride folder...", systemImage: "folder")
-                    }
-                    Button { showCopyVideos = true } label: {
-                        Label("Copy from Camera (Cycliq)", systemImage: "video.badge.plus")
-                    }
+                Button { pickFolder() } label: {
+                    Label("Select raw video folder…", systemImage: "film.stack")
                 }
-                Section("Import GPX from") {
-                    Button { showStrava = true } label: {
-                        Label("Strava", systemImage: "bicycle")
-                    }
-                    Button { showGarmin = true } label: {
-                        Label("Garmin Connect", systemImage: "arrow.down.circle")
-                    }
+                Button { showCopyVideos = true } label: {
+                    Label("Copy from Camera (Cycliq)", systemImage: "sdcard")
                 }
             }
             .navigationTitle("Add Project")
@@ -33,11 +21,9 @@ struct ImportView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showStrava)      { StravaImportView  { dismiss() } }
-            .sheet(isPresented: $showGarmin)      { GarminImportView  { dismiss() } }
-            .sheet(isPresented: $showCopyVideos)  { CopyVideosView    { dismiss() } }
+            .sheet(isPresented: $showCopyVideos) { CopyVideosView { dismiss() } }
         }
-        .frame(minWidth: 360, minHeight: 280)
+        .frame(minWidth: 360, minHeight: 220)
     }
 
     private func pickFolder() {
@@ -52,8 +38,16 @@ struct ImportView: View {
 #endif
     }
 
-    private func addProject(at url: URL) {
-        let project = Project(name: url.lastPathComponent, folderURL: url)
+    private func addProject(at sourceURL: URL) {
+        let name = sourceURL.lastPathComponent
+        let folderURL: URL
+        if let root = GlobalSettings.shared.projectsRoot {
+            folderURL = root.appending(path: name)
+        } else {
+            // No projects root set — create working files inside the source folder
+            folderURL = sourceURL
+        }
+        let project = Project(name: name, folderURL: folderURL, sourceVideoURL: sourceURL)
         try? ProjectFileManager.createDirectoryStructure(for: project)
         store.add(project)
         dismiss()

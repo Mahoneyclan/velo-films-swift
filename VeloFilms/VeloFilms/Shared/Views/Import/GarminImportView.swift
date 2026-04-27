@@ -48,56 +48,62 @@ struct GarminImportView: View {
     // MARK: - Login form
 
     private var loginForm: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Image(systemName: "arrow.down.circle").font(.system(size: 60)).foregroundStyle(.blue)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Garmin Connect").font(.title2.bold())
-                    Text("Sign in with your Garmin Connect credentials to import GPX from your activities.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-
-                VStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Email").font(.caption).foregroundStyle(.secondary)
-                        TextField("garmin@example.com", text: $email)
-                            .textContentType(.emailAddress)
-#if os(macOS)
-                            .textFieldStyle(.roundedBorder)
-#endif
+        Form {
+            Section {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle").font(.system(size: 48)).foregroundStyle(.blue)
+                        Text("Garmin Connect").font(.title2.bold())
+                        Text("Sign in to import GPX from your activities.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Password").font(.caption).foregroundStyle(.secondary)
-                        SecureField("Password", text: $password)
-                            .textContentType(.password)
-#if os(macOS)
-                            .textFieldStyle(.roundedBorder)
-#endif
-                    }
+                    Spacer()
                 }
+                .padding(.vertical, 8)
+            }
 
-                if let error {
-                    Text(error).foregroundStyle(.red).font(.caption).multilineTextAlignment(.center)
+            Section {
+                TextField("Email", text: $email)
+                    .textContentType(.emailAddress)
+                SecureField("Password", text: $password)
+                    .textContentType(.password)
+            }
+
+            if let error {
+                Section {
+                    Text(error).foregroundStyle(.red).font(.caption)
                 }
+            }
 
+            Section {
                 Button {
                     Task { await signIn() }
                 } label: {
                     if isSigningIn {
-                        HStack { ProgressView().scaleEffect(0.8); Text("Signing in…") }
+                        HStack {
+                            Spacer()
+                            ProgressView().scaleEffect(0.8)
+                            Text("Signing in…")
+                            Spacer()
+                        }
                     } else {
-                        Text("Sign In")
+                        Text("Sign In").frame(maxWidth: .infinity)
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(email.isEmpty || password.isEmpty || isSigningIn)
-
-                Text("Note: Multi-factor authentication must be disabled for direct sign-in.")
-                    .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
             }
-            .padding(24)
+
+            Section {
+                Text("Note: Multi-factor authentication must be disabled for direct sign-in.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
         }
+#if os(macOS)
+        .formStyle(.grouped)
+#endif
     }
 
     // MARK: - Activity list
@@ -116,14 +122,12 @@ struct GarminImportView: View {
 
             if isLoading && activities.isEmpty {
                 ProgressView("Loading activities...").padding()
-                    .task { await loadActivities() }
             } else if activities.isEmpty {
                 ContentUnavailableView(
                     "No Cycling Activities",
                     systemImage: "bicycle",
                     description: Text("No cycling activities found in your Garmin Connect account")
                 )
-                .task { await loadActivities() }
             } else {
                 List(activities) { activity in
                     Button { Task { await importActivity(activity) } } label: {
@@ -149,6 +153,7 @@ struct GarminImportView: View {
                 Text(error).foregroundStyle(.red).font(.caption).padding(.horizontal).padding(.bottom, 8)
             }
         }
+        .task { await loadActivities() }
     }
 
     // MARK: - Actions
@@ -171,7 +176,9 @@ struct GarminImportView: View {
             let all = try await GarminClient().recentActivities()
             activities = all.filter { $0.isCycling }
         } catch {
-            self.error = error.localizedDescription
+            if (error as? URLError)?.code != .cancelled {
+                self.error = error.localizedDescription
+            }
         }
         isLoading = false
     }

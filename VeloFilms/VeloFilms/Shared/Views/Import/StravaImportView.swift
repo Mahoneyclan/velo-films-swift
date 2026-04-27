@@ -56,38 +56,40 @@ struct StravaImportView: View {
 
     @ViewBuilder
     private var activityList: some View {
-        if isLoading && activities.isEmpty {
-            ProgressView("Loading activities...").task { await loadActivities() }
-        } else if activities.isEmpty {
-            ContentUnavailableView(
-                "No Cycling Activities",
-                systemImage: "bicycle",
-                description: Text("No rides found in your recent Strava activities")
-            )
-            .task { await loadActivities() }
-        } else {
-            List(activities) { activity in
-                Button { Task { await importActivity(activity) } } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(activity.name).font(.headline)
-                            Text("\(activity.displayDate)  ·  \(activity.distanceKm)  ·  \(activity.durationStr)")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if isImporting {
-                            ProgressView().scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "arrow.down.circle").foregroundStyle(.orange)
+        VStack(spacing: 0) {
+            if isLoading && activities.isEmpty {
+                ProgressView("Loading activities...")
+            } else if activities.isEmpty {
+                ContentUnavailableView(
+                    "No Cycling Activities",
+                    systemImage: "bicycle",
+                    description: Text("No rides found in your recent Strava activities")
+                )
+            } else {
+                List(activities) { activity in
+                    Button { Task { await importActivity(activity) } } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(activity.name).font(.headline)
+                                Text("\(activity.displayDate)  ·  \(activity.distanceKm)  ·  \(activity.durationStr)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if isImporting {
+                                ProgressView().scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "arrow.down.circle").foregroundStyle(.orange)
+                            }
                         }
                     }
+                    .disabled(isImporting)
                 }
-                .disabled(isImporting)
+            }
+            if let error {
+                Text(error).foregroundStyle(.red).font(.caption).padding(.horizontal)
             }
         }
-        if let error {
-            Text(error).foregroundStyle(.red).font(.caption).padding(.horizontal)
-        }
+        .task { await loadActivities() }
     }
 
     private func authenticate() async {
@@ -107,7 +109,9 @@ struct StravaImportView: View {
             let all = try await StravaClient().recentActivities()
             activities = all.filter { $0.isCycling }
         } catch {
-            self.error = error.localizedDescription
+            if (error as? URLError)?.code != .cancelled {
+                self.error = error.localizedDescription
+            }
         }
         isLoading = false
     }

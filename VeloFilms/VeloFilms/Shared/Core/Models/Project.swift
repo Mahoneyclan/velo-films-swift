@@ -5,12 +5,14 @@ import Observation
 struct Project: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String           // ride folder name, e.g. "2025-04-20-Wahgunyah"
-    var folderURL: URL         // security-scoped resolved URL
+    var folderURL: URL         // project working directory (working/, clips/, frames/ etc.)
+    var sourceVideoURL: URL?   // folder containing raw MP4s — set at project creation
 
-    init(id: UUID = UUID(), name: String, folderURL: URL) {
+    init(id: UUID = UUID(), name: String, folderURL: URL, sourceVideoURL: URL? = nil) {
         self.id = id
         self.name = name
         self.folderURL = folderURL
+        self.sourceVideoURL = sourceVideoURL
     }
 }
 
@@ -67,8 +69,9 @@ struct ProjectArtifacts {
     static func check(_ project: Project, inputBase: URL? = GlobalSettings.shared.inputBaseDir) -> ProjectArtifacts {
         let fm = FileManager.default
         var videoCount = 0
-        if let base = inputBase {
-            let srcDir = project.sourceVideosDir(inputBase: base)
+        let srcDir: URL? = project.sourceVideoURL
+            ?? inputBase.map { project.sourceVideosDir(inputBase: $0) }
+        if let srcDir {
             let contents = (try? fm.contentsOfDirectory(at: srcDir,
                                                          includingPropertiesForKeys: nil,
                                                          options: .skipsHiddenFiles)) ?? []
@@ -112,7 +115,9 @@ final class ProjectStore {
 
     private func save() {
         let records: [[String: String]] = projects.map { project in
-            ["name": project.name, "id": project.id.uuidString, "path": project.folderURL.path]
+            var r = ["name": project.name, "id": project.id.uuidString, "path": project.folderURL.path]
+            if let src = project.sourceVideoURL { r["sourcePath"] = src.path }
+            return r
         }
         UserDefaults.standard.set(records, forKey: Self.udKey)
     }
@@ -126,7 +131,8 @@ final class ProjectStore {
                   let path = record["path"] else { return nil }
             let url = URL(fileURLWithPath: path)
             guard FileManager.default.fileExists(atPath: path) else { return nil }
-            return Project(id: id, name: name, folderURL: url)
+            let sourceURL = record["sourcePath"].map { URL(fileURLWithPath: $0) }
+            return Project(id: id, name: name, folderURL: url, sourceVideoURL: sourceURL)
         }
     }
 }

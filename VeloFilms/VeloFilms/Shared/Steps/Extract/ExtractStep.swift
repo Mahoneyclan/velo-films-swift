@@ -30,10 +30,14 @@ struct ExtractStep: PipelineStep {
 
         await reporter.report(current: 1, total: 4, message: "Discovering video files...")
 
-        guard let inputBase = GlobalSettings.shared.inputBaseDir else {
-            throw PipelineError.missingInput("Input base directory not set in Settings")
+        let sourceDir: URL
+        if let explicit = project.sourceVideoURL {
+            sourceDir = explicit
+        } else if let base = GlobalSettings.shared.inputBaseDir {
+            sourceDir = project.sourceVideosDir(inputBase: base)
+        } else {
+            throw PipelineError.missingInput("No video source set — select a raw video folder when creating the project, or set Input Base Dir in Settings")
         }
-        let sourceDir = inputBase.appending(path: project.name)
         let videoFiles = try ProjectFileManager.findVideoFiles(in: sourceDir)
 
         guard !videoFiles.isEmpty else {

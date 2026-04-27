@@ -52,13 +52,13 @@ private struct OAuth2TokenResponse: Decodable {
 
 // MARK: - GarminAuth
 //
-// Replicates garth 0.5.3 SSO flow exactly:
-//   1. GET sso/mobile/sso/en/sign-in  (set cookies)
-//   2. POST sso/mobile/api/login      (JSON creds → serviceTicketId)
-//   3. Best-effort GET sso/portal/sso/embed   (Cloudflare LB cookie)
-//   4. GET connectapi/oauth-service/oauth/preauthorized  (OAuth1 signed, login-url=mobile.integration)
-//   5. POST connectapi/oauth-service/oauth/exchange/user/2.0  (OAuth1 signed, audience=GARMIN_CONNECT_MOBILE_ANDROID_DI)
-//   6. API calls: Authorization: Bearer {access_token}  User-Agent: GCM-iOS-5.22.1.4
+// Swift reimplementation of the garth SSO flow — cross-platform (macOS + iPadOS).
+//   1. GET sso/mobile/sso/en/sign-in        (establish session cookies)
+//   2. POST sso/mobile/api/login            (JSON creds + Referer/Origin → serviceTicketId)
+//   3. Best-effort GET sso/portal/sso/embed (Cloudflare LB cookie)
+//   4. GET  connectapi/…/oauth/preauthorized  (OAuth1 signed)
+//   5. POST connectapi/…/oauth/exchange/user/2.0 (OAuth1 → OAuth2)
+//   6. API calls: Bearer {access_token}
 @Observable
 @MainActor
 final class GarminAuth {
@@ -73,10 +73,9 @@ final class GarminAuth {
     private var consumerKey: String = ""
     private var consumerSecret: String = ""
 
-    private let ssoSession: URLSession    // preserves SSO cookies during login
+    private let ssoSession: URLSession
     private let apiSession = URLSession.shared
 
-    // garth 0.5.3 constants
     private let clientID   = "GCM_ANDROID_DARK"
     private let serviceURL = "https://mobile.integration.garmin.com/gcm/android"
 
@@ -134,26 +133,38 @@ final class GarminAuth {
             "rememberMe":   false,
             "captchaToken": "",
         ]
+        // Referer must match the sign-in page we loaded in step 1 — a browser would
+        // send this automatically; without it Garmin's CDN may reject the POST.
         let loginData = try await ssoPostJSON(
             "https://sso.garmin.com/mobile/api/login",
             params: loginParams,
-            body: loginBody
+            body: loginBody,
+            extraHeaders: [
+                "Referer":        "https://sso.garmin.com/mobile/sso/en/sign-in",
+                "Origin":         "https://sso.garmin.com",
+                "Sec-Fetch-Site": "same-origin",
+            ]
         )
+        let rawBody = String(data: loginData, encoding: .utf8) ?? "<non-utf8>"
         guard let json = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any] else {
-            throw GarminError.ssoFailed("Invalid login response")
+            throw GarminError.ssoFailed("Invalid login response: \(rawBody.prefix(300))")
         }
         let status = (json["responseStatus"] as? [String: Any])?["type"] as? String ?? ""
         if status == "MFA_REQUIRED" { throw GarminError.mfaRequired }
         guard status == "SUCCESSFUL", let ticket = json["serviceTicketId"] as? String else {
-            let msg = (json["responseStatus"] as? [String: Any])?["message"] as? String ?? status
-            throw GarminError.ssoFailed("Login failed: \(msg.isEmpty ? "check email and password" : msg)")
+            let msg = (json["responseStatus"] as? [String: Any])?["message"] as? String ?? ""
+            let detail = msg.isEmpty ? (status.isEmpty ? rawBody.prefix(300) : Substring(status)) : Substring(msg)
+            throw GarminError.ssoFailed("Login failed — server said: \(detail)")
         }
 
         // Step 3: Best-effort GET embed (sets Cloudflare LB cookie)
         _ = try? await ssoGet(
             "https://sso.garmin.com/portal/sso/embed",
             params: [:],
-            extraHeaders: ["Sec-Fetch-Site": "same-origin"]
+            extraHeaders: [
+                "Sec-Fetch-Site": "same-origin",
+                "Referer":        "https://sso.garmin.com/mobile/api/login",
+            ]
         )
 
         // Step 4: OAuth1 preauth
@@ -228,21 +239,35 @@ final class GarminAuth {
 
     private func exchangeOAuth2(oauth1: GarminOAuth1Token, forLogin: Bool) async throws -> GarminOAuth2Token {
         let url = URL(string: "https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0")!
+
+        // Build body params first — RFC 5849 §3.4.1.3: form-encoded body params
+        // MUST be included in the OAuth1 signature base string.
+        var bodyParams: [String: String] = [:]
+        if forLogin { bodyParams["audience"] = "GARMIN_CONNECT_MOBILE_ANDROID_DI" }
+        if let mfa = oauth1.mfaToken { bodyParams["mfa_token"] = mfa }
+
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue(oauthUA, forHTTPHeaderField: "User-Agent")
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.setValue(oauth1Header(method: "POST", baseURL: url, tokenKey: oauth1.token, tokenSecret: oauth1.secret),
-                     forHTTPHeaderField: "Authorization")
-
-        var bodyParts: [String] = []
-        if forLogin { bodyParts.append("audience=GARMIN_CONNECT_MOBILE_ANDROID_DI") }
-        if let mfa = oauth1.mfaToken { bodyParts.append("mfa_token=\(mfa)") }
-        if !bodyParts.isEmpty { req.httpBody = bodyParts.joined(separator: "&").data(using: .utf8) }
+        // Pass bodyParams as extraQueryParams so they appear in the signature base string
+        req.setValue(
+            oauth1Header(method: "POST", baseURL: url,
+                         tokenKey: oauth1.token, tokenSecret: oauth1.secret,
+                         extraQueryParams: bodyParams),
+            forHTTPHeaderField: "Authorization"
+        )
+        if !bodyParams.isEmpty {
+            req.httpBody = bodyParams
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: "&")
+                .data(using: .utf8)
+        }
 
         let (data, response) = try await apiSession.data(for: req)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw GarminError.ssoFailed("OAuth2 exchange HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw GarminError.ssoFailed("OAuth2 exchange HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body.prefix(200))")
         }
         let r = try JSONDecoder().decode(OAuth2TokenResponse.self, from: data)
         let now = Int(Date().timeIntervalSince1970)
@@ -327,12 +352,14 @@ final class GarminAuth {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private func ssoPostJSON(_ urlStr: String, params: [String: String], body: [String: Any]) async throws -> Data {
+    private func ssoPostJSON(_ urlStr: String, params: [String: String], body: [String: Any],
+                             extraHeaders: [String: String] = [:]) async throws -> Data {
         var comps = URLComponents(string: urlStr)!
         comps.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = "POST"
         ssoPageHeaders.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
+        extraHeaders.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await ssoSession.data(for: req)

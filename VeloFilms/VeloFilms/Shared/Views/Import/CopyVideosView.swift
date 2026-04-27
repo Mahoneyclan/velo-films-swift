@@ -1,98 +1,83 @@
 import SwiftUI
 
-// MARK: - Camera model
-
-private struct CameraConfig {
-    let key: String
-    let displayName: String
-    let folderName: String   // prefix used in output filenames: Fly12Sport_001.MP4
-    let volumeURL: URL
-    var sourcePath: URL { volumeURL.appending(path: "DCIM/100_Ride") }
-}
-
-private let cameras: [CameraConfig] = [
-    CameraConfig(key: "fly12", displayName: "Fly12 Sport", folderName: "Fly12Sport",
-                 volumeURL: URL(filePath: "/Volumes/FLY12S")),
-    CameraConfig(key: "fly6",  displayName: "Fly6 Pro",    folderName: "Fly6Pro",
-                 volumeURL: URL(filePath: "/Volumes/FLY6PRO")),
-]
-
-// MARK: - View
-
 struct CopyVideosView: View {
     var onComplete: (() -> Void)? = nil
 
     @Environment(ProjectStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    private let settings = GlobalSettings.shared
 
+    private struct CamSource: Identifiable {
+        let id: String
+        let displayName: String
+        let folderName: String
+        let sourceURL: URL
+    }
+
+    @State private var enabledCameras: Set<String> = ["fly12", "fly6"]
     @State private var rideName: String = ""
-    @State private var rideDate: Date  = Date()
-    @State private var selected: Set<String> = ["fly12", "fly6"]
-
-    // Per-camera state — refreshed whenever date or destination changes
-    @State private var mounted:      [String: Bool] = [:]
-    @State private var sourceCounts: [String: Int]  = [:]   // files on SD matching this date
-    @State private var destCounts:   [String: Int]  = [:]   // files already copied to destination
-
+    @State private var selectedDate: Date? = nil
+    @State private var availableDates: [(date: Date, count: Int)] = []
+    @State private var isScanning = false
     @State private var isCopying = false
-    @State private var copied    = 0
-    @State private var total     = 0
+    @State private var totalFiles = 0
+    @State private var copiedFiles = 0
     @State private var logLines: [(String, Bool)] = []
+    @State private var copyDoneMessage: String? = nil
 
-    private var dateStr: String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: rideDate)
-    }
-    private var folderName: String {
-        "\(dateStr) \(rideName)".trimmingCharacters(in: .whitespaces)
-    }
-    private var destFolder: URL? {
-        guard !rideName.trimmingCharacters(in: .whitespaces).isEmpty,
-              let base = GlobalSettings.shared.inputBaseDir else { return nil }
-        return base.appending(path: folderName)
-    }
-
-    // Cameras active based on user's setup
-    private var activeCameras: [CameraConfig] {
-        let s = GlobalSettings.shared
-        return cameras.filter { cam in
-            switch cam.key {
-            case "fly12": return s.hasFly12Sport
-            case "fly6":  return s.hasFly6Pro
-            default:      return false
-            }
+    private var configuredCameras: [CamSource] {
+        var result: [CamSource] = []
+        if settings.hasFly12Sport, let url = settings.fly12SourceURL {
+            result.append(CamSource(id: "fly12", displayName: "Fly12 Sport",
+                                    folderName: "Fly12Sport", sourceURL: url))
         }
+        if settings.hasFly6Pro, let url = settings.fly6SourceURL {
+            result.append(CamSource(id: "fly6", displayName: "Fly6 Pro",
+                                    folderName: "Fly6Pro", sourceURL: url))
+        }
+        return result
     }
 
-    // Only cameras that are both selected and mounted (with files for this date)
-    private var readyToMount: Set<String> {
-        activeCameras.filter { cam in
-            selected.contains(cam.key)
-            && (mounted[cam.key] == true)
-            && (sourceCounts[cam.key] ?? 0) > 0
-        }.map(\.key).reduce(into: Set()) { $0.insert($1) }
+    private var activeCameras: [CamSource] {
+        configuredCameras.filter { enabledCameras.contains($0.id) }
+    }
+
+    private var isConfigured: Bool { !configuredCameras.isEmpty }
+
+    private var outputFolderName: String {
+        var parts: [String] = []
+        if let d = selectedDate {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            parts.append(f.string(from: d))
+        }
+        let name = rideName.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty { parts.append(name) }
+        return parts.joined(separator: " ")
     }
 
     private var canStart: Bool {
-        !rideName.trimmingCharacters(in: .whitespaces).isEmpty
-        && !readyToMount.isEmpty
-        && !isCopying
+        !isCopying && !activeCameras.isEmpty &&
+        settings.inputBaseDir != nil &&
+        selectedDate != nil
     }
 
-    // Are all expected cameras done?
-    private var allCopied: Bool {
-        activeCameras.allSatisfy { (destCounts[$0.key] ?? 0) > 0 }
-    }
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
             Group {
                 if isCopying {
-                    copyProgress
+                    copyProgressView
+                        .navigationTitle("Copying…")
+                } else if !isConfigured {
+                    notConfiguredView
+                        .navigationTitle("Copy Camera Videos")
                 } else {
-                    setupForm
+                    setupView
+                        .navigationTitle("Copy Camera Videos")
+                        .onAppear { Task { await scanSources() } }
                 }
             }
-            .navigationTitle("Copy Camera Videos")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -100,55 +85,109 @@ struct CopyVideosView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 440)
-        .task { refresh() }
-        .onChange(of: rideDate) { refresh() }
-        .onChange(of: rideName) { refreshDestCounts() }
+        .alert("Copy Complete", isPresented: Binding(
+            get: { copyDoneMessage != nil },
+            set: { if !$0 { copyDoneMessage = nil } }
+        )) {
+            Button("OK") { copyDoneMessage = nil }
+        } message: {
+            Text(copyDoneMessage ?? "")
+        }
+    }
+
+    // MARK: - Not configured
+
+    private var notConfiguredView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "sdcard")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Camera sources not set")
+                .font(.title2.bold())
+            Text("Set your Fly12 Sport and Fly6 Pro source folders in Settings → Cameras.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+#if os(macOS)
+            Text("Open **VeloFilms → Settings…** or press **⌘,** to get started.")
+                .multilineTextAlignment(.center)
+#endif
+        }
+        .padding(40)
     }
 
     // MARK: - Setup form
 
-    private var setupForm: some View {
+    private var setupView: some View {
         Form {
-            Section("Ride") {
-                DatePicker("Date", selection: $rideDate, displayedComponents: .date)
-                TextField("Ride name (e.g. Wahgunyah)", text: $rideName)
-            }
-
-            Section {
-                ForEach(activeCameras, id: \.key) { cam in
+            Section("Source Camera") {
+                ForEach(configuredCameras) { cam in
                     cameraRow(cam)
                 }
-            } header: {
-                Text("Cameras")
-            } footer: {
-                Text("Insert one SD card at a time. Copy from each card separately — files are added to the same destination folder.")
-                    .font(.caption)
             }
 
-            if let dest = destFolder {
-                Section("Destination") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(dest.path)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-
-                        if allCopied {
-                            Label("All cameras copied", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green).font(.callout)
-                        } else if destCounts.values.contains(where: { $0 > 0 }) {
-                            Label("Partial — insert the next SD card and copy again",
-                                  systemImage: "sdcard")
-                                .foregroundStyle(.orange).font(.callout)
-                        }
+            Section(header: HStack {
+                Text("Select Date")
+                Spacer()
+                Button { Task { await scanSources() } } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
+                }
+                .disabled(isScanning || activeCameras.isEmpty)
+            }) {
+                if isScanning {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Scanning…").foregroundStyle(.secondary)
                     }
+                } else if activeCameras.isEmpty {
+                    Text("Select at least one camera above")
+                        .foregroundStyle(.secondary).font(.caption)
+                } else if availableDates.isEmpty {
+                    Text("No MP4 files found — check source folders in Settings")
+                        .foregroundStyle(.secondary).font(.caption)
+                } else {
+                    dateRow(date: nil,
+                            count: availableDates.reduce(0) { $0 + $1.count },
+                            label: "All dates")
+                    ForEach(availableDates, id: \.date) { item in
+                        dateRow(date: item.date, count: item.count)
+                    }
+                }
+            }
+
+            Section("Ride Details") {
+                HStack {
+                    Text("Name")
+                    TextField("e.g. Wahgunyah Loop", text: $rideName)
+                }
+                HStack {
+                    Text("Output folder").foregroundStyle(.secondary)
+                    Spacer()
+                    Text(outputFolderName.isEmpty ? "—" : outputFolderName)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Destination Drive") {
+                if let dest = settings.inputBaseDir {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dest.lastPathComponent).font(.body)
+                        Text(dest.path)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                } else {
+                    Text("Not set — configure Input Videos in Settings").foregroundStyle(.red)
                 }
             }
 
             Section {
                 Button(action: startCopy) {
-                    Label("Copy from Mounted Camera", systemImage: "arrow.right.circle.fill")
+                    Label("Copy to Destination", systemImage: "arrow.right.circle.fill")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!canStart)
@@ -156,78 +195,73 @@ struct CopyVideosView: View {
         }
     }
 
+    // MARK: - Camera row
+
     @ViewBuilder
-    private func cameraRow(_ cam: CameraConfig) -> some View {
-        let isMtd    = mounted[cam.key] == true
-        let srcCount = sourceCounts[cam.key] ?? 0
-        let dstCount = destCounts[cam.key] ?? 0
+    private func cameraRow(_ cam: CamSource) -> some View {
+        Toggle(cam.displayName, isOn: Binding(
+            get: { enabledCameras.contains(cam.id) },
+            set: { on in
+                if on { enabledCameras.insert(cam.id) }
+                else  { enabledCameras.remove(cam.id) }
+                Task { await scanSources() }
+            }
+        ))
+    }
 
-        Toggle(isOn: Binding(
-            get: { selected.contains(cam.key) },
-            set: { on in if on { selected.insert(cam.key) } else { selected.remove(cam.key) } }
-        )) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(isMtd ? Color.green : Color.secondary.opacity(0.4))
-                    .frame(width: 8, height: 8)
+    // MARK: - Date row
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(cam.displayName).font(.body)
-
-                    if isMtd {
-                        if srcCount > 0 {
-                            Text("\(srcCount) clip\(srcCount == 1 ? "" : "s") found for \(dateStr)")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            Text("No clips for \(dateStr) — check date or card")
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                    } else {
-                        Text("Not mounted — insert SD card")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-
-                    if dstCount > 0 {
-                        Label("\(dstCount) file\(dstCount == 1 ? "" : "s") already copied",
-                              systemImage: "checkmark.circle.fill")
-                            .font(.caption2).foregroundStyle(.green)
-                    }
+    @ViewBuilder
+    private func dateRow(date: Date?, count: Int, label: String? = nil) -> some View {
+        Button { selectedDate = date } label: {
+            HStack {
+                if let label {
+                    Text(label)
+                } else if let d = date {
+                    Text(d, format: .dateTime.weekday(.wide).day().month(.wide).year())
+                }
+                Spacer()
+                Text("\(count) file\(count == 1 ? "" : "s")")
+                    .foregroundStyle(.secondary).font(.caption)
+                if selectedDate == date {
+                    Image(systemName: "checkmark").foregroundStyle(.tint)
                 }
             }
         }
-        .disabled(!isMtd || srcCount == 0)
+        .foregroundStyle(.primary)
     }
 
     // MARK: - Progress view
 
-    private var copyProgress: some View {
+    private var copyProgressView: some View {
         VStack(spacing: 0) {
-            if total > 0 {
-                ProgressView(value: Double(copied), total: Double(total))
-                    .padding(.horizontal).padding(.top, 12)
-                Text("\(copied) / \(total) files").font(.caption).foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
+            if totalFiles > 0 {
+                VStack(spacing: 4) {
+                    ProgressView(value: Double(copiedFiles), total: Double(totalFiles))
+                        .padding(.horizontal).padding(.top, 12)
+                    Text("\(copiedFiles) / \(totalFiles) files")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 8)
             } else {
-                ProgressView("Starting…").padding()
+                ProgressView("Preparing…").padding()
             }
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(logLines.enumerated()), id: \.offset) { i, line in
-                            Text(line.0)
+                    LazyVStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(logLines.enumerated()), id: \.offset) { i, entry in
+                            Text(entry.0)
                                 .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(line.1 ? .red : .primary)
+                                .foregroundStyle(entry.1 ? .red : .primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .id(i)
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
                 }
                 .background(logBackground)
-                .onChange(of: logLines.count) {
-                    proxy.scrollTo(logLines.count - 1, anchor: .bottom)
-                }
+                .onChange(of: logLines.count) { proxy.scrollTo(logLines.count - 1, anchor: .bottom) }
             }
         }
     }
@@ -240,194 +274,144 @@ struct CopyVideosView: View {
 #endif
     }
 
-    // MARK: - State refresh
+    // MARK: - Scan
 
-    private func refresh() {
-        refreshMountedState()
-        refreshDestCounts()
-    }
-
-    private func refreshMountedState() {
-        let fm  = FileManager.default
+    private func scanSources() async {
+        isScanning = true
+        var combined: [Date: Int] = [:]
         let cal = Calendar.current
-        let targetDay = cal.startOfDay(for: rideDate)
-        var newMounted:  [String: Bool] = [:]
-        var newCounts:   [String: Int]  = [:]
-
+        let fm = FileManager.default
         for cam in activeCameras {
-            let isMtd = fm.fileExists(atPath: cam.sourcePath.path)
-            newMounted[cam.key] = isMtd
-            guard isMtd else { continue }
             let files = (try? fm.contentsOfDirectory(
-                at: cam.sourcePath,
+                at: cam.sourceURL,
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: .skipsHiddenFiles)) ?? []
-            newCounts[cam.key] = files.filter { url in
+            for url in files {
                 guard url.pathExtension.uppercased() == "MP4",
                       let mtime = try? url.resourceValues(
                           forKeys: [.contentModificationDateKey]).contentModificationDate
-                else { return false }
-                return cal.startOfDay(for: mtime) == targetDay
-            }.count
+                else { continue }
+                let day = cal.startOfDay(for: mtime)
+                combined[day, default: 0] += 1
+            }
         }
-        mounted      = newMounted
-        sourceCounts = newCounts
-    }
-
-    private func refreshDestCounts() {
-        guard let dest = destFolder else { destCounts = [:]; return }
-        let fm = FileManager.default
-        var counts: [String: Int] = [:]
-        for cam in activeCameras {
-            let files = (try? fm.contentsOfDirectory(
-                at: dest, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
-            counts[cam.key] = files.filter {
-                $0.lastPathComponent.hasPrefix(cam.folderName + "_")
-                && $0.pathExtension.uppercased() == "MP4"
-            }.count
+        let sorted = combined.map { (date: $0.key, count: $0.value) }.sorted { $0.date < $1.date }
+        availableDates = sorted
+        if let current = selectedDate, !sorted.contains(where: { $0.date == current }) {
+            selectedDate = sorted.last?.date
+        } else if selectedDate == nil {
+            selectedDate = sorted.last?.date
         }
-        destCounts = counts
+        isScanning = false
     }
 
     // MARK: - Copy
 
     private func startCopy() {
-        guard let inputBase = GlobalSettings.shared.inputBaseDir else {
-            logLines.append(("❌ Input Videos folder not set — open Settings and choose a folder", true))
-            return
-        }
-        // Pre-flight: verify we can actually write to the destination volume
-        let probe = inputBase.appending(path: ".velofilms_writetest")
-        do {
-            try "ok".write(to: probe, atomically: true, encoding: .utf8)
-            try FileManager.default.removeItem(at: probe)
-        } catch {
-            logLines = [(
-                "❌ Cannot write to \(inputBase.path)\n" +
-                "   • If this is an NTFS drive, macOS mounts it read-only by default.\n" +
-                "     Use exFAT or APFS, or install a driver such as Paragon NTFS.\n" +
-                "   • If it is an external drive, make sure it is fully mounted and not locked.\n" +
-                "   • Error: \(error.localizedDescription)",
-                true
-            )]
-            return
-        }
-        isCopying = true
-        copied = 0; total = 0
-        logLines = []
-        Task { await runCopy(inputBase: inputBase) }
-    }
-
-    private func runCopy(inputBase: URL) async {
-        let fm  = FileManager.default
-        let cal = Calendar.current
-        let targetDay = cal.startOfDay(for: rideDate)
-        let dest = inputBase.appending(path: folderName)
-
-        log("=== Starting Import ===")
-        log("Destination: \(dest.path)")
-
-        // Collect files only from cameras that are selected AND mounted
-        var filesToCopy: [(src: URL, dst: URL, cam: CameraConfig)] = []
-        for cam in activeCameras where selected.contains(cam.key) && mounted[cam.key] == true {
-            let files = (try? fm.contentsOfDirectory(
-                at: cam.sourcePath,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: .skipsHiddenFiles)) ?? []
-            let matching = files.filter { url in
-                guard url.pathExtension.uppercased() == "MP4",
-                      let mtime = try? url.resourceValues(
-                          forKeys: [.contentModificationDateKey]).contentModificationDate
-                else { return false }
-                return cal.startOfDay(for: mtime) == targetDay
-            }
-            log("Found \(matching.count) clip\(matching.count == 1 ? "" : "s") from \(cam.displayName)")
-            for src in matching.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                let outName = outputName(for: src, camera: cam)
-                filesToCopy.append((src: src, dst: dest.appending(path: outName), cam: cam))
-            }
-        }
-
-        guard !filesToCopy.isEmpty else {
-            log("⚠️ No clips found for \(dateStr) on any mounted camera", error: true)
-            finishCopy()
-            return
-        }
-
-        total = filesToCopy.count
-        log("📁 \(total) clip\(total == 1 ? "" : "s") to copy")
-
-        do {
-            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-        } catch {
-            log("❌ Could not create destination: \(error.localizedDescription)", error: true)
-            finishCopy()
-            return
-        }
-
-        var totalBytes = 0
-        var totalSecs  = 0.0
-        for (i, item) in filesToCopy.enumerated() {
-            let fileSize = (try? item.src.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            let start    = Date()
-            do {
-                try await copyFile(from: item.src, to: item.dst)
-                let elapsed = Date().timeIntervalSince(start)
-                let speed   = elapsed > 0 ? Double(fileSize) / elapsed : 0
-                totalBytes += fileSize; totalSecs += elapsed
-                copied = i + 1
-                log("✓ [\(i+1)/\(total)] \(item.dst.lastPathComponent) (\(formatSize(fileSize)) in \(String(format: "%.1f", elapsed))s @ \(formatSpeed(speed)))")
-            } catch {
-                log("❌ \(item.src.lastPathComponent): \(error.localizedDescription)", error: true)
-            }
-        }
-
-        log("=== Copy Complete ===")
-        let avgSpeed = totalSecs > 0 ? Double(totalBytes) / totalSecs : 0
-        log("✓ Copied \(copied) clips  •  \(formatSize(totalBytes))  •  avg \(formatSpeed(avgSpeed))")
-
-        // Create/update project in projects root
-        if let root = GlobalSettings.shared.projectsRoot {
-            let projURL = root.appending(path: folderName)
-            let project = Project(name: folderName, folderURL: projURL)
-            try? ProjectFileManager.createDirectoryStructure(for: project)
-            if !store.projects.contains(where: { $0.name == folderName }) {
-                store.add(project)
-                log("✓ Project '\(folderName)' added")
-            } else {
-                log("✓ Project '\(folderName)' updated")
-            }
-        }
-
-        finishCopy()
+        guard let destBase = settings.inputBaseDir, !outputFolderName.isEmpty else { return }
+        isCopying = true; copiedFiles = 0; totalFiles = 0; logLines = []
+        Task { await runCopy(destBase: destBase) }
     }
 
     @MainActor
-    private func finishCopy() {
-        isCopying = false
-        refresh()   // update mounted + dest counts so UI reflects new state
-    }
+    private func runCopy(destBase: URL) async {
+        let destFolder = destBase.appending(path: outputFolderName)
+        let fm = FileManager.default
+        let cal = Calendar.current
 
-    private func copyFile(from src: URL, to dst: URL) async throws {
-        try await Task.detached(priority: .userInitiated) {
-            if FileManager.default.fileExists(atPath: dst.path) {
-                try FileManager.default.removeItem(at: dst)
+        append("=== Cycliq Copy ===")
+        if let d = selectedDate {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            append("Date filter: \(f.string(from: d))")
+        }
+        append("Output: \(destFolder.path)")
+
+        var allJobs: [(src: URL, dst: URL)] = []
+        for cam in activeCameras {
+            let files = (try? fm.contentsOfDirectory(
+                at: cam.sourceURL,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: .skipsHiddenFiles)) ?? []
+            var matching: [URL] = files.filter { url in
+                guard url.pathExtension.uppercased() == "MP4" else { return false }
+                if let target = selectedDate {
+                    guard let mtime = try? url.resourceValues(
+                              forKeys: [.contentModificationDateKey]).contentModificationDate,
+                          cal.startOfDay(for: mtime) == cal.startOfDay(for: target)
+                    else { return false }
+                }
+                return true
             }
-            try FileManager.default.copyItem(at: src, to: dst)
-        }.value
+            matching.sort { $0.lastPathComponent < $1.lastPathComponent }
+            append("\(cam.displayName): \(matching.count) file\(matching.count == 1 ? "" : "s") found")
+
+            for src in matching {
+                let stem = src.deletingPathExtension().lastPathComponent
+                let number = stem.components(separatedBy: "_").last ?? stem
+                let outName = "\(cam.folderName)_\(number).MP4"
+                allJobs.append((src: src, dst: destFolder.appending(path: outName)))
+            }
+        }
+
+        guard !allJobs.isEmpty else {
+            append("⚠️ Nothing to copy.", error: true)
+            isCopying = false
+            return
+        }
+        totalFiles = allJobs.count
+
+        do {
+            try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
+        } catch {
+            append("❌ Could not create output folder: \(error.localizedDescription)", error: true)
+            isCopying = false
+            return
+        }
+
+        var totalBytes = 0; var totalSecs = 0.0
+        for (i, job) in allJobs.enumerated() {
+            let fileSize = (try? job.src.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            let start = Date()
+            let src = job.src; let dst = job.dst
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    if FileManager.default.fileExists(atPath: dst.path) {
+                        try FileManager.default.removeItem(at: dst)
+                    }
+                    try FileManager.default.copyItem(at: src, to: dst)
+                }.value
+                let elapsed = Date().timeIntervalSince(start)
+                let speed = elapsed > 0 ? Double(fileSize) / elapsed : 0
+                totalBytes += fileSize; totalSecs += elapsed
+                copiedFiles = i + 1
+                append("✓ \(dst.lastPathComponent) (\(formatSize(fileSize)) @ \(formatSpeed(speed)))")
+            } catch {
+                append("❌ \(src.lastPathComponent): \(error.localizedDescription)", error: true)
+            }
+        }
+
+        let avgSpeed = totalSecs > 0 ? Double(totalBytes) / totalSecs : 0
+        append("=== Done ===")
+        append("✓ \(copiedFiles) files  •  \(formatSize(totalBytes))  •  avg \(formatSpeed(avgSpeed))")
+        isCopying = false
+
+        // Create project pointing at the destination folder as the video source
+        if let root = settings.projectsRoot {
+            let projURL = root.appending(path: outputFolderName)
+            let project = Project(name: outputFolderName, folderURL: projURL,
+                                  sourceVideoURL: destFolder)
+            try? ProjectFileManager.createDirectoryStructure(for: project)
+            if !store.projects.contains(where: { $0.name == outputFolderName }) {
+                store.add(project)
+                append("✓ Project '\(outputFolderName)' added")
+            }
+        }
+
+        copyDoneMessage = "\(copiedFiles) file\(copiedFiles == 1 ? "" : "s") copied" +
+                          "\n\(formatSize(totalBytes)) at avg \(formatSpeed(avgSpeed))"
     }
 
-    // MARK: - Helpers
-
-    private func outputName(for src: URL, camera: CameraConfig) -> String {
-        let stem   = src.deletingPathExtension().lastPathComponent
-        let number = stem.contains("_") ? (stem.components(separatedBy: "_").last ?? stem) : stem
-        return "\(camera.folderName)_\(number).MP4"
-    }
-
-    private func log(_ msg: String, error: Bool = false) {
-        logLines.append((msg, error))
-    }
+    private func append(_ msg: String, error: Bool = false) { logLines.append((msg, error)) }
 
     private func formatSize(_ bytes: Int) -> String {
         let d = Double(bytes)

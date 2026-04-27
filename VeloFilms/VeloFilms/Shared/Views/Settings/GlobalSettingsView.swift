@@ -3,8 +3,9 @@ import UniformTypeIdentifiers
 
 struct GlobalSettingsView: View {
     private var settings = GlobalSettings.shared
-    @State private var showInputPicker    = false
-    @State private var showProjectsPicker = false
+    private enum PickerTarget { case input, projects, fly12Source, fly6Source }
+    @State private var pickerTarget: PickerTarget = .input
+    @State private var showPicker = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -21,6 +22,7 @@ struct GlobalSettingsView: View {
                         DirRow(label: "Projects Root",
                                url: settings.projectsRoot,
                                onChoose: chooseProjectsRoot)
+
                     }
                     .padding(8)
                 }
@@ -29,12 +31,22 @@ struct GlobalSettingsView: View {
                 GroupBox("Cameras") {
                     VStack(spacing: 12) {
                         Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
-                            .disabled(!settings.hasFly6Pro)   // must keep at least one
+                            .disabled(!settings.hasFly6Pro)
                             .onChange(of: settings.hasFly12Sport) { settings.save() }
+                        if settings.hasFly12Sport {
+                            DirRow(label: "Fly12 Sport source",
+                                   url: settings.fly12SourceURL,
+                                   onChoose: chooseFly12Source)
+                        }
                         Divider()
                         Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
                             .disabled(!settings.hasFly12Sport)
                             .onChange(of: settings.hasFly6Pro) { settings.save() }
+                        if settings.hasFly6Pro {
+                            DirRow(label: "Fly6 Pro source",
+                                   url: settings.fly6SourceURL,
+                                   onChoose: chooseFly6Source)
+                        }
                     }
                     .padding(8)
                 }
@@ -111,51 +123,62 @@ struct GlobalSettingsView: View {
             .padding(20)
         }
         .frame(width: 480)
-        .fileImporter(isPresented: $showInputPicker,
+        .fileImporter(isPresented: $showPicker,
                       allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 _ = url.startAccessingSecurityScopedResource()
-                GlobalSettings.shared.inputBaseDir = url
-            }
-        }
-        .fileImporter(isPresented: $showProjectsPicker,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                _ = url.startAccessingSecurityScopedResource()
-                GlobalSettings.shared.projectsRoot = url
+                switch pickerTarget {
+                case .input:       GlobalSettings.shared.inputBaseDir = url
+                case .projects:    GlobalSettings.shared.projectsRoot = url
+                case .fly12Source: GlobalSettings.shared.fly12SourceURL = url
+                case .fly6Source:  GlobalSettings.shared.fly6SourceURL = url
+                }
             }
         }
     }
 
     private func chooseInputDir() {
 #if os(macOS)
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            GlobalSettings.shared.inputBaseDir = url
-        }
+        openPanel { GlobalSettings.shared.inputBaseDir = $0 }
 #else
-        showInputPicker = true
+        pickerTarget = .input; showPicker = true
 #endif
     }
 
     private func chooseProjectsRoot() {
 #if os(macOS)
+        openPanel { GlobalSettings.shared.projectsRoot = $0 }
+#else
+        pickerTarget = .projects; showPicker = true
+#endif
+    }
+
+    private func chooseFly12Source() {
+#if os(macOS)
+        openPanel { GlobalSettings.shared.fly12SourceURL = $0 }
+#else
+        pickerTarget = .fly12Source; showPicker = true
+#endif
+    }
+
+    private func chooseFly6Source() {
+#if os(macOS)
+        openPanel { GlobalSettings.shared.fly6SourceURL = $0 }
+#else
+        pickerTarget = .fly6Source; showPicker = true
+#endif
+    }
+
+#if os(macOS)
+    private func openPanel(_ apply: (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            GlobalSettings.shared.projectsRoot = url
-        }
-#else
-        showProjectsPicker = true
-#endif
+        if panel.runModal() == .OK, let url = panel.url { apply(url) }
     }
+#endif
 }
 
 // MARK: - Sub-views

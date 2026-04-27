@@ -39,7 +39,7 @@ struct GarminActivity: Decodable, Identifiable {
     }
 }
 
-/// Calls connectapi.garmin.com — the same subdomain garth uses — with OAuth2 Bearer token.
+/// Calls connectapi.garmin.com with OAuth2 Bearer token.
 struct GarminClient {
     private let auth = GarminAuth.shared
     private let base = "https://connectapi.garmin.com"

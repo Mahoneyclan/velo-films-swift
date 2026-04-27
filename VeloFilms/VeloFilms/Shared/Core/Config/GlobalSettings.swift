@@ -23,6 +23,12 @@ final class GlobalSettings {
     // MARK: - Camera setup
     var hasFly12Sport: Bool = true
     var hasFly6Pro: Bool = true
+    var fly12SourceURL: URL? {
+        didSet { UserDefaults.standard.set(fly12SourceURL?.path, forKey: "fly12SourcePath") }
+    }
+    var fly6SourceURL: URL? {
+        didSet { UserDefaults.standard.set(fly6SourceURL?.path, forKey: "fly6SourcePath") }
+    }
 
     // MARK: - Camera calibration (offsets + timezones)
     var fly12SportOffset: Double = 0.0
@@ -62,6 +68,12 @@ final class GlobalSettings {
         cameraCreationTimeIsLocalWrongZ = (UserDefaults.standard.object(forKey: "cameraCreationTimeIsLocalWrongZ") as? Bool) ?? true
         hasFly12Sport = (UserDefaults.standard.object(forKey: "hasFly12Sport") as? Bool) ?? true
         hasFly6Pro    = (UserDefaults.standard.object(forKey: "hasFly6Pro")    as? Bool) ?? true
+        if let p = UserDefaults.standard.string(forKey: "fly12SourcePath") {
+            fly12SourceURL = URL(fileURLWithPath: p)
+        }
+        if let p = UserDefaults.standard.string(forKey: "fly6SourcePath") {
+            fly6SourceURL = URL(fileURLWithPath: p)
+        }
         musicVolume             = UserDefaults.standard.double(forKey: "musicVolume").nonZero
                                     ?? AppConfig.musicVolume
         rawAudioVolume          = UserDefaults.standard.double(forKey: "rawAudioVolume").nonZero
