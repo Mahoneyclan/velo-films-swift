@@ -88,13 +88,13 @@ final class PipelineExecutor {
 enum PipelineError: LocalizedError {
     case stepNotRegistered(String)
     case missingInput(String)
-    case ffmpegFailed(Int32, String)
+    case renderFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .stepNotRegistered(let name): return "Step '\(name)' is not registered"
         case .missingInput(let detail):    return "Missing input: \(detail)"
-        case .ffmpegFailed(let code, let stderr): return "FFmpeg exited \(code): \(stderr)"
+        case .renderFailed(let detail):    return "Render failed: \(detail)"
         }
     }
 }

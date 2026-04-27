@@ -22,80 +22,49 @@ struct GaugeRenderer {
         var cadenceRpm: Double?
     }
 
-    /// Render per-second gauge frames and compile to a ProRes 4444 .mov.
-    /// Returns the URL of the compiled video.
-    static func renderDynamic(
+    /// Render per-second gauge frames as CGImages held in memory.
+    /// The compositor selects the frame for each video frame by elapsed second.
+    static func renderFrames(
         flattenRows: [FlattenRow],
-        clipEpoch: Double,
-        outputDir: URL,
-        clipIndex: Int,
-        bridge: any FFmpegBridge
-    ) async throws -> URL {
-        let duration = AppConfig.clipOutLenS
-        let numFrames = Int(ceil(duration)) + 1
-
-        let tempDir = outputDir.appending(path: String(format: "_temp_gauge_%04d", clipIndex))
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-        // Compute data-driven ranges from all flatten rows
+        clipEpoch: Double
+    ) throws -> [CGImage] {
+        let numFrames = Int(ceil(AppConfig.clipOutLenS)) + 1
         let ranges = computeRanges(flattenRows: flattenRows)
-
-        // Render one PNG per second
-        for sec in 0..<numFrames {
-            let epoch = clipEpoch + Double(sec)
-            let telem = lookupTelemetry(flattenRows: flattenRows, epoch: epoch)
-            let frameURL = tempDir.appending(path: String(format: "gauge_%02d.png", sec))
-            try renderStrip(telemetry: telem, ranges: ranges, outputURL: frameURL)
+        return try (0..<numFrames).map { sec in
+            let telem = lookupTelemetry(flattenRows: flattenRows, epoch: clipEpoch + Double(sec))
+            return try renderStripImage(telemetry: telem, ranges: ranges)
         }
-
-        // Compile PNGs → ProRes 4444 .mov at 1 fps
-        let movURL = outputDir.appending(path: String(format: "gauge_video_%04d.mov", clipIndex))
-        let inputPattern = tempDir.appending(path: "gauge_%02d.png").path
-        _ = try await bridge.execute(arguments: [
-            "-hide_banner", "-loglevel", "error",
-            "-framerate", "1",
-            "-i", inputPattern,
-            "-c:v", "prores_ks",
-            "-profile:v", "4444",
-            "-pix_fmt", "yuva444p10le",
-            "-t", String(format: "%.3f", duration),
-            "-y", movURL.path
-        ])
-
-        // Clean up temp PNGs
-        try? FileManager.default.removeItem(at: tempDir)
-        return movURL
     }
 
-    // MARK: - Single strip frame
-
-    static func renderStrip(telemetry: GaugeTelemetry,
-                             ranges: GaugeRanges = GaugeRanges(),
-                             outputURL: URL) throws {
-        let W = AppConfig.HUD.gaugeCompositeW   // 972
-        let H = AppConfig.HUD.gaugeCompositeH   // 194
-        let cellW = AppConfig.HUD.gaugeCellSize // 194
-
+    /// Render a single gauge strip frame to a CGImage (no file I/O).
+    static func renderStripImage(telemetry: GaugeTelemetry,
+                                  ranges: GaugeRanges = GaugeRanges()) throws -> CGImage {
+        let W = AppConfig.HUD.gaugeCompositeW
+        let H = AppConfig.HUD.gaugeCompositeH
+        let cellW = AppConfig.HUD.gaugeCellSize
         let ctx = makeBitmapContext(width: W, height: H)
 
         let cells: [(label: String, value: Double?, minVal: Double, maxVal: Double, unit: String)] = [
-            ("ELEVATION", telemetry.elevM,       ranges.elevMin,     ranges.elevMax,     "m"),
-            ("GRADIENT",  telemetry.gradientPct, ranges.gradMin,     ranges.gradMax,     "%"),
-            ("SPEED",     telemetry.speedKmh,    ranges.speedMin,    ranges.speedMax,    "km/h"),
-            ("HR",        telemetry.hrBpm,       ranges.hrMin,       ranges.hrMax,       "bpm"),
-            ("CADENCE",   telemetry.cadenceRpm,  ranges.cadenceMin,  ranges.cadenceMax,  "rpm"),
+            ("ELEVATION", telemetry.elevM,       ranges.elevMin,    ranges.elevMax,    "m"),
+            ("GRADIENT",  telemetry.gradientPct, ranges.gradMin,    ranges.gradMax,    "%"),
+            ("SPEED",     telemetry.speedKmh,    ranges.speedMin,   ranges.speedMax,   "km/h"),
+            ("HR",        telemetry.hrBpm,       ranges.hrMin,      ranges.hrMax,      "bpm"),
+            ("CADENCE",   telemetry.cadenceRpm,  ranges.cadenceMin, ranges.cadenceMax, "rpm"),
         ]
-
         for (i, cell) in cells.enumerated() {
-            let x = CGFloat(i * cellW)
-            let cellRect = CGRect(x: x, y: 0, width: CGFloat(cellW), height: CGFloat(H))
-            drawGaugeCell(in: ctx, rect: cellRect,
+            drawGaugeCell(in: ctx,
+                          rect: CGRect(x: CGFloat(i * cellW), y: 0,
+                                       width: CGFloat(cellW), height: CGFloat(H)),
                           value: cell.value, minVal: cell.minVal, maxVal: cell.maxVal,
                           label: cell.label, unit: cell.unit)
         }
-
-        try saveContext(ctx, to: outputURL)
+        guard let image = ctx.makeImage() else {
+            throw PipelineError.renderFailed("GaugeRenderer: CGImage creation failed")
+        }
+        return image
     }
+
+    // MARK: - Single strip frame
 
     // MARK: - Gauge ranges (data-driven, ±10% buffer — mirrors compute_gauge_ranges)
 

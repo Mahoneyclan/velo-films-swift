@@ -331,17 +331,16 @@ struct ProjectDetailView: View {
     // MARK: - Step registration
 
     private func registerSteps() {
-        let bridge = makeBridge()
         let modelURL = Bundle.main.url(forResource: "VeloYOLO", withExtension: "mlmodelc")
                     ?? Bundle.main.url(forResource: "VeloYOLO", withExtension: "mlpackage")
                     ?? URL(fileURLWithPath: "/dev/null")
-        executor.register(FlattenStep(),    for: .flatten)
-        executor.register(ExtractStep(),    for: .extract)
-        executor.register(EnrichStep(yoloModelURL: modelURL), for: .enrich)
-        executor.register(SelectStep(),     for: .select)
-        executor.register(BuildStep(bridge: bridge, yoloModelURL: modelURL), for: .build)
-        executor.register(SplashStep(bridge: bridge),  for: .splash)
-        executor.register(ConcatStep(bridge: bridge),  for: .concat)
+        executor.register(FlattenStep(),                       for: .flatten)
+        executor.register(ExtractStep(),                       for: .extract)
+        executor.register(EnrichStep(yoloModelURL: modelURL),  for: .enrich)
+        executor.register(SelectStep(),                        for: .select)
+        executor.register(BuildStep(yoloModelURL: modelURL),   for: .build)
+        executor.register(SplashStep(),                        for: .splash)
+        executor.register(ConcatStep(),                        for: .concat)
     }
 
     private func reveal(_ url: URL) {

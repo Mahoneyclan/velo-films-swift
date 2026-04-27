@@ -1,14 +1,15 @@
 import Foundation
+import AVFoundation
 import CoreGraphics
+import QuartzCore
 
 /// Builds _outro.mp4: frame collage + animated "Velo Films" text → fade to black.
-/// Mirrors outro_builder.py.
+/// Mirrors outro_builder.py. drawtext replaced with CATextLayer via AVVideoCompositionCoreAnimationTool.
 enum OutroBuilder {
 
     static func build(project: Project,
                       selectRows: [SelectRow],
-                      flattenRows: [FlattenRow],
-                      bridge: any FFmpegBridge) async throws {
+                      flattenRows: [FlattenRow]) async throws {
         let outputURL = project.clipsDir.appending(path: "_outro.mp4")
         try? FileManager.default.removeItem(at: outputURL)
 
@@ -17,98 +18,169 @@ enum OutroBuilder {
 
         let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
         let bannerH = AppConfig.bannerHeight
-        let enc = AppConfig.Encoding.self
 
-        // Build outro collage PNG from recommended frames
         let collagePNG = assetsDir.appending(path: "outro_collage.png")
-        let frames = IntroBuilder.collectFrames(from: project.framesDir, selectRows: selectRows, max: 24)
-        let stats = IntroBuilder.computeRideStats(flattenRows: flattenRows)
+        let frames = IntroBuilder.collectFrames(from: project.framesDir,
+                                                selectRows: selectRows, max: 24)
+        let stats  = IntroBuilder.computeRideStats(flattenRows: flattenRows)
         try IntroBuilder.renderCollage(frames: frames, outputURL: collagePNG,
                                        width: W, height: H, bannerHeight: bannerH,
                                        stats: stats, project: project)
 
+        guard let collageCG = IntroBuilder.loadCGImage(from: collagePNG) else {
+            throw PipelineError.renderFailed("OutroBuilder: could not load collage PNG")
+        }
+
         let outroDuration = 3.7
-        let titleAppear  = 1.0
-        let titleFadeIn  = 0.5
-        let fadeOutStart = 3.0
-        let fadeOutD     = 0.7
+        let titleAppear   = 1.0
+        let titleFadeIn   = 0.5
+        let fadeOutStart  = 3.0
+        let fadeOutDur    = 0.7
 
-        let alphaExpr =
-            "if(lt(t,\(titleAppear)),0," +
-            "if(lt(t,\(titleAppear + titleFadeIn))," +
-            "(t-\(titleAppear))/\(titleFadeIn),1))"
+        // 1. Encode collage still (no text yet — text added via CoreAnimation)
+        let collageRaw = assetsDir.appending(path: "outro_collage_raw.mp4")
+        try await VideoEncoder.encodeStill(image: collageCG, duration: outroDuration,
+                                           outputURL: collageRaw)
 
-        let titleFontSize = 160 * W / 2560
-        let drawtext =
-            "drawtext=text='Velo Films':" +
-            "x=(w-text_w)/2:y=(h-text_h)/2:" +
-            "fontsize=\(titleFontSize):fontcolor=white:" +
-            "bordercolor=black@0.45:borderw=6:" +
-            "shadowcolor=black@0.7:shadowx=4:shadowy=4:" +
-            "alpha='\(alphaExpr)'"
-
-        let vf = "scale=\(W):\(H):force_original_aspect_ratio=decrease," +
-                 "pad=\(W):\(H):(ow-iw)/2:(oh-ih)/2," +
-                 "\(drawtext)," +
-                 "fade=t=out:st=\(fadeOutStart):d=\(fadeOutD)"
-
-        // Collage clip with animated text overlay
+        // 2. Add animated "Velo Films" text overlay using AVVideoCompositionCoreAnimationTool
         let collageClip = assetsDir.appending(path: "outro_collage.mp4")
-        _ = try await bridge.execute(arguments: [
-            "-loop", "1", "-framerate", "30",
-            "-i", collagePNG.path,
-            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-            "-t", String(format: "%.2f", outroDuration),
-            "-vf", vf,
-            "-map", "0:v", "-map", "1:a",
-            "-c:v", enc.codec, "-b:v", enc.bitrate, "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k", "-shortest",
-            "-y", collageClip.path
-        ])
+        try await addTextOverlay(
+            videoURL:     collageRaw,
+            outputURL:    collageClip,
+            text:         "Velo Films",
+            fontSize:     CGFloat(160 * W / 2560),
+            width: W, height: H,
+            titleAppear:  titleAppear,
+            titleFadeIn:  titleFadeIn,
+            fadeOutStart: fadeOutStart,
+            fadeOutDur:   fadeOutDur,
+            totalDur:     outroDuration
+        )
+        try? FileManager.default.removeItem(at: collageRaw)
 
-        // Black screen clip — r=30 must match collage so xfade timebases align
+        // 3. Build a black clip (solid black CGImage encoded as still)
+        let blackDur  = 2.0
         let blackClip = assetsDir.appending(path: "outro_black.mp4")
-        _ = try await bridge.execute(arguments: [
-            "-f", "lavfi", "-i", "color=c=black:s=\(W)x\(H):r=30:d=2",
-            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-            "-t", "2", "-c:v", enc.codec, "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k", "-shortest",
-            "-y", blackClip.path
-        ])
+        let blackImg  = makeBlackImage(width: W, height: H)
+        try await VideoEncoder.encodeStill(image: blackImg, duration: blackDur,
+                                           outputURL: blackClip)
 
-        // Concat collage → black with xfade → raw silent outro
+        // 4. Cross-dissolve collage → black
         let rawURL = assetsDir.appending(path: "outro_raw.mp4")
-        try? FileManager.default.removeItem(at: rawURL)
+        try await IntroBuilder.crossDissolveChain(
+            clips:    [collageClip, blackClip],
+            clipDur:  outroDuration,   // first clip duration
+            xfadeDur: fadeOutDur,
+            outputURL: rawURL
+        )
 
-        _ = try await bridge.execute(arguments: [
-            "-i", collageClip.path,
-            "-i", blackClip.path,
-            "-filter_complex",
-            "[0:v][1:v]xfade=transition=fade:duration=\(fadeOutD):offset=\(outroDuration - fadeOutD)[vout];" +
-            "[0:a][1:a]acrossfade=d=\(fadeOutD)[aout]",
-            "-map", "[vout]", "-map", "[aout]",
-            "-c:v", enc.codec, "-b:v", enc.bitrate,
-            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k",
-            "-y", rawURL.path
-        ])
-
-        // Mix in outro.mp3 if available; otherwise just rename
-        let totalDur = outroDuration + 2.0 - fadeOutD  // 5.0s
+        // 5. Add music or keep silent
+        let totalDur = outroDuration + blackDur - fadeOutDur
         if let musicURL = IntroBuilder.findResourceAudio(named: "outro") {
-            _ = try await bridge.execute(arguments: [
-                "-i", rawURL.path,
-                "-stream_loop", "-1", "-i", musicURL.path,
-                "-map", "0:v", "-map", "1:a",
-                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11,volume=0.85",
-                "-c:v", "copy",
-                "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k",
-                "-t", String(format: "%.3f", totalDur),
-                "-y", outputURL.path
-            ])
+            try await IntroBuilder.mixAudio(videoURL: rawURL, musicURL: musicURL,
+                                            duration: totalDur, musicVolume: 0.85,
+                                            outputURL: outputURL)
             try? FileManager.default.removeItem(at: rawURL)
         } else {
             try? FileManager.default.removeItem(at: outputURL)
             try FileManager.default.moveItem(at: rawURL, to: outputURL)
         }
+    }
+
+    // MARK: - Text overlay via AVVideoCompositionCoreAnimationTool
+
+    private static func addTextOverlay(
+        videoURL:    URL,
+        outputURL:   URL,
+        text:        String,
+        fontSize:    CGFloat,
+        width: Int, height: Int,
+        titleAppear:  Double,
+        titleFadeIn:  Double,
+        fadeOutStart: Double,
+        fadeOutDur:   Double,
+        totalDur:     Double
+    ) async throws {
+        try? FileManager.default.removeItem(at: outputURL)
+
+        let ts    = CMTimeScale(600)
+        let durCM = CMTimeMakeWithSeconds(totalDur, preferredTimescale: ts)
+
+        let asset       = AVURLAsset(url: videoURL)
+        let composition = AVMutableComposition()
+
+        guard let srcVideo = try? await asset.loadTracks(withMediaType: .video).first else {
+            throw PipelineError.renderFailed("OutroBuilder: no video track in collage clip")
+        }
+        let vTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        try vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: durCM), of: srcVideo, at: .zero)
+
+        // CoreAnimation layer tree
+        let W = CGFloat(width), H = CGFloat(height)
+
+        // Video layer — AVVideoCompositionCoreAnimationTool renders into this
+        let videoLayer = CALayer()
+        videoLayer.frame = CGRect(x: 0, y: 0, width: W, height: H)
+
+        // Text layer with animated opacity
+        let textLayer        = CATextLayer()
+        textLayer.string     = text
+        textLayer.fontSize   = fontSize
+        textLayer.foregroundColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+        textLayer.alignmentMode   = .center
+        textLayer.frame      = CGRect(x: 0, y: H / 2 - fontSize, width: W, height: fontSize * 2)
+        textLayer.opacity    = 0
+
+        // Shadow
+        textLayer.shadowColor   = CGColor(red: 0, green: 0, blue: 0, alpha: 0.7)
+        textLayer.shadowOffset  = CGSize(width: 4, height: -4)
+        textLayer.shadowRadius  = 3
+        textLayer.shadowOpacity = 1
+
+        // Fade in: opacity 0→1 from titleAppear to titleAppear+titleFadeIn
+        let fadeIn           = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue     = 0.0
+        fadeIn.toValue       = 1.0
+        fadeIn.beginTime     = AVCoreAnimationBeginTimeAtZero + titleAppear
+        fadeIn.duration      = titleFadeIn
+        fadeIn.fillMode      = .forwards
+        fadeIn.isRemovedOnCompletion = false
+        textLayer.add(fadeIn, forKey: "fadeIn")
+
+        let parentLayer     = CALayer()
+        parentLayer.frame   = CGRect(x: 0, y: 0, width: W, height: H)
+        parentLayer.addSublayer(videoLayer)
+        parentLayer.addSublayer(textLayer)
+
+        // Fade out entire frame: fade out of the parent via video composition instruction
+        // (handled by crossDissolveChain xfade to black, so no additional fade needed here)
+
+        let videoComp = AVMutableVideoComposition()
+        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComp.renderSize    = CGSize(width: W, height: H)
+        videoComp.animationTool = AVVideoCompositionCoreAnimationTool(
+            postProcessingAsVideoLayer: videoLayer, in: parentLayer)
+
+        let instr    = AVMutableVideoCompositionInstruction()
+        instr.timeRange = CMTimeRange(start: .zero, duration: durCM)
+        instr.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: vTrack)]
+        videoComp.instructions = [instr]
+
+        try await VideoEncoder.export(composition: composition,
+                                      videoComposition: videoComp,
+                                      to: outputURL)
+    }
+
+    // MARK: - Black frame
+
+    private static func makeBlackImage(width: Int, height: Int) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height,
+                            bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx.makeImage()!
     }
 }

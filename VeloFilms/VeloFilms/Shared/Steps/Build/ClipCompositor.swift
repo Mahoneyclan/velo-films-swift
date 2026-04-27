@@ -1,101 +1,121 @@
 import Foundation
+import AVFoundation
+import CoreGraphics
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
-/// Assembles each clip's HUD overlay via FFmpegBridge filter_complex.
-/// Mirrors clip_renderer.py. All filter strings are ported verbatim from the Python source.
+/// Assembles each clip's HUD overlay using AVFoundation custom compositing.
+/// Replaces the FFmpeg filter_complex pipeline from clip_renderer.py.
 struct ClipCompositor {
-    let bridge: any FFmpegBridge
     let outputDir: URL
 
     /// Render a single clip with PiP, map, elevation, and gauge overlays.
-    ///
-    /// - Parameters:
-    ///   - mainRow: The primary (recommended) select row.
-    ///   - pipRow: Optional PiP (partner camera) row.
-    ///   - minimapPath: Pre-rendered 390×390 minimap PNG.
-    ///   - elevationPath: Pre-rendered 948×75 elevation strip PNG.
-    ///   - gaugePath: Pre-rendered 972×194 gauge PNG or ProRes .mov.
-    ///   - clipIndex: 1-based index for output filename.
-    func renderClip(mainRow: EnrichRow,
-                    pipRow: EnrichRow?,
-                    minimapPath: URL,
-                    elevationPath: URL,
-                    gaugePath: URL,
-                    clipIndex: Int) async throws -> URL {
+    func renderClip(
+        mainRow:      EnrichRow,
+        pipRow:       EnrichRow?,
+        minimapPath:  URL,
+        elevationPath: URL,
+        gaugeImages:  [CGImage],
+        clipIndex:    Int
+    ) async throws -> URL {
+        let outputURL = outputDir.appending(
+            path: String(format: "clip_%04d.mp4", clipIndex))
 
-        let outputURL = outputDir.appending(path: String(format: "clip_%04d.mp4", clipIndex))
-
-        let mainVideoURL = URL(fileURLWithPath: mainRow.videoPath)
-        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
-        let duration = AppConfig.clipOutLenS
-
-        var inputs: [String] = [
-            "-ss", String(tStartMain), "-t", String(duration), "-i", mainVideoURL.path
-        ]
-
-        var filterComplex: String
-
-        let isGaugeVideo = gaugePath.pathExtension.lowercased() == "mov"
-        let gaugeInputArgs = isGaugeVideo
-            ? ["-t", String(duration), "-i", gaugePath.path]
-            : ["-loop", "1", "-t", String(duration), "-i", gaugePath.path]
-
-        if let pip = pipRow {
-            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
-            let pipVideoURL = URL(fileURLWithPath: pip.videoPath)
-            inputs += ["-ss", String(tStartPip), "-t", String(duration), "-i", pipVideoURL.path]
-            // Input indices: 0=main, 1=pip, 2=minimap, 3=elev, 4=gauge
-            inputs += ["-i", minimapPath.path, "-i", elevationPath.path] + gaugeInputArgs
-            filterComplex = Self.filterComplexWithPiP(mapInputIdx: 2, elevInputIdx: 3, gaugeInputIdx: 4)
-        } else {
-            // No PiP — still lay map/elev/gauge on main
-            inputs += ["-i", minimapPath.path, "-i", elevationPath.path] + gaugeInputArgs
-            filterComplex = Self.filterComplexNoPiP(mapInputIdx: 1, elevInputIdx: 2, gaugeInputIdx: 3)
+        // Load overlay images from disk
+        guard let minimapImage  = loadCGImage(from: minimapPath),
+              let elevImage     = loadCGImage(from: elevationPath) else {
+            throw PipelineError.renderFailed("Could not load overlay images for clip \(clipIndex)")
         }
 
-        let enc = AppConfig.Encoding.self
-        let args: [String] = inputs + [
-            "-filter_complex", filterComplex,
-            "-map", "[vhud]", "-map", "[anorm]",
-            "-c:v", enc.codec,
-            "-b:v", enc.bitrate, "-maxrate", enc.maxrate, "-bufsize", enc.bufsize,
-            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
-            "-movflags", "+faststart",
-            "-y", outputURL.path
-        ]
+        let ts       = CMTimeScale(600)
+        let tStart   = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let duration = AppConfig.clipOutLenS
+        let tStartCM = CMTimeMakeWithSeconds(tStart,    preferredTimescale: ts)
+        let durCM    = CMTimeMakeWithSeconds(duration,  preferredTimescale: ts)
+        let srcRange = CMTimeRange(start: tStartCM, duration: durCM)
 
-        _ = try await bridge.execute(arguments: args)
+        let composition = AVMutableComposition()
+
+        // Main video track
+        let mainAsset = AVURLAsset(url: URL(fileURLWithPath: mainRow.videoPath))
+        guard let mainSrcVideo = try await mainAsset.loadTracks(withMediaType: .video).first else {
+            throw PipelineError.renderFailed("No video track in \(mainRow.videoPath)")
+        }
+        let mainTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        try mainTrack.insertTimeRange(srcRange, of: mainSrcVideo, at: .zero)
+
+        // Main audio track (optional — not all clips have audio)
+        if let mainSrcAudio = try? await mainAsset.loadTracks(withMediaType: .audio).first {
+            let audioTrack = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            try? audioTrack.insertTimeRange(srcRange, of: mainSrcAudio, at: .zero)
+        }
+
+        // PiP video track
+        var pipTrackID: CMPersistentTrackID? = nil
+        if let pip = pipRow {
+            let pipStart   = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
+            let pipStartCM = CMTimeMakeWithSeconds(pipStart, preferredTimescale: ts)
+            let pipRange   = CMTimeRange(start: pipStartCM, duration: durCM)
+            let pipAsset   = AVURLAsset(url: URL(fileURLWithPath: pip.videoPath))
+            if let pipSrcVideo = try? await pipAsset.loadTracks(withMediaType: .video).first {
+                let pipTrack = composition.addMutableTrack(
+                    withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+                try? pipTrack.insertTimeRange(pipRange, of: pipSrcVideo, at: .zero)
+                pipTrackID = pipTrack.trackID
+            }
+        }
+
+        // Custom video composition
+        let instrRange = CMTimeRange(start: .zero, duration: durCM)
+        let instruction = ClipCompositionInstruction(
+            timeRange:    instrRange,
+            mainTrackID:  mainTrack.trackID,
+            pipTrackID:   pipTrackID,
+            minimapImage: minimapImage,
+            elevImage:    elevImage,
+            gaugeImages:  gaugeImages
+        )
+
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.customVideoCompositorClass = ClipVideoCompositor.self
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComposition.renderSize    = CGSize(width:  AppConfig.HUD.outputW,
+                                                height: AppConfig.HUD.outputH)
+        videoComposition.instructions  = [instruction]
+
+        // Audio mix — apply raw audio volume; loudnorm replaced by fixed gain
+        var audioMix: AVAudioMix? = nil
+        if let audioTrack = composition.tracks(withMediaType: .audio).first {
+            let params = AVMutableAudioMixInputParameters(track: audioTrack)
+            params.setVolume(Float(GlobalSettings.shared.rawAudioVolume), at: .zero)
+            let mix = AVMutableAudioMix()
+            mix.inputParameters = [params]
+            audioMix = mix
+        }
+
+        try await VideoEncoder.export(
+            composition:      composition,
+            videoComposition: videoComposition,
+            audioMix:         audioMix,
+            to:               outputURL
+        )
         return outputURL
     }
 
-    // MARK: - Filter complex strings (verbatim from clip_renderer.py)
+    // MARK: - Image loading
 
-    /// With PiP: main=input 0, pip=input 1, map=N, elev=N+1, gauge=N+2
-    static func filterComplexWithPiP(mapInputIdx: Int, elevInputIdx: Int, gaugeInputIdx: Int) -> String {
-        let m = mapInputIdx, e = elevInputIdx, g = gaugeInputIdx
-        let H = AppConfig.HUD.self
-        return """
-        [0:v]scale=\(H.outputW):\(H.outputH):force_original_aspect_ratio=decrease,\
-        pad=\(H.outputW):\(H.outputH):(ow-iw)/2:(oh-ih)/2[vmain];\
-        [1:v]scale=-1:\(H.pipH)[pip];\
-        [vmain][pip]overlay=\(H.pipX):H-h-\(H.mapPipBottom)[v1];\
-        [v1][\(m):v]overlay=\(H.mapX):H-h-\(H.mapPipBottom)[vmap];\
-        [vmap][\(e):v]overlay=\(H.elevX):H-h[velev];\
-        [velev][\(g):v]overlay=\(H.gaugeX):H-h-\(H.mapPipBottom):format=auto[vhud];\
-        [0:a]loudnorm=I=\(AppConfig.loudnormTarget):TP=\(AppConfig.loudnormTP):LRA=\(AppConfig.loudnormLRA),aresample=48000,aformat=channel_layouts=stereo[anorm]
-        """
+    private func loadCGImage(from url: URL) -> CGImage? {
+#if os(macOS)
+        guard let img = NSImage(contentsOf: url) else { return nil }
+        return img.cgImage(forProposedRect: nil, context: nil, hints: nil)
+#else
+        guard let img = UIImage(contentsOfFile: url.path) else { return nil }
+        return img.cgImage
+#endif
     }
-
-    static func filterComplexNoPiP(mapInputIdx: Int, elevInputIdx: Int, gaugeInputIdx: Int) -> String {
-        let m = mapInputIdx, e = elevInputIdx, g = gaugeInputIdx
-        let H = AppConfig.HUD.self
-        return """
-        [0:v]scale=\(H.outputW):\(H.outputH):force_original_aspect_ratio=decrease,\
-        pad=\(H.outputW):\(H.outputH):(ow-iw)/2:(oh-ih)/2[vmain];\
-        [vmain][\(m):v]overlay=\(H.mapX):H-h-\(H.mapPipBottom)[vmap];\
-        [vmap][\(e):v]overlay=\(H.elevX):H-h[velev];\
-        [velev][\(g):v]overlay=\(H.gaugeX):H-h-\(H.mapPipBottom):format=auto[vhud];\
-        [0:a]loudnorm=I=\(AppConfig.loudnormTarget):TP=\(AppConfig.loudnormTP):LRA=\(AppConfig.loudnormLRA),aresample=48000,aformat=channel_layouts=stereo[anorm]
-        """
-    }
-
 }

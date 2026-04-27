@@ -145,19 +145,13 @@ enum AppConfig {
 
     // MARK: - Video encoding
     enum Encoding {
-        static let codec: String = "libx264"
-        static let bitrate: String = "8M"
-        static let maxrate: String = "12M"
-        static let bufsize: String = "24M"
-        static let ffmpegHwaccel: String = "videotoolbox"
+        static let videoBitrate: Int = 8_000_000   // 8 Mbps H.264
+        static let audioBitrate: Int = 192_000     // 192 kbps AAC
     }
 
     // MARK: - Audio
     static let musicVolume: Double = 0.7
     static let rawAudioVolume: Double = 0.3
-    static let loudnormTarget: String = "-16"
-    static let loudnormTP: String = "-1.5"
-    static let loudnormLRA: String = "11"
 
     // MARK: - Segment concat
     static let highlightsPerSegment: Int = 8   // Int(30.0 / clipOutLenS)

@@ -95,7 +95,6 @@
 			mainGroup = C9C90C882F9780DD004713FF;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C9312F592F9F27BE0082CAB1 /* XCRemoteSwiftPackageReference "ffmpeg-kit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C9C90C922F9780DD004713FF /* Products */;
@@ -380,17 +379,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		C9312F592F9F27BE0082CAB1 /* XCRemoteSwiftPackageReference "ffmpeg-kit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/arthenica/ffmpeg-kit";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = C9C90C892F9780DD004713FF /* Project object */;
 }

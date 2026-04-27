@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import CoreGraphics
 import MapKit
 import CoreLocation
@@ -8,133 +9,221 @@ import AppKit
 import UIKit
 #endif
 
-/// Builds _intro.mp4: map+banner → crossfade → collage → music.
-/// Mirrors intro_builder.py. Flip animation simplified to xfade dissolve.
+/// Builds _intro.mp4: logo → map+banner → collage crossfade chain, with music.
+/// Mirrors intro_builder.py. All rendering via AVFoundation + Core Graphics.
 enum IntroBuilder {
 
     static func build(project: Project,
                       selectRows: [SelectRow],
-                      flattenRows: [FlattenRow],
-                      bridge: any FFmpegBridge) async throws {
+                      flattenRows: [FlattenRow]) async throws {
         let outputURL = project.clipsDir.appending(path: "_intro.mp4")
         try? FileManager.default.removeItem(at: outputURL)
 
         let assetsDir = project.splashAssetsDir
         try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
 
-        let stats = computeRideStats(flattenRows: flattenRows)
+        let stats  = computeRideStats(flattenRows: flattenRows)
         let frames = collectFrames(from: project.framesDir, selectRows: selectRows, max: 24)
 
         let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
         let bannerH = AppConfig.bannerHeight
-        let enc = AppConfig.Encoding.self
-        let clipDuration = 3.0
-        let xfadeDur    = 1.2
 
-        // 1. Map + banner PNG
+        // 1. Render PNG assets
         let mapPNG = assetsDir.appending(path: "intro_map.png")
-        await renderMapBanner(flattenRows: flattenRows, stats: stats,
-                              project: project, outputURL: mapPNG,
-                              width: W, height: H, bannerHeight: bannerH)
+        await renderMapBanner(flattenRows: flattenRows, stats: stats, project: project,
+                              outputURL: mapPNG, width: W, height: H, bannerHeight: bannerH)
 
-        // 2. Collage PNG
         let collagePNG = assetsDir.appending(path: "intro_collage.png")
         try renderCollage(frames: frames, outputURL: collagePNG,
                           width: W, height: H, bannerHeight: bannerH,
                           stats: stats, project: project)
 
-        // 3. Encode map + collage stills
+        // 2. Load CGImages and encode stills to video clips
+        guard let mapCG     = loadCGImage(from: mapPNG),
+              let collageCG = loadCGImage(from: collagePNG) else {
+            throw PipelineError.renderFailed("IntroBuilder: could not load splash PNGs")
+        }
+
+        let clipDur  = 3.0
+        let xfadeDur = 1.2
+
+        var clips: [(image: CGImage, url: URL)] = []
+
+        if let logoURL = findResourceImage(named: "velo_films"),
+           let logoCG  = loadCGImage(from: logoURL) {
+            let c = assetsDir.appending(path: "intro_logo.mp4")
+            try await VideoEncoder.encodeStill(image: logoCG, duration: clipDur, outputURL: c)
+            clips.append((logoCG, c))
+        }
+
         let mapClip = assetsDir.appending(path: "intro_map.mp4")
-        try await encodeStill(imageURL: mapPNG, duration: clipDuration, outputURL: mapClip, bridge: bridge)
+        try await VideoEncoder.encodeStill(image: mapCG, duration: clipDur, outputURL: mapClip)
+        clips.append((mapCG, mapClip))
 
         let collageClip = assetsDir.appending(path: "intro_collage.mp4")
-        try await encodeStill(imageURL: collagePNG, duration: clipDuration, outputURL: collageClip, bridge: bridge)
+        try await VideoEncoder.encodeStill(image: collageCG, duration: clipDur, outputURL: collageClip)
+        clips.append((collageCG, collageClip))
 
-        // 4. Logo clip (velo_films.png)
-        let logoClip: URL?
-        if let logoURL = findResourceImage(named: "velo_films") {
-            let c = assetsDir.appending(path: "intro_logo.mp4")
-            try await encodeStill(imageURL: logoURL, duration: clipDuration, outputURL: c, bridge: bridge)
-            logoClip = c
-        } else {
-            logoClip = nil
-        }
-
-        // 5. Crossfade chain → raw silent video
+        // 3. Cross-dissolve chain
         let rawURL = assetsDir.appending(path: "intro_raw.mp4")
-        try? FileManager.default.removeItem(at: rawURL)
+        try await crossDissolveChain(clips: clips.map(\.url),
+                                     clipDur: clipDur, xfadeDur: xfadeDur,
+                                     outputURL: rawURL)
 
-        if let logo = logoClip {
-            // logo → map → collage (3-clip chain)
-            let o1 = String(format: "%.3f", 1.0 * (clipDuration - xfadeDur))  // 1.800
-            let o2 = String(format: "%.3f", 2.0 * (clipDuration - xfadeDur))  // 3.600
-            _ = try await bridge.execute(arguments: [
-                "-i", logo.path,
-                "-i", mapClip.path,
-                "-i", collageClip.path,
-                "-filter_complex",
-                "[0:v][1:v]xfade=transition=fade:duration=\(xfadeDur):offset=\(o1)[v1];" +
-                "[v1][2:v]xfade=transition=fade:duration=\(xfadeDur):offset=\(o2)[vout];" +
-                "[0:a][1:a]acrossfade=d=\(xfadeDur)[a1];" +
-                "[a1][2:a]acrossfade=d=\(xfadeDur)[aout]",
-                "-map", "[vout]", "-map", "[aout]",
-                "-c:v", enc.codec, "-b:v", enc.bitrate,
-                "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
-                "-y", rawURL.path
-            ])
-        } else {
-            // map → collage (2-clip fallback)
-            _ = try await bridge.execute(arguments: [
-                "-i", mapClip.path,
-                "-i", collageClip.path,
-                "-filter_complex",
-                "[0:v][1:v]xfade=transition=fade:duration=\(xfadeDur):offset=1.800[vout];" +
-                "[0:a][1:a]acrossfade=d=\(xfadeDur)[aout]",
-                "-map", "[vout]", "-map", "[aout]",
-                "-c:v", enc.codec, "-b:v", enc.bitrate,
-                "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
-                "-y", rawURL.path
-            ])
-        }
-
-        // 6. Mix in intro.mp3 if available; otherwise rename raw → output
-        let clipCount = logoClip != nil ? 3.0 : 2.0
-        let totalDur  = clipCount * clipDuration - (clipCount - 1) * xfadeDur
-
+        // 4. Add music or keep silent
+        let totalDur = Double(clips.count) * clipDur - Double(clips.count - 1) * xfadeDur
         if let musicURL = findResourceAudio(named: "intro") {
-            try await mixSplashMusic(videoURL: rawURL, musicURL: musicURL,
-                                     duration: totalDur, outputURL: outputURL, bridge: bridge)
+            try await mixAudio(videoURL: rawURL, musicURL: musicURL,
+                               duration: totalDur, musicVolume: 0.85, outputURL: outputURL)
             try? FileManager.default.removeItem(at: rawURL)
         } else {
             try FileManager.default.moveItem(at: rawURL, to: outputURL)
         }
     }
 
-    // MARK: - Splash music mix (replaces silent audio with music track)
+    // MARK: - Cross-dissolve chain (shared with OutroBuilder)
 
-    private static func mixSplashMusic(videoURL: URL, musicURL: URL,
-                                        duration: Double, outputURL: URL,
-                                        bridge: any FFmpegBridge) async throws {
-        _ = try await bridge.execute(arguments: [
-            "-i", videoURL.path,
-            "-stream_loop", "-1", "-i", musicURL.path,
-            "-map", "0:v", "-map", "1:a",
-            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11,volume=0.85",
-            "-c:v", "copy",
-            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
-            "-t", String(format: "%.3f", duration),
-            "-y", outputURL.path
-        ])
+    /// Joins N video clips with cross-dissolve transitions using AVMutableComposition.
+    static func crossDissolveChain(clips: [URL], clipDur: Double, xfadeDur: Double,
+                                    outputURL: URL) async throws {
+        guard clips.count >= 2 else {
+            // Single clip — just copy
+            if let first = clips.first {
+                try? FileManager.default.removeItem(at: outputURL)
+                try FileManager.default.copyItem(at: first, to: outputURL)
+            }
+            return
+        }
+
+        let ts      = CMTimeScale(600)
+        let dCM     = CMTimeMakeWithSeconds(clipDur,  preferredTimescale: ts)
+        let xCM     = CMTimeMakeWithSeconds(xfadeDur, preferredTimescale: ts)
+        let stepCM  = dCM - xCM
+
+        let composition = AVMutableComposition()
+        let trackA = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        let trackB = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+
+        var insertTime = CMTime.zero
+        for (i, url) in clips.enumerated() {
+            let asset  = AVURLAsset(url: url)
+            let vTrack = (i % 2 == 0) ? trackA : trackB
+            if let src = try? await asset.loadTracks(withMediaType: .video).first {
+                try? vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: dCM),
+                                            of: src, at: insertTime)
+            }
+            if i < clips.count - 1 { insertTime = insertTime + stepCM }
+        }
+
+        let totalDurS  = Double(clips.count) * clipDur - Double(clips.count - 1) * xfadeDur
+        let totalDurCM = CMTimeMakeWithSeconds(totalDurS, preferredTimescale: ts)
+
+        var instructions: [AVMutableVideoCompositionInstruction] = []
+        for i in 0..<clips.count {
+            let useA      = (i % 2 == 0)
+            let curr      = useA ? trackA : trackB
+            let next      = useA ? trackB : trackA
+            let clipStart = CMTimeMakeWithSeconds(Double(i) * (clipDur - xfadeDur),
+                                                  preferredTimescale: ts)
+
+            let midStart = i == 0 ? clipStart : clipStart + xCM
+            let midEnd   = i < clips.count - 1 ? clipStart + stepCM : totalDurCM
+
+            if midStart < midEnd {
+                let instr = AVMutableVideoCompositionInstruction()
+                instr.timeRange = CMTimeRange(start: midStart, end: midEnd)
+                instr.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: curr)]
+                instructions.append(instr)
+            }
+
+            if i < clips.count - 1 {
+                let transStart = clipStart + stepCM
+                let transRange = CMTimeRange(start: transStart, duration: xCM)
+                let transInstr = AVMutableVideoCompositionInstruction()
+                transInstr.timeRange = transRange
+                let outL = AVMutableVideoCompositionLayerInstruction(assetTrack: curr)
+                outL.setOpacityRamp(fromStartOpacity: 1, toEndOpacity: 0, timeRange: transRange)
+                let inL  = AVMutableVideoCompositionLayerInstruction(assetTrack: next)
+                inL.setOpacityRamp(fromStartOpacity: 0, toEndOpacity: 1, timeRange: transRange)
+                transInstr.layerInstructions = [inL, outL]
+                instructions.append(transInstr)
+            }
+        }
+
+        let videoComp = AVMutableVideoComposition()
+        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComp.renderSize    = CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
+        videoComp.instructions  = instructions
+
+        try await VideoEncoder.export(composition: composition,
+                                      videoComposition: videoComp,
+                                      to: outputURL)
     }
 
-    // MARK: - Resource lookup (bundle first, then repo Shared/Resources)
+    // MARK: - Music mix (replaces silent track with music audio)
+
+    /// Replace or add audio from musicURL into an existing video file.
+    static func mixAudio(videoURL: URL, musicURL: URL,
+                          duration: Double, musicVolume: Float,
+                          outputURL: URL) async throws {
+        let ts         = CMTimeScale(600)
+        let durCM      = CMTimeMakeWithSeconds(duration, preferredTimescale: ts)
+        let videoAsset = AVURLAsset(url: videoURL)
+        let musicAsset = AVURLAsset(url: musicURL)
+
+        let composition = AVMutableComposition()
+
+        // Video track
+        if let srcV = try? await videoAsset.loadTracks(withMediaType: .video).first {
+            let vTrack = composition.addMutableTrack(
+                withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            try? vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: durCM),
+                                        of: srcV, at: .zero)
+        }
+
+        // Music audio — loop to fill duration
+        var musicTrackComp: AVMutableCompositionTrack? = nil
+        if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
+            let musicDur  = try await musicAsset.load(.duration)
+            let mTrack    = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            var remaining = durCM
+            var destTime  = CMTime.zero
+            while remaining > .zero {
+                let insert   = CMTimeMinimum(remaining, musicDur)
+                try? mTrack.insertTimeRange(CMTimeRange(start: .zero, duration: insert),
+                                            of: srcM, at: destTime)
+                destTime  = destTime + insert
+                remaining = remaining - insert
+            }
+            musicTrackComp = mTrack
+        }
+
+        var inputParams: [AVMutableAudioMixInputParameters] = []
+        if let mt = musicTrackComp {
+            let p = AVMutableAudioMixInputParameters(track: mt)
+            p.setVolume(musicVolume, at: .zero)
+            inputParams.append(p)
+        }
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = inputParams
+
+        try await VideoEncoder.export(composition: composition,
+                                      audioMix: audioMix,
+                                      to: outputURL)
+    }
+
+    // MARK: - Resource lookup
 
     static func findResourceImage(named name: String) -> URL? {
         let exts = ["png", "jpg"]
         for ext in exts {
             if let u = Bundle.main.url(forResource: name, withExtension: ext) { return u }
         }
-        let repoBase = URL(fileURLWithPath: "/Volumes/AData/Github/velo-films-swift/Shared/Resources")
+        let repoBase = URL(fileURLWithPath:
+            "/Volumes/AData/Github/velo-films-swift/Shared/Resources")
         for ext in exts {
             let u = repoBase.appending(path: "\(name).\(ext)")
             if FileManager.default.fileExists(atPath: u.path) { return u }
@@ -147,7 +236,8 @@ enum IntroBuilder {
         for ext in exts {
             if let u = Bundle.main.url(forResource: name, withExtension: ext) { return u }
         }
-        let repoBase = URL(fileURLWithPath: "/Volumes/AData/Github/velo-films-swift/Shared/Resources")
+        let repoBase = URL(fileURLWithPath:
+            "/Volumes/AData/Github/velo-films-swift/Shared/Resources")
         for ext in exts {
             let u = repoBase.appending(path: "\(name).\(ext)")
             if FileManager.default.fileExists(atPath: u.path) { return u }
@@ -159,17 +249,14 @@ enum IntroBuilder {
 
     static func computeRideStats(flattenRows: [FlattenRow]) -> RideStats {
         guard flattenRows.count >= 2 else { return RideStats() }
-        var totalDistM = 0.0
-        var totalClimb = 0.0
+        var totalDistM = 0.0, totalClimb = 0.0
         for i in 1..<flattenRows.count {
             let prev = flattenRows[i-1], curr = flattenRows[i]
             totalDistM += haversineM(prev.lat, prev.lon, curr.lat, curr.lon)
-            if curr.elevation > prev.elevation {
-                totalClimb += curr.elevation - prev.elevation
-            }
+            if curr.elevation > prev.elevation { totalClimb += curr.elevation - prev.elevation }
         }
         let durationS = (flattenRows.last?.gpxEpoch ?? 0) - (flattenRows.first?.gpxEpoch ?? 0)
-        let avgSpeed = durationS > 0 ? (totalDistM / 1000.0) / (durationS / 3600.0) : 0
+        let avgSpeed  = durationS > 0 ? (totalDistM / 1000.0) / (durationS / 3600.0) : 0
         return RideStats(distanceKm: totalDistM / 1000.0, durationS: durationS,
                          avgSpeedKmh: avgSpeed, totalClimbM: totalClimb)
     }
@@ -179,25 +266,20 @@ enum IntroBuilder {
     static func collectFrames(from dir: URL, selectRows: [SelectRow], max: Int) -> [URL] {
         let recommended = Set(selectRows.filter { $0.recommended }.map { $0.base.index })
         let all = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles)) ?? []
+            at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         let jpgs = all.filter { $0.pathExtension.lowercased() == "jpg" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        // Prefer recommended frames; fall back to all
         let filtered = jpgs.filter { url in
             recommended.contains(where: { url.lastPathComponent.contains(String($0)) })
         }
-        let pool = filtered.isEmpty ? jpgs : filtered
-        return Array(pool.prefix(max))
+        return Array((filtered.isEmpty ? jpgs : filtered).prefix(max))
     }
 
     // MARK: - Map + banner
 
-    private static func renderMapBanner(flattenRows: [FlattenRow],
-                                         stats: RideStats,
-                                         project: Project,
-                                         outputURL: URL,
-                                         width: Int, height: Int, bannerHeight: Int) async {
+    static func renderMapBanner(flattenRows: [FlattenRow], stats: RideStats,
+                                  project: Project, outputURL: URL,
+                                  width: Int, height: Int, bannerHeight: Int) async {
         let mapH = height - bannerHeight
         let gpxPoints = flattenRows.map {
             GPXPoint(epoch: $0.gpxEpoch, lat: $0.lat, lon: $0.lon,
@@ -205,25 +287,22 @@ enum IntroBuilder {
                      speedKmh: $0.speedKmh, gradientPct: $0.gradientPct)
         }
 
-        // Fetch map snapshot for the route area
         var mapImage: CGImage? = nil
         if gpxPoints.count >= 2 {
-            let lats = gpxPoints.map { $0.lat }
-            let lons = gpxPoints.map { $0.lon }
-            let pad = AppConfig.Map.paddingPct
+            let lats = gpxPoints.map { $0.lat }, lons = gpxPoints.map { $0.lon }
+            let pad  = AppConfig.Map.paddingPct
             let latSpan = max(lats.max()! - lats.min()!, 0.001) * (1 + 2 * pad)
             let lonSpan = max(lons.max()! - lons.min()!, 0.001) * (1 + 2 * pad)
             let opts = MKMapSnapshotter.Options()
             opts.region = MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: (lats.min()! + lats.max()!) / 2,
+                center: CLLocationCoordinate2D(latitude:  (lats.min()! + lats.max()!) / 2,
                                                longitude: (lons.min()! + lons.max()!) / 2),
                 span: MKCoordinateSpan(latitudeDelta: latSpan, longitudeDelta: lonSpan))
-            opts.size = CGSize(width: width, height: mapH)
-            opts.mapType = .standard
+            opts.size     = CGSize(width: width, height: mapH)
+            opts.mapType  = .standard
             opts.showsBuildings = false
 
             if let snap = try? await MKMapSnapshotter(options: opts).start() {
-                // Draw route over snapshot
                 let ctx = makeBitmapContext(width: width, height: mapH)
                 #if os(macOS)
                 let cg = snap.image.cgImage(forProposedRect: nil, context: nil, hints: nil)!
@@ -232,7 +311,6 @@ enum IntroBuilder {
                 #endif
                 ctx.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: mapH))
 
-                // Route polyline
                 let rw = AppConfig.Map.splashRouteWidth
                 let rc = AppConfig.Map.routeColor
                 ctx.setStrokeColor(CGColor(red: CGFloat(rc.0)/255, green: CGFloat(rc.1)/255,
@@ -249,34 +327,26 @@ enum IntroBuilder {
             }
         }
 
-        // Composite full frame: map area + dark banner
         let ctx = makeBitmapContext(width: width, height: height)
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-
         if let mi = mapImage {
             ctx.draw(mi, in: CGRect(x: 0, y: 0, width: width, height: mapH))
         }
-
-        // Banner (bottom strip, dark overlay)
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.82))
         ctx.fill(CGRect(x: 0, y: mapH, width: width, height: bannerHeight))
 
-        // Title: ride folder name
         let titleSize = CGFloat(72 * width / 2560)
         drawCentred(project.name, in: ctx, x: width / 2,
-                    y: mapH + bannerHeight / 3,
-                    fontSize: titleSize, bold: true)
+                    y: mapH + bannerHeight / 3, fontSize: titleSize, bold: true)
 
-        // Stats line
         let dS = Int(stats.durationS)
         let statsStr = String(format: "%.1f km   %dh %02dm   %.1f km/h avg   %.0f m ascent",
                               stats.distanceKm, dS / 3600, (dS % 3600) / 60,
                               stats.avgSpeedKmh, stats.totalClimbM)
-        let statsSize = CGFloat(48 * width / 2560)
         drawCentred(statsStr, in: ctx, x: width / 2,
                     y: mapH + bannerHeight * 2 / 3,
-                    fontSize: statsSize, bold: false)
+                    fontSize: CGFloat(48 * width / 2560), bold: false)
 
         savePNG(ctx, to: outputURL)
     }
@@ -284,32 +354,27 @@ enum IntroBuilder {
     // MARK: - Collage
 
     static func renderCollage(frames: [URL], outputURL: URL,
-                                       width: Int, height: Int, bannerHeight: Int,
-                                       stats: RideStats, project: Project) throws {
+                               width: Int, height: Int, bannerHeight: Int,
+                               stats: RideStats, project: Project) throws {
         let ctx = makeBitmapContext(width: width, height: height)
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-        guard !frames.isEmpty else {
-            savePNG(ctx, to: outputURL); return
-        }
+        guard !frames.isEmpty else { savePNG(ctx, to: outputURL); return }
 
         let collageH = height - bannerHeight
         let cols = min(frames.count, 5)
         let rows = Int(ceil(Double(frames.count) / Double(cols)))
-        let tileW = width / cols
-        let tileH = collageH / rows
+        let tileW = width / cols, tileH = collageH / rows
 
         for (i, url) in frames.enumerated() {
             guard i < cols * rows else { break }
             let col = i % cols, row = i / cols
             let destRect = CGRect(x: col * tileW, y: row * tileH, width: tileW, height: tileH)
-
             guard let src = loadCGImage(from: url) else { continue }
-            // Scale-to-fill: crop to tile aspect
             let srcW = CGFloat(src.width), srcH = CGFloat(src.height)
             let tileAspect = CGFloat(tileW) / CGFloat(tileH)
-            let srcAspect = srcW / srcH
+            let srcAspect  = srcW / srcH
             let cropRect: CGRect
             if srcAspect > tileAspect {
                 let cropW = srcH * tileAspect
@@ -318,12 +383,9 @@ enum IntroBuilder {
                 let cropH = srcW / tileAspect
                 cropRect = CGRect(x: 0, y: (srcH - cropH) / 2, width: srcW, height: cropH)
             }
-            if let cropped = src.cropping(to: cropRect) {
-                ctx.draw(cropped, in: destRect)
-            }
+            if let cropped = src.cropping(to: cropRect) { ctx.draw(cropped, in: destRect) }
         }
 
-        // Banner
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.75))
         ctx.fill(CGRect(x: 0, y: collageH, width: width, height: bannerHeight))
 
@@ -342,35 +404,17 @@ enum IntroBuilder {
         savePNG(ctx, to: outputURL)
     }
 
-    // MARK: - FFmpeg helpers
-
-    static func encodeStill(imageURL: URL, duration: Double,
-                                     outputURL: URL, bridge: any FFmpegBridge) async throws {
-        let enc = AppConfig.Encoding.self
-        let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
-        _ = try await bridge.execute(arguments: [
-            "-loop", "1", "-framerate", "30",
-            "-i", imageURL.path,
-            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-            "-t", String(format: "%.2f", duration),
-            "-vf", "scale=\(W):\(H):force_original_aspect_ratio=decrease,pad=\(W):\(H):(ow-iw)/2:(oh-ih)/2",
-            "-c:v", enc.codec, "-b:v", enc.bitrate, "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "128k", "-shortest",
-            "-y", outputURL.path
-        ])
-    }
-
     // MARK: - Drawing helpers
 
     static func drawCentred(_ text: String, in ctx: CGContext,
-                                     x: Int, y: Int, fontSize: CGFloat, bold: Bool) {
+                             x: Int, y: Int, fontSize: CGFloat, bold: Bool) {
         let fontName = bold ? "SFNS-Bold" : "SFNS-Regular"
-        let font = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        let font     = CTFontCreateWithName(fontName as CFString, fontSize, nil)
         let attrs: [CFString: Any] = [
-            kCTFontAttributeName: font,
-            kCTForegroundColorAttributeName: CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+            kCTFontAttributeName:            font,
+            kCTForegroundColorAttributeName: CGColor(red: 1, green: 1, blue: 1, alpha: 1),
         ]
-        let line = CTLineCreateWithAttributedString(
+        let line   = CTLineCreateWithAttributedString(
             CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)!)
         let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
         ctx.textPosition = CGPoint(x: CGFloat(x) - bounds.width / 2 - bounds.minX,
@@ -411,8 +455,8 @@ enum IntroBuilder {
 }
 
 struct RideStats {
-    var distanceKm: Double = 0
-    var durationS: Double  = 0
-    var avgSpeedKmh: Double = 0
-    var totalClimbM: Double = 0
+    var distanceKm:   Double = 0
+    var durationS:    Double = 0
+    var avgSpeedKmh:  Double = 0
+    var totalClimbM:  Double = 0
 }
