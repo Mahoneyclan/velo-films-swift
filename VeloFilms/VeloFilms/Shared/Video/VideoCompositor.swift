@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import CoreGraphics
 import CoreImage
+import Metal
 
 // MARK: - Custom instruction
 
@@ -50,22 +51,25 @@ final class ClipCompositionInstruction: NSObject, AVVideoCompositionInstructionP
 /// FFmpeg "H-h-75" (top-left origin) → y=75 in CIImage coordinates.
 final class ClipVideoCompositor: NSObject, AVVideoCompositing {
 
+    // AVFoundation requires a single pixel format value — not an array.
+    // IOSurface backing enables Metal compositing without deprecated OpenGL key.
     var sourcePixelBufferAttributes: [String: Any]? = [
-        kCVPixelBufferPixelFormatTypeKey as String: [
-            kCVPixelFormatType_32BGRA,
-            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-        ],
-        kCVPixelBufferOpenGLCompatibilityKey as String: true,
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
     ]
 
     var requiredPixelBufferAttributesForRenderContext: [String: Any] = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
     ]
 
-    private let ciContext = CIContext(options: [
-        .workingColorSpace: CGColorSpaceCreateDeviceRGB(),
-        .useSoftwareRenderer: false,
-    ])
+    private lazy var ciContext: CIContext = {
+        if let device = MTLCreateSystemDefaultDevice() {
+            return CIContext(mtlDevice: device,
+                            options: [.workingColorSpace: CGColorSpaceCreateDeviceRGB()])
+        }
+        return CIContext(options: [.workingColorSpace: CGColorSpaceCreateDeviceRGB()])
+    }()
 
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {}
 

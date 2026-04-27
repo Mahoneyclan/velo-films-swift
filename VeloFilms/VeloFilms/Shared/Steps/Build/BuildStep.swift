@@ -33,7 +33,9 @@ struct BuildStep: PipelineStep {
 
         let recommendedIds = Set(recommended.map { $0.base.momentId })
         let allMoments     = PartnerMatcher.group(selectRows.map(\.base))
-        let moments        = allMoments.filter { recommendedIds.contains($0.momentId) }
+        let moments        = allMoments
+            .filter { recommendedIds.contains($0.momentId) }
+            .sorted { ($0.primary?.absTimeEpoch ?? 0) < ($1.primary?.absTimeEpoch ?? 0) }
         let total          = moments.count
 
         clearDirectory(project.minimapsDir)
