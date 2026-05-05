@@ -28,20 +28,27 @@ final class PipelineExecutor {
         failedStep = nil
         lastError = nil
 
-        task = Task { @MainActor in
+        // Snapshot chain + step impls on MainActor now, then detach so heavy
+        // encode/decode work runs on the cooperative thread pool — Task.sleep and
+        // copyNextSampleBuffer never block the UI thread.
+        let chain      = dependencyChain(for: stepName, project: project)
+        let stepImpls  = steps   // [StepName: any PipelineStep] captured by value
+
+        task = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
             do {
-                let chain = dependencyChain(for: stepName, project: project)
                 for name in chain {
-                    guard let step = steps[name] else {
+                    guard let step = stepImpls[name] else {
                         throw PipelineError.stepNotRegistered(name.rawValue)
                     }
                     try Task.checkCancellation()
 
-                    self.runningStep = name
-                    log.info("Starting step: \(name.rawValue)")
+                    await MainActor.run { self.runningStep = name }
+                    self.log.info("Starting step: \(name.rawValue)")
 
                     let reporter = ProgressReporter()
-                    let monitorTask = Task { @MainActor in
+                    let monitorTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
                         for await event in reporter.stream {
                             self.currentProgress = event
                         }
@@ -51,20 +58,24 @@ final class PipelineExecutor {
                     await reporter.finish()
                     monitorTask.cancel()
 
-                    self.completedSteps.insert(name)
-                    self.runningStep = nil
-                    self.currentProgress = nil
-                    log.info("Completed step: \(name.rawValue)")
+                    await MainActor.run {
+                        self.completedSteps.insert(name)
+                        self.runningStep = nil
+                        self.currentProgress = nil
+                    }
+                    self.log.info("Completed step: \(name.rawValue)")
                 }
             } catch is CancellationError {
-                log.info("Pipeline cancelled")
+                self.log.info("Pipeline cancelled")
             } catch {
-                log.error("Step failed: \(error.localizedDescription)")
-                self.failedStep = self.runningStep
-                self.lastError = error
-                self.runningStep = nil
+                self.log.error("Step failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.failedStep = self.runningStep
+                    self.lastError = error
+                    self.runningStep = nil
+                }
             }
-            self.isRunning = false
+            await MainActor.run { self.isRunning = false }
         }
     }
 
@@ -89,12 +100,14 @@ enum PipelineError: LocalizedError {
     case stepNotRegistered(String)
     case missingInput(String)
     case renderFailed(String)
+    case ffmpegFailed(Int32, String)
 
     var errorDescription: String? {
         switch self {
-        case .stepNotRegistered(let name): return "Step '\(name)' is not registered"
-        case .missingInput(let detail):    return "Missing input: \(detail)"
-        case .renderFailed(let detail):    return "Render failed: \(detail)"
+        case .stepNotRegistered(let name):         return "Step '\(name)' is not registered"
+        case .missingInput(let detail):            return "Missing input: \(detail)"
+        case .renderFailed(let detail):            return "Render failed: \(detail)"
+        case .ffmpegFailed(let code, let stderr):  return "FFmpeg exited \(code): \(stderr)"
         }
     }
 }

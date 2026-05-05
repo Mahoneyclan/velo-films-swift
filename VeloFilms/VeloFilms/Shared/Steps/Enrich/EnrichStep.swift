@@ -43,6 +43,7 @@ struct EnrichStep: PipelineStep {
         var enrichedRows: [EnrichRow] = []
         enrichedRows.reserveCapacity(sorted.count)
 
+        let isoFmt = ISO8601DateFormatter()
         let total = sorted.count
         var globalIdx = 0
 
@@ -97,7 +98,9 @@ struct EnrichStep: PipelineStep {
             let segBoost = segmentMatcher.boost(epoch: row.absTimeEpoch)
 
             // Scoring
-            let camera = AppConfig.CameraName(rawValue: row.camera) ?? .fly12Sport
+            guard let camera = AppConfig.CameraName(rawValue: row.camera) else {
+                throw PipelineError.missingInput("Unrecognized camera name '\(row.camera)'")
+            }
             let composite = ScoreCalculator.composite(ScoreCalculator.Input(
                 detectScore: detectScore,
                 sceneBoost: sceneBoost,
@@ -123,7 +126,7 @@ struct EnrichStep: PipelineStep {
                     bboxArea: bboxArea, detectedClasses: detectedClasses,
                     objectDetected: numDetections > 0,
                     sceneBoost: sceneBoost,
-                    gpxEpoch: gps?.epoch, gpxTimeUtc: gps.map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0.epoch)) },
+                    gpxEpoch: gps?.epoch, gpxTimeUtc: gps.map { isoFmt.string(from: Date(timeIntervalSince1970: $0.epoch)) },
                     lat: gps?.lat, lon: gps?.lon, elevation: gps?.elevation,
                     hrBpm: gps?.hr, cadenceRpm: gps?.cadence,
                     speedKmh: gps?.speedKmh, gradientPct: gps?.gradientPct,

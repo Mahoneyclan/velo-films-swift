@@ -19,7 +19,6 @@ struct ClipSelector {
 
         let rideStart  = Double(moments.first!.momentId)
         let rideEnd    = Double(moments.last!.momentId)
-        _ = rideEnd - rideStart
         let startZoneEnd  = rideStart + config.startZoneDuration
         let endZoneStart  = rideEnd   - config.endZoneDuration
 
@@ -50,9 +49,11 @@ struct ClipSelector {
             candidates = Array(candidates.sorted { $0.bestScore > $1.bestScore }.prefix(poolSize))
         }
 
-        // 2. Gap filter
+        // 2. Gap filter — compare in actual time, not quantised window indices.
+        // Window-index approach breaks when effectiveGap varies per moment (scene boost
+        // halves it), because indices from different scales are not comparable.
         var selected: [PartnerMatcher.Moment] = []
-        var usedWindows: Set<Int> = []
+        var usedTimes: [Double] = []
 
         let sortedByScore = candidates.sorted { $0.bestScore > $1.bestScore }
         for moment in sortedByScore {
@@ -61,11 +62,9 @@ struct ClipSelector {
             let effectiveGap = sceneBoost >= AppConfig.sceneHighThreshold
                 ? config.minGap * AppConfig.sceneHighGapMultiplier
                 : config.minGap
-            let windowIdx = Int(t / effectiveGap)
-            let blocked = (windowIdx-1...windowIdx+1).contains(where: { usedWindows.contains($0) })
-            if blocked { continue }
+            if usedTimes.contains(where: { abs(t - $0) < effectiveGap }) { continue }
             selected.append(moment)
-            usedWindows.insert(windowIdx)
+            usedTimes.append(t)
             if selected.count >= config.targetClips { break }
         }
 

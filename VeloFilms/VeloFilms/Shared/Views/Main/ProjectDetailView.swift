@@ -252,7 +252,7 @@ struct ProjectDetailView: View {
                 ProgressView()
             }
             HStack {
-                Text(stepLabel(for: executor.runningStep))
+                Text(executor.currentProgress?.message ?? stepLabel(for: executor.runningStep))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", role: .destructive) { executor.cancel() }

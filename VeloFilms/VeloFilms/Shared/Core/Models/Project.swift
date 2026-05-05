@@ -22,11 +22,9 @@ extension Project {
     var clipsDir: URL        { folderURL.appending(path: "clips") }
     var framesDir: URL       { folderURL.appending(path: "frames") }
     var minimapsDir: URL     { folderURL.appending(path: "minimaps") }
-    var gaugesDir: URL       { folderURL.appending(path: "gauges") }
     var elevationDir: URL    { folderURL.appending(path: "elevation") }
     var trophiesDir: URL     { folderURL.appending(path: "trophies") }
     var splashAssetsDir: URL { folderURL.appending(path: "splash_assets") }
-    var logsDir: URL         { folderURL.appending(path: "logs") }
 
     var gpxFile: URL         { workingDir.appending(path: "ride.gpx") }
 
@@ -124,15 +122,36 @@ final class ProjectStore {
 
     private func load() {
         guard let records = UserDefaults.standard.array(forKey: Self.udKey) as? [[String: String]] else { return }
+        // Use bookmark-resolved roots so derived URLs inherit the TCC/powerbox access grant.
+        let root    = GlobalSettings.shared.projectsRoot
+        let srcBase = GlobalSettings.shared.inputBaseDir
         projects = records.compactMap { record in
             guard let name = record["name"],
                   let idStr = record["id"],
                   let id = UUID(uuidString: idStr),
                   let path = record["path"] else { return nil }
-            let url = URL(fileURLWithPath: path)
             guard FileManager.default.fileExists(atPath: path) else { return nil }
-            let sourceURL = record["sourcePath"].map { URL(fileURLWithPath: $0) }
+            let url       = Self.reanchor(path: path, under: root)
+            let sourceURL = record["sourcePath"].map { Self.reanchor(path: $0, under: srcBase) }
             return Project(id: id, name: name, folderURL: url, sourceVideoURL: sourceURL)
         }
     }
+
+    /// Re-derives a URL from a bookmark-resolved parent when the path falls inside it,
+    /// so the resulting URL inherits the parent's TCC access context.
+    private static func reanchor(path: String, under parent: URL?) -> URL {
+        if let parent {
+            let parentPath = parent.path(percentEncoded: false)
+            if path.hasPrefix(parentPath) {
+                let relative = String(path.dropFirst(parentPath.count)).drop(while: { $0 == "/" })
+                if !relative.isEmpty {
+                    return parent.appending(path: String(relative))
+                }
+                return parent
+            }
+        }
+        return URL(fileURLWithPath: path)
+    }
 }
+
+

@@ -36,13 +36,51 @@ struct GaugeRenderer {
         }
     }
 
+    /// Write per-second gauge frames to a temp directory as PNGs for FFmpeg input.
+    /// Returns the directory URL; files are named gauge_0001.png, gauge_0002.png, …
+    /// The caller is responsible for deleting the directory after FFmpeg finishes.
+    static func writeFramesToDisk(
+        flattenRows: [FlattenRow],
+        clipEpoch: Double,
+        clipIndex: Int
+    ) throws -> URL {
+        let numFrames = Int(ceil(AppConfig.clipOutLenS)) + 1
+        let ranges = computeRanges(flattenRows: flattenRows)
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "vf_gauge_\(clipIndex)")
+        try? FileManager.default.removeItem(at: dir)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for sec in 0..<numFrames {
+            let telem = lookupTelemetry(flattenRows: flattenRows, epoch: clipEpoch + Double(sec))
+            let image = try renderStripImage(telemetry: telem, ranges: ranges)
+            let fileURL = dir.appending(path: String(format: "gauge_%04d.png", sec + 1))
+            try writePNG(image, to: fileURL)
+        }
+        return dir
+    }
+
+    private static func writePNG(_ image: CGImage, to url: URL) throws {
+#if os(macOS)
+        let rep = NSBitmapImageRep(cgImage: image)
+        guard let data = rep.representation(using: .png, properties: [:]) else {
+            throw PipelineError.renderFailed("Failed to encode gauge PNG")
+        }
+        try data.write(to: url)
+#else
+        guard let data = UIImage(cgImage: image).pngData() else {
+            throw PipelineError.renderFailed("Failed to encode gauge PNG")
+        }
+        try data.write(to: url)
+#endif
+    }
+
     /// Render a single gauge strip frame to a CGImage (no file I/O).
     static func renderStripImage(telemetry: GaugeTelemetry,
                                   ranges: GaugeRanges = GaugeRanges()) throws -> CGImage {
         let W = AppConfig.HUD.gaugeCompositeW
         let H = AppConfig.HUD.gaugeCompositeH
         let cellW = AppConfig.HUD.gaugeCellSize
-        let ctx = makeBitmapContext(width: W, height: H)
+        let ctx = try makeBitmapContext(width: W, height: H)
 
         let cells: [(label: String, value: Double?, minVal: Double, maxVal: Double, unit: String)] = [
             ("ELEVATION", telemetry.elevM,       ranges.elevMin,    ranges.elevMax,    "m"),
@@ -113,11 +151,11 @@ struct GaugeRenderer {
         return r
     }
 
-    // MARK: - Telemetry lookup (nearest epoch within 2s)
+    // MARK: - Telemetry lookup (nearest epoch within 2s, O(log n))
 
     private static func lookupTelemetry(flattenRows: [FlattenRow], epoch: Double) -> GaugeTelemetry {
         guard !flattenRows.isEmpty else { return GaugeTelemetry() }
-        guard let nearest = flattenRows.min(by: { abs($0.gpxEpoch - epoch) < abs($1.gpxEpoch - epoch) }),
+        guard let nearest = binarySearchNearest(flattenRows, epoch: epoch),
               abs(nearest.gpxEpoch - epoch) <= 2.0 else { return GaugeTelemetry() }
         return GaugeTelemetry(
             elevM: nearest.elevation,
@@ -126,6 +164,22 @@ struct GaugeRenderer {
             hrBpm: nearest.hrBpm,
             cadenceRpm: nearest.cadenceRpm
         )
+    }
+
+    private static func binarySearchNearest(_ rows: [FlattenRow], epoch: Double) -> FlattenRow? {
+        var lo = 0, hi = rows.count - 1
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if rows[mid].gpxEpoch < epoch { lo = mid + 1 } else { hi = mid }
+        }
+        var best: FlattenRow? = nil
+        var bestDiff = Double.infinity
+        for idx in [lo - 1, lo, lo + 1] {
+            guard (0..<rows.count).contains(idx) else { continue }
+            let diff = abs(rows[idx].gpxEpoch - epoch)
+            if diff < bestDiff { bestDiff = diff; best = rows[idx] }
+        }
+        return best
     }
 
     // MARK: - Single gauge cell
@@ -215,12 +269,13 @@ struct GaugeRenderer {
         label == "GRADIENT" ? String(format: "%.1f", v) : String(format: "%.0f", v)
     }
 
-    private static func makeBitmapContext(width: Int, height: Int) -> CGContext {
-        let ctx = CGContext(data: nil, width: width, height: height,
-                            bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        // Start fully transparent
+    private static func makeBitmapContext(width: Int, height: Int) throws -> CGContext {
+        guard let ctx = CGContext(data: nil, width: width, height: height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw PipelineError.renderFailed("GaugeRenderer: CGContext creation failed")
+        }
         ctx.clear(CGRect(x: 0, y: 0, width: width, height: height))
         return ctx
     }

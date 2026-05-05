@@ -22,7 +22,7 @@ struct ElevationRenderer {
 
         let W = AppConfig.HUD.elevW   // 948
         let H = AppConfig.HUD.elevH   // 75
-        let ctx = makeBitmapContext(width: W, height: H)
+        let ctx = try makeBitmapContext(width: W, height: H)
 
         // Background
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.7))
@@ -91,20 +91,29 @@ struct ElevationRenderer {
         // max elev top-left, min elev bottom-left, total dist bottom-right
         // (label drawing omitted for brevity — add with CoreText as in GaugeRenderer)
 
-        let cgImage = ctx.makeImage()!
+        guard let cgImage = ctx.makeImage() else {
+            throw PipelineError.renderFailed("ElevationRenderer: CGImage creation failed")
+        }
 #if os(macOS)
         let rep = NSBitmapImageRep(cgImage: cgImage)
-        let data = rep.representation(using: .png, properties: [:])!
+        guard let data = rep.representation(using: .png, properties: [:]) else {
+            throw PipelineError.renderFailed("ElevationRenderer: PNG encoding failed")
+        }
 #else
-        let data = UIImage(cgImage: cgImage).pngData()!
+        guard let data = UIImage(cgImage: cgImage).pngData() else {
+            throw PipelineError.renderFailed("ElevationRenderer: PNG encoding failed")
+        }
 #endif
         try data.write(to: outputURL, options: .atomic)
     }
 
-    private static func makeBitmapContext(width: Int, height: Int) -> CGContext {
-        CGContext(data: nil, width: width, height: height,
-                  bitsPerComponent: 8, bytesPerRow: 0,
-                  space: CGColorSpaceCreateDeviceRGB(),
-                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    private static func makeBitmapContext(width: Int, height: Int) throws -> CGContext {
+        guard let ctx = CGContext(data: nil, width: width, height: height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw PipelineError.renderFailed("ElevationRenderer: CGContext creation failed")
+        }
+        return ctx
     }
 }

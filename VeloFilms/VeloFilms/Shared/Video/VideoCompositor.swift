@@ -53,14 +53,15 @@ final class ClipVideoCompositor: NSObject, AVVideoCompositing {
 
     // AVFoundation requires a single pixel format value — not an array.
     // IOSurface backing enables Metal compositing without deprecated OpenGL key.
-    var sourcePixelBufferAttributes: [String: Any]? = [
+    // [String: any Sendable] matches the NS_SWIFT_SENDABLE NSDictionary protocol requirement in Swift 6.
+    var sourcePixelBufferAttributes: [String: any Sendable]? = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+        kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
     ]
 
-    var requiredPixelBufferAttributesForRenderContext: [String: Any] = [
+    var requiredPixelBufferAttributesForRenderContext: [String: any Sendable] = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+        kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
     ]
 
     private lazy var ciContext: CIContext = {
@@ -96,7 +97,6 @@ final class ClipVideoCompositor: NSObject, AVVideoCompositing {
             let pipH   = CGFloat(AppConfig.HUD.pipH)
             let pipSrc = CIImage(cvPixelBuffer: pipBuf)
             let scale  = pipH / pipSrc.extent.height
-            let pipW   = pipSrc.extent.width * scale
             var pip    = pipSrc.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             pip = pip.transformed(by: CGAffineTransform(
                 translationX: CGFloat(AppConfig.HUD.pipX),

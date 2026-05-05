@@ -400,11 +400,19 @@ struct CopyVideosView: View {
             let projURL = root.appending(path: outputFolderName)
             let project = Project(name: outputFolderName, folderURL: projURL,
                                   sourceVideoURL: destFolder)
-            try? ProjectFileManager.createDirectoryStructure(for: project)
-            if !store.projects.contains(where: { $0.name == outputFolderName }) {
-                store.add(project)
-                append("✓ Project '\(outputFolderName)' added")
+            do {
+                try ProjectFileManager.createDirectoryStructure(for: project)
+                if !store.projects.contains(where: { $0.name == outputFolderName }) {
+                    store.add(project)
+                    append("✓ Project '\(outputFolderName)' added")
+                } else {
+                    append("⚠️ Project '\(outputFolderName)' already exists")
+                }
+            } catch {
+                append("❌ Failed to create project directories: \(error.localizedDescription)", error: true)
             }
+        } else {
+            append("❌ Projects root directory not set in Settings", error: true)
         }
 
         copyDoneMessage = "\(copiedFiles) file\(copiedFiles == 1 ? "" : "s") copied" +

@@ -15,7 +15,7 @@ Hardware: iPad Air 11-inch M2 (8GB RAM), iPadOS 26.4. Mac Mini M1.
 |---|---|---|---|
 | Xcode 26.4.1 (17E202) | Mac App Store | Free | IDE, Swift compiler, Simulator, Instruments |
 | Apple Developer Program | developer.apple.com | $99/yr | Deploy to physical iPad, TestFlight |
-| FFmpegKit | Swift Package (in-project) | Free | iOS video processing — fetched automatically |
+| FFmpegKit | ~~Swift Package~~ **BLOCKED** — arthenica/ffmpeg-kit repo archived, no Package.swift at root | Free | iOS video processing — cannot add via SPM; iOS pipeline stubs throw until resolved |
 | Git | Already installed | Free | Source control |
 | Claude Code | Already installed | — | Primary development tool |
 
@@ -188,7 +188,7 @@ Do this before writing a single line of Swift.
 - [x] Install Xcode 26.4.1 (17E202)
 - [x] Create GitHub repo `velo-films-swift`, clone locally
 - [x] Create Xcode multiplatform project targeting macOS 14+ and iPadOS 26+
-- [ ] Add Swift Package dependency: FFmpegKit (iOS target only)
+- [ ] Add Swift Package dependency: FFmpegKit (iOS target only) — **BLOCKED**: arthenica/ffmpeg-kit archived, no Package.swift; needs alternative (pre-built XCFramework or fork)
 - [ ] Run `Scripts/export_coreml.py`: `yolo11s.pt` → `VeloYOLO.mlpackage`, add to project
 - [ ] Set up TestFlight for iPad distribution
 - [x] Commit skeleton project structure
@@ -264,7 +264,7 @@ The hardest phase. Video QA requires real footage on real hardware.
 **FFmpegBridge**
 - [x] `FFmpegBridge` protocol — `execute(arguments: [String]) async throws -> String`
 - [x] `FFmpegMacBridge` — direct `Process()` exec of `/opt/homebrew/bin/ffmpeg`; no shell wrapper so filter_complex arguments (spaces, quotes, colons) are passed verbatim. Fixes word-split bugs that broke `drawtext='Velo Films'` and xfade filters.
-- [ ] `FFmpegiOS` — FFmpegKit wrapper (iPadOS target; deferred until iPad testing phase)
+- [ ] `FFmpegiOS` — FFmpegKit wrapper (iPadOS target; **BLOCKED** — SPM package unavailable, see Phase 0 note)
 
 **Build Step**
 - [x] `GaugeRenderer.swift` — Core Graphics rewrite of `gauge_prerenderer.py`. Arc drawing, text labels, semi-transparency. Output: per-clip PNG strip.
@@ -282,8 +282,9 @@ The hardest phase. Video QA requires real footage on real hardware.
 - [ ] xfade "inputs too short" error — intermittent `18 > 2` crash in intro xfade chain needs root-cause verification after FFmpegMacBridge fix
 
 **Concat + Audio**
-- [x] `ConcatStep.swift` — `FFmpegBridge` concat; video stream-copied, audio re-encoded to AAC 48kHz to normalise timebases across intro/middle/outro segments (silent audio drop occurs with full `-c copy` when segments were encoded in separate passes)
-- [ ] `AudioMixer.swift` — `FFmpegBridge -filter_complex amix` for background music with ducking *(not yet implemented — `ConcatStep` currently produces silent or direct audio output)*
+- [x] `ConcatStep.swift` — `FFmpegBridge` xfade crossfade concat between intro/middle/outro segments; normalises all inputs to 30fps + 48kHz before xfade chain to unify AVFoundation (1/600 tb, 48kHz) and FFmpeg (1/15360 tb, 96kHz) timebases
+- [x] Background music mixing — `BuildStep.mixMusic()` uses `FFmpegBridge amix` with `-stream_loop -1`; random bundled track selected if no user track set; `findMusicTrack()` uses Bundle API with music/ subfolder + root fallback (Xcode flattens subfolder to bundle root)
+- [ ] `AudioMixer.swift` — planned as a separate file; functionality absorbed into `BuildStep.mixMusic()`
 
 **Video utilities (planned, not implemented)**
 - `VideoCompositor.swift` / `VideoEncoder.swift` — originally planned as AVMutableVideoComposition wrappers; not needed — all composition and encoding handled through `FFmpegBridge` filter_complex strings directly
@@ -426,3 +427,69 @@ Completion-check logic lives partly in `PipelineStep` enum and partly in individ
 | Background rendering UX | Keep app frontmost + progress persistence | iPadOS 26 improved budgets help; still show guidance to user for long renders. |
 | Output codec on iPad | H.264 via VideoToolbox | H.265 multi-pass not available on iPadOS. Visually identical at 8M bitrate. |
 | YOLO batch size on iPad | 2–4 | 8GB RAM constraint. Mac target can use 8. |
+
+---
+
+## Research: AVFoundation compositor & iOS FFmpeg implications
+
+Concise findings from recent research (full reports saved in session state and repo):
+
+- AVFoundation compositing options: AVMutableVideoComposition + AVVideoCompositionCoreAnimationTool (fast to implement, good for HUD overlays) and AVVideoCompositing (custom Metal compositor for per-frame GPU-accelerated compositing and precise xfade behavior). See full report: /Volumes/AData/Github/velo-films-swift/avfoundation-compositor.md
+
+- iOS FFmpeg implications: on-device ffmpeg must be embedded (use FFmpegKit); expect larger app size, licensing considerations (LGPL vs GPL), prefer VideoToolbox acceleration for performance, and handle long-running exports and sandboxed file paths. See full report: /Users/mahoney/.copilot/session-state/c164cfe9-dcf2-4c28-a01a-22435ab123db/research/ios-ffmpeg-implications.md
+
+Actionable recommendations (summary):
+1. Short-term: Keep ffmpeg on macOS; use FFmpegKit on iOS for parity and enable VideoToolbox where possible.
+2. Medium-term: Implement CoreAnimation overlay path for HUD rendering on iOS and use AVAssetExportSession for exports; continue using ffmpeg/FFmpegKit for loudness normalization if needed.
+3. Long-term: Implement a Metal-based AVVideoCompositing compositor for highest performance and full feature parity; fall back to FFmpegKit where features are impractical to reimplement.
+
+(Reports saved to the repo and session-state for full details.)
+
+---
+
+## iOS-specific actions & checklist
+
+Purpose: consolidate immediate, medium and long-term tasks required to support on-device rendering and parity with the macOS ffmpeg pipeline. Prioritised for developer execution.
+
+Priority: High — required before reliable iPad testing
+
+- [x] Replace repo-path fallbacks with bundle or app-dir lookups ✅ (2026-04-30)
+  - `ProjectPreferencesView.discoverTracks()` — removed stale `/Volumes/.../Shared/Resources/music` hardcode; now uses Bundle API with music/ subdirectory + root fallback
+  - `BuildStep.findMusicTrack()` — same Bundle API pattern, 5 bundled tracks found correctly
+  - `IntroBuilder`/`OutroBuilder` — use `findResourceImage/Audio` which check bundle first
+
+- Add FFmpegKit to the iOS target and implement FFmpegKitBridge
+  - Add Swift Package: FFmpegKit (LGPL build preferred) to the iPadOS target.
+  - Implement /Volumes/AData/Github/velo-films-swift/VeloFilms/VeloFilms/Shared/Video/FFmpegBridge.swift FFmpegKitBridge.execute(arguments:) using FFmpegKit.executeAsync, map return codes to PipelineError.ffmpegFailed, support cancellation and return combined logs.
+  - Test: run a simple clip render command on-device, verify VideoToolbox hw accel is enabled in the FFmpegKit build.
+
+- Fix security-scoped bookmark lifecycle
+  - File: /Volumes/AData/Github/velo-films-swift/VeloFilms/VeloFilms/Shared/Core/Config/GlobalSettings.swift
+  - Ensure startAccessingSecurityScopedResource() / stopAccessingSecurityScopedResource() lifecycle is balanced. Either hold access for project lifetime and stop on project close/ app termination, or acquire/release around I/O calls. Add comments documenting the chosen behaviour.
+
+Priority: Medium — improve stability and developer experience
+
+- Prevent ffmpeg deadlocks on macOS (helps parity debugging)
+  - File: /Volumes/AData/Github/velo-films-swift/VeloFilms/VeloFilms/Shared/Video/FFmpegBridge.swift (FFmpegMacBridge)
+  - Change Process usage to read standardOutput/standardError asynchronously using fileHandle.readabilityHandler and accumulate output while process runs; add a configurable timeout and argument logging to help reproduce failing filter_complex invocations.
+
+- [x] Consolidate duplicate Shared sources ✅ (2026-04-29) — old top-level `Shared/`, `macOS/`, `iPadOS/`, `VeloFilmsTests/` directories deleted; canonical path is `VeloFilms/VeloFilms/Shared/`
+
+Priority: Low — polish and policy
+
+- Decide FFmpeg licensing strategy
+  - Choose LGPL build for FFmpegKit where possible and document compliance steps (or accept GPL and prepare source offer). See research: /Users/mahoney/.copilot/session-state/c164cfe9-dcf2-4c28-a01a-22435ab123db/research/ios-ffmpeg-implications.md
+
+- Background export UX
+  - Implement cancellable exports, progress UI, and guidance that long exports should stay in foreground; consider offloading to a backend if on-device resource usage proves unacceptable.
+
+Suggested next steps (concrete commits)
+1. Patch: remove repo-path fallbacks in IntroBuilder + ProjectPreferencesView and add runtime warnings (small, safe).
+2. Patch: implement FFmpegKitBridge (scaffold + throwing stub) and add SPM entry instructions to README (requires developer to add SPM package locally or CI).
+3. Patch: FFmpegMacBridge async stdout/stderr reading and add timeout.
+4. Housekeeping: consolidate duplicated Shared tree (manual review + symlink) or update Xcode file references.
+
+Add these items to the `todos` table if you want them tracked as actionable tasks.
+
+---
+

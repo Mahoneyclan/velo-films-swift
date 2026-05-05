@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct GlobalSettingsView: View {
     private var settings = GlobalSettings.shared
-    private enum PickerTarget { case input, projects, fly12Source, fly6Source }
+    private enum PickerTarget { case input, projects, fly12Source, fly6Source, music }
     @State private var pickerTarget: PickerTarget = .input
     @State private var showPicker = false
 
@@ -109,6 +109,10 @@ struct GlobalSettingsView: View {
                 // MARK: Audio
                 GroupBox("Audio") {
                     VStack(spacing: 12) {
+                        DirRow(label: "Music track",
+                               url: settings.musicURL,
+                               onChoose: chooseMusic)
+                        Divider()
                         NumRow(label: "Music volume (0–1)",
                                value: $settings.musicVolume)
                             .onChange(of: settings.musicVolume) { settings.save() }
@@ -124,16 +128,16 @@ struct GlobalSettingsView: View {
         }
         .frame(width: 480)
         .fileImporter(isPresented: $showPicker,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                _ = url.startAccessingSecurityScopedResource()
-                switch pickerTarget {
-                case .input:       GlobalSettings.shared.inputBaseDir = url
-                case .projects:    GlobalSettings.shared.projectsRoot = url
-                case .fly12Source: GlobalSettings.shared.fly12SourceURL = url
-                case .fly6Source:  GlobalSettings.shared.fly6SourceURL = url
-                }
-            }
+                      allowedContentTypes: pickerTarget == .music
+                          ? [.mp3, .mpeg4Audio, .wav, .aiff]
+                          : [.folder]) { result in
+            guard case .success(let url) = result else { return }
+            _ = url.startAccessingSecurityScopedResource()
+            if pickerTarget == .input       { GlobalSettings.shared.inputBaseDir   = url }
+            else if pickerTarget == .projects    { GlobalSettings.shared.projectsRoot   = url }
+            else if pickerTarget == .fly12Source { GlobalSettings.shared.fly12SourceURL = url }
+            else if pickerTarget == .fly6Source  { GlobalSettings.shared.fly6SourceURL  = url }
+            else if pickerTarget == .music       { GlobalSettings.shared.musicURL        = url }
         }
     }
 
@@ -169,6 +173,22 @@ struct GlobalSettingsView: View {
 #endif
     }
 
+    private func chooseMusic() {
+#if os(macOS)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = ["mp3", "m4a", "aac", "wav"].compactMap { UTType(filenameExtension: $0) }
+        if panel.runModal() == .OK, let url = panel.url {
+            _ = url.startAccessingSecurityScopedResource()
+            GlobalSettings.shared.musicURL = url
+        }
+#else
+        pickerTarget = .music; showPicker = true
+#endif
+    }
+
 #if os(macOS)
     private func openPanel(_ apply: (URL) -> Void) {
         let panel = NSOpenPanel()
@@ -176,8 +196,13 @@ struct GlobalSettingsView: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url { apply(url) }
+        if panel.runModal() == .OK, let url = panel.url {
+            _ = url.startAccessingSecurityScopedResource()
+            apply(url)
+        }
     }
+
+
 #endif
 }
 

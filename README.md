@@ -9,7 +9,7 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 ## Platforms
 
 - **macOS 14+** — primary target, full FFmpeg pipeline via VideoToolbox hardware acceleration
-- **iPadOS 17+** — YOLO inference supported; FFmpeg pipeline runs via shell bridge
+- **iPadOS 17+** — YOLO inference and analysis supported; FFmpeg pipeline **not yet functional on device** (FFmpegKit SPM package unavailable — arthenica/ffmpeg-kit archived)
 
 ## Pipeline
 
@@ -21,7 +21,7 @@ Each ride project goes through five phases:
 | **Analyse** | Extract → Enrich → Select | `extract.jsonl`, `enrich.jsonl`, `select.jsonl` |
 | **Review** | Manual selection UI | User can add/remove clips before build |
 | **Build** | Build → Splash | Per-clip composites with HUD overlays, intro/outro |
-| **Finish** | Concat | Final `highlights.mp4` |
+| **Finish** | Concat | Final `highlights.mp4` with xfade crossfades between segments |
 
 Steps are dependency-aware — running "Build" from cold will automatically run all prerequisite steps.
 
@@ -46,7 +46,7 @@ Shared/
     Select/               ClipSelector, PartnerMatcher (dual-camera pairing) → SelectStep
     Build/                ClipCompositor, GaugeRenderer, ElevationRenderer, MinimapRenderer
     Splash/               IntroBuilder, OutroBuilder → SplashStep
-    Concat/               ConcatStep (FFmpeg xfade + loudnorm)
+    Concat/               ConcatStep (FFmpeg xfade crossfades between intro/middles/outro)
   Video/                  FFmpegBridge (shared protocol)
   Views/
     Main/                 ContentView, ProjectListView, ProjectDetailView
@@ -115,9 +115,9 @@ Each candidate clip is scored on five dimensions (weights sum to 1.0):
 
 ## Requirements
 
-- Xcode 16+
-- macOS 14+ / iPadOS 17+
-- FFmpeg binary placed in `macOS/` for the macOS target
+- Xcode 26.4+
+- macOS 14+ (primary); iPadOS 26+ (analysis only — FFmpeg pipeline not yet on iOS)
+- FFmpeg installed via Homebrew (`brew install ffmpeg`) for the macOS target
 - Strava or Garmin account for GPX import (or drop a `.gpx` file directly into the project folder)
 
 ## License

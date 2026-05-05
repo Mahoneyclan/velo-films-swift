@@ -25,11 +25,12 @@ struct SelectStep: PipelineStep {
         let moments    = PartnerMatcher.group(enrichedRows)
         let selected   = ClipSelector.select(moments: moments)
         let selectedIds = Set(selected.map { $0.momentId })
+        let momentById  = Dictionary(moments.map { ($0.momentId, $0) }, uniquingKeysWith: { a, _ in a })
 
         // Build select.jsonl rows — one row per EnrichRow, with recommended flag
         var selectRows: [SelectRow] = []
         for row in enrichedRows {
-            let moment  = moments.first { $0.momentId == row.momentId }
+            let moment  = momentById[row.momentId]
             let isRec   = selectedIds.contains(row.momentId) && moment?.primary?.index == row.index
             let isPaired = moment?.secondary != nil
             let isPR    = (row.segmentBoost >= AppConfig.StravaBoost.rank1)

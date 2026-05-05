@@ -117,7 +117,7 @@ struct MinimapRenderer {
     private static func drawMarker(gpxPoints: [GPXPoint], epoch: Double,
                                    snapshot: MKMapSnapshotter.Snapshot,
                                    into ctx: CGContext, size: Int) {
-        guard let nearest = gpxPoints.min(by: { abs($0.epoch - epoch) < abs($1.epoch - epoch) }) else { return }
+        guard let nearest = GPXIndex(points: gpxPoints).nearest(epoch: epoch, tolerance: .infinity) else { return }
         let p  = cgPoint(snapshot, lat: nearest.lat, lon: nearest.lon, size: size)
         let mc = AppConfig.Map.markerColor
         let r  = CGFloat(AppConfig.Map.markerRadius) / 2

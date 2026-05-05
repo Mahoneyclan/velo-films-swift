@@ -105,29 +105,23 @@ struct ProjectPreferencesView: View {
     }
 
     private func discoverTracks() -> [String] {
-        let extensions = Set(["mp3", "m4a", "aac", "wav"])
+        let extensions = ["mp3", "m4a", "aac", "wav"]
         var names: [String] = []
 
-        if let bundleURL = Bundle.main.resourceURL {
-            let musicDir = bundleURL.appending(path: "music")
-            if let files = try? FileManager.default.contentsOfDirectory(
-                at: musicDir, includingPropertiesForKeys: nil) {
-                names += files
-                    .filter { extensions.contains($0.pathExtension.lowercased()) }
+        // Bundled tracks in the music/ subfolder (folder reference)
+        for ext in extensions {
+            names += (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "music") ?? [])
+                .map { $0.lastPathComponent }
+        }
+
+        // Fallback: Xcode may flatten subdirectory into bundle root
+        if names.isEmpty {
+            let splash = Set(["intro", "outro"])
+            for ext in extensions {
+                names += (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [])
+                    .filter { !splash.contains($0.deletingPathExtension().lastPathComponent) }
                     .map { $0.lastPathComponent }
             }
-        }
-        for ext in extensions {
-            if let urls = Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) {
-                names += urls.map { $0.lastPathComponent }
-            }
-        }
-        let repoMusic = URL(fileURLWithPath: "/Volumes/AData/Github/velo-films-swift/Shared/Resources/music")
-        if let files = try? FileManager.default.contentsOfDirectory(
-            at: repoMusic, includingPropertiesForKeys: nil) {
-            names += files
-                .filter { extensions.contains($0.pathExtension.lowercased()) }
-                .map { $0.lastPathComponent }
         }
 
         return Array(Set(names)).sorted()

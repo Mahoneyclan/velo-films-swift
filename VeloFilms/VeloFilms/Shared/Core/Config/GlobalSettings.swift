@@ -8,10 +8,10 @@ final class GlobalSettings {
 
     // MARK: - Drive roots
     var inputBaseDir: URL? {
-        didSet { UserDefaults.standard.set(inputBaseDir?.path, forKey: "inputBaseDirPath") }
+        didSet { saveURL(inputBaseDir, pathKey: "inputBaseDirPath", bookmarkKey: "inputBaseDirBookmark") }
     }
     var projectsRoot: URL? {
-        didSet { UserDefaults.standard.set(projectsRoot?.path, forKey: "projectsRootPath") }
+        didSet { saveURL(projectsRoot, pathKey: "projectsRootPath", bookmarkKey: "projectsRootBookmark") }
     }
 
     // MARK: - Pipeline timing
@@ -24,10 +24,13 @@ final class GlobalSettings {
     var hasFly12Sport: Bool = true
     var hasFly6Pro: Bool = true
     var fly12SourceURL: URL? {
-        didSet { UserDefaults.standard.set(fly12SourceURL?.path, forKey: "fly12SourcePath") }
+        didSet { saveURL(fly12SourceURL, pathKey: "fly12SourcePath", bookmarkKey: "fly12SourceBookmark") }
     }
     var fly6SourceURL: URL? {
-        didSet { UserDefaults.standard.set(fly6SourceURL?.path, forKey: "fly6SourcePath") }
+        didSet { saveURL(fly6SourceURL, pathKey: "fly6SourcePath", bookmarkKey: "fly6SourceBookmark") }
+    }
+    var musicURL: URL? {
+        didSet { saveURL(musicURL, pathKey: "musicPath", bookmarkKey: "musicBookmark") }
     }
 
     // MARK: - Camera calibration (offsets + timezones)
@@ -49,12 +52,12 @@ final class GlobalSettings {
     var dynamicGauges: Bool = true
 
     private init() {
-        if let p = UserDefaults.standard.string(forKey: "inputBaseDirPath") {
-            inputBaseDir = URL(fileURLWithPath: p)
-        }
-        if let p = UserDefaults.standard.string(forKey: "projectsRootPath") {
-            projectsRoot = URL(fileURLWithPath: p)
-        }
+        inputBaseDir  = loadURL(pathKey: "inputBaseDirPath", bookmarkKey: "inputBaseDirBookmark")
+        projectsRoot  = loadURL(pathKey: "projectsRootPath", bookmarkKey: "projectsRootBookmark")
+        fly12SourceURL = loadURL(pathKey: "fly12SourcePath", bookmarkKey: "fly12SourceBookmark")
+        fly6SourceURL  = loadURL(pathKey: "fly6SourcePath",  bookmarkKey: "fly6SourceBookmark")
+        musicURL       = loadURL(pathKey: "musicPath",       bookmarkKey: "musicBookmark")
+
         extractIntervalOverride = UserDefaults.standard.object(forKey: "extractIntervalOverride") as? Double
         highlightTargetMinutes  = UserDefaults.standard.double(forKey: "highlightTargetMinutes").nonZero
                                     ?? AppConfig.highlightTargetDurationM
@@ -68,12 +71,6 @@ final class GlobalSettings {
         cameraCreationTimeIsLocalWrongZ = (UserDefaults.standard.object(forKey: "cameraCreationTimeIsLocalWrongZ") as? Bool) ?? true
         hasFly12Sport = (UserDefaults.standard.object(forKey: "hasFly12Sport") as? Bool) ?? true
         hasFly6Pro    = (UserDefaults.standard.object(forKey: "hasFly6Pro")    as? Bool) ?? true
-        if let p = UserDefaults.standard.string(forKey: "fly12SourcePath") {
-            fly12SourceURL = URL(fileURLWithPath: p)
-        }
-        if let p = UserDefaults.standard.string(forKey: "fly6SourcePath") {
-            fly6SourceURL = URL(fileURLWithPath: p)
-        }
         musicVolume             = UserDefaults.standard.double(forKey: "musicVolume").nonZero
                                     ?? AppConfig.musicVolume
         rawAudioVolume          = UserDefaults.standard.double(forKey: "rawAudioVolume").nonZero
@@ -100,6 +97,58 @@ final class GlobalSettings {
 
     var effectiveExtractInterval: Double {
         extractIntervalOverride ?? AppConfig.extractIntervalSeconds
+    }
+
+    // MARK: - URL bookmark helpers
+
+#if os(iOS)
+    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = .withSecurityScope
+    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = .withSecurityScope
+#else
+    // macOS: app is not sandboxed, security scope is a no-op
+    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = []
+    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = []
+#endif
+
+    private func saveURL(_ url: URL?, pathKey: String, bookmarkKey: String) {
+        UserDefaults.standard.set(url?.path, forKey: pathKey)
+        guard let url else {
+            UserDefaults.standard.removeObject(forKey: bookmarkKey)
+            return
+        }
+        if let data = try? url.bookmarkData(options: Self.bookmarkCreationOptions,
+                                             includingResourceValuesForKeys: nil,
+                                             relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: bookmarkKey)
+        }
+    }
+
+    private func loadURL(pathKey: String, bookmarkKey: String) -> URL? {
+        if let data = UserDefaults.standard.data(forKey: bookmarkKey) {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data,
+                                  options: Self.bookmarkResolutionOptions,
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &stale) {
+#if os(iOS)
+                _ = url.startAccessingSecurityScopedResource()
+#endif
+                if stale {
+                    if let fresh = try? url.bookmarkData(options: Self.bookmarkCreationOptions,
+                                                         includingResourceValuesForKeys: nil,
+                                                         relativeTo: nil) {
+                        UserDefaults.standard.set(fresh, forKey: bookmarkKey)
+                        UserDefaults.standard.set(url.path, forKey: pathKey)
+                    }
+                }
+                return url
+            }
+        }
+        // Fall back to plain path for migration from older builds
+        if let p = UserDefaults.standard.string(forKey: pathKey) {
+            return URL(fileURLWithPath: p)
+        }
+        return nil
     }
 }
 

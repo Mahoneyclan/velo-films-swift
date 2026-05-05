@@ -21,13 +21,10 @@ final class SceneDetector {
             cameras[camera] = CameraBuffer(capacity: windowSize)
         }
         let thumb = thumbnail(frame)
-        let result: Double
-        if let oldest = cameras[camera]!.oldest {
-            result = meanAbsDiff(oldest, thumb)
-        } else {
-            result = 0
-        }
-        cameras[camera]!.push(thumb)
+        var buf = cameras[camera]!
+        let result = buf.oldest.map { meanAbsDiff($0, thumb) } ?? 0.0
+        buf.push(thumb)
+        cameras[camera] = buf
         return result
     }
 
@@ -35,10 +32,12 @@ final class SceneDetector {
 
     private func thumbnail(_ image: CGImage) -> [Float] {
         let size = 64
-        let ctx = CGContext(data: nil, width: size, height: size,
-                            bitsPerComponent: 8, bytesPerRow: size,
-                            space: CGColorSpaceCreateDeviceGray(),
-                            bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+        guard let ctx = CGContext(data: nil, width: size, height: size,
+                                  bitsPerComponent: 8, bytesPerRow: size,
+                                  space: CGColorSpaceCreateDeviceGray(),
+                                  bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
+            return Array(repeating: 0, count: size * size)
+        }
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
         guard let data = ctx.data else { return Array(repeating: 0, count: size * size) }
         let bytes = data.bindMemory(to: UInt8.self, capacity: size * size)
@@ -46,9 +45,10 @@ final class SceneDetector {
     }
 
     private func meanAbsDiff(_ a: [Float], _ b: [Float]) -> Double {
-        var sum: Float = 0
-        vDSP_meanv(zip(a, b).map { abs($0 - $1) }, 1, &sum, vDSP_Length(a.count))
-        return Double(sum) / 255.0
+        let diffs = zip(a, b).map { abs($0 - $1) }
+        var mean: Float = 0
+        vDSP_meanv(diffs, 1, &mean, vDSP_Length(diffs.count))
+        return Double(mean) / 255.0
     }
 }
 

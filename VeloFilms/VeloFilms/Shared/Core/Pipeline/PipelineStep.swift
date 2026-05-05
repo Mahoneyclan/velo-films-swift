@@ -1,7 +1,7 @@
 import Foundation
 
 /// All pipeline steps conform to this protocol. Mirrors step_registry.py.
-protocol PipelineStep {
+protocol PipelineStep: Sendable {
     var name: String { get }
     func run(project: Project, reporter: ProgressReporter) async throws
 }

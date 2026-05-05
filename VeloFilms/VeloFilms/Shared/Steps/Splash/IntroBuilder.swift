@@ -120,7 +120,7 @@ enum IntroBuilder {
         let totalDurS  = Double(clips.count) * clipDur - Double(clips.count - 1) * xfadeDur
         let totalDurCM = CMTimeMakeWithSeconds(totalDurS, preferredTimescale: ts)
 
-        var instructions: [AVMutableVideoCompositionInstruction] = []
+        var instructions: [any AVVideoCompositionInstructionProtocol] = []
         for i in 0..<clips.count {
             let useA      = (i % 2 == 0)
             let curr      = useA ? trackA : trackB
@@ -132,30 +132,35 @@ enum IntroBuilder {
             let midEnd   = i < clips.count - 1 ? clipStart + stepCM : totalDurCM
 
             if midStart < midEnd {
-                let instr = AVMutableVideoCompositionInstruction()
-                instr.timeRange = CMTimeRange(start: midStart, end: midEnd)
-                instr.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: curr)]
-                instructions.append(instr)
+                let layerInstr = AVVideoCompositionLayerInstruction(
+                    configuration: .init(assetTrack: curr))
+                var instrConfig = AVVideoCompositionInstruction.Configuration(
+                    timeRange: CMTimeRange(start: midStart, end: midEnd))
+                instrConfig.layerInstructions = [layerInstr]
+                instructions.append(AVVideoCompositionInstruction(configuration: instrConfig))
             }
 
             if i < clips.count - 1 {
                 let transStart = clipStart + stepCM
                 let transRange = CMTimeRange(start: transStart, duration: xCM)
-                let transInstr = AVMutableVideoCompositionInstruction()
-                transInstr.timeRange = transRange
-                let outL = AVMutableVideoCompositionLayerInstruction(assetTrack: curr)
-                outL.setOpacityRamp(fromStartOpacity: 1, toEndOpacity: 0, timeRange: transRange)
-                let inL  = AVMutableVideoCompositionLayerInstruction(assetTrack: next)
-                inL.setOpacityRamp(fromStartOpacity: 0, toEndOpacity: 1, timeRange: transRange)
-                transInstr.layerInstructions = [inL, outL]
-                instructions.append(transInstr)
+                var outConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: curr)
+                outConfig.addOpacityRamp(.init(timeRange: transRange, start: 1.0, end: 0.0))
+                var inConfig = AVVideoCompositionLayerInstruction.Configuration(assetTrack: next)
+                inConfig.addOpacityRamp(.init(timeRange: transRange, start: 0.0, end: 1.0))
+                var instrConfig = AVVideoCompositionInstruction.Configuration(timeRange: transRange)
+                instrConfig.layerInstructions = [
+                    AVVideoCompositionLayerInstruction(configuration: inConfig),
+                    AVVideoCompositionLayerInstruction(configuration: outConfig),
+                ]
+                instructions.append(AVVideoCompositionInstruction(configuration: instrConfig))
             }
         }
 
-        let videoComp = AVMutableVideoComposition()
-        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
-        videoComp.renderSize    = CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
-        videoComp.instructions  = instructions
+        let videoComp = AVVideoComposition(configuration: AVVideoComposition.Configuration(
+            frameDuration: CMTime(value: 1, timescale: 30),
+            instructions: instructions,
+            renderSize: CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
+        ))
 
         try await VideoEncoder.export(composition: composition,
                                       videoComposition: videoComp,
@@ -222,12 +227,6 @@ enum IntroBuilder {
         for ext in exts {
             if let u = Bundle.main.url(forResource: name, withExtension: ext) { return u }
         }
-        let repoBase = URL(fileURLWithPath:
-            "/Volumes/AData/Github/velo-films-swift/Shared/Resources")
-        for ext in exts {
-            let u = repoBase.appending(path: "\(name).\(ext)")
-            if FileManager.default.fileExists(atPath: u.path) { return u }
-        }
         return nil
     }
 
@@ -235,12 +234,6 @@ enum IntroBuilder {
         let exts = ["mp3", "m4a", "aac", "wav"]
         for ext in exts {
             if let u = Bundle.main.url(forResource: name, withExtension: ext) { return u }
-        }
-        let repoBase = URL(fileURLWithPath:
-            "/Volumes/AData/Github/velo-films-swift/Shared/Resources")
-        for ext in exts {
-            let u = repoBase.appending(path: "\(name).\(ext)")
-            if FileManager.default.fileExists(atPath: u.path) { return u }
         }
         return nil
     }

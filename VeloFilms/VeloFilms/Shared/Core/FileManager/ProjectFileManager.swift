@@ -5,15 +5,14 @@ import Foundation
 enum ProjectFileManager {
     static func createDirectoryStructure(for project: Project) throws {
         let dirs: [URL] = [
+            project.folderURL,
             project.workingDir,
             project.clipsDir,
             project.framesDir,
             project.minimapsDir,
-            project.gaugesDir,
             project.elevationDir,
             project.trophiesDir,
             project.splashAssetsDir,
-            project.logsDir,
         ]
         for dir in dirs {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

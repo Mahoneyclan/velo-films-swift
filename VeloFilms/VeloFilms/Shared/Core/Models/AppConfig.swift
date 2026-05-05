@@ -5,6 +5,9 @@ import Foundation
 /// settings are in GlobalSettings; these are algorithmic constants that
 /// must not change without also updating the pipeline logic.
 enum AppConfig {
+    // MARK: - Compositor path
+    static let useAVCompositor: Bool = false   // true = custom AVVideoCompositing; false = AVAssetReader+Writer
+
     // MARK: - Sampling grid
     static let extractIntervalSeconds: Double = 5.0
     static let clipPreRollS: Double = 0.5
@@ -41,7 +44,7 @@ enum AppConfig {
         case bus = 5, truck = 7, trafficLight = 9, stopSign = 11
     }
 
-    // MARK: - Scoring weights (must sum to 1.0)
+    // MARK: - Scoring weights (composite sums to 0.90; dualCamera(0.10) is added by PartnerMatcher)
     enum ScoreWeights {
         static let detectScore: Double = 0.30
         static let sceneBoost: Double  = 0.10
@@ -149,13 +152,19 @@ enum AppConfig {
         static let audioBitrate: Int = 192_000     // 192 kbps AAC
     }
 
+    // MARK: - FFmpeg loudnorm
+    static let loudnormTarget: String = "-16"
+    static let loudnormTP: String = "-1.5"
+    static let loudnormLRA: String = "11"
+
     // MARK: - Audio
     static let musicVolume: Double = 0.7
     static let rawAudioVolume: Double = 0.3
 
     // MARK: - Segment concat
     static let highlightsPerSegment: Int = 8   // Int(30.0 / clipOutLenS)
-    static let xfadeDuration: Double = 0.2
+    static let xfadeDuration: Double = 0.5        // xfade between clips within a segment
+    static let concatXfadeDuration: Double = 0.5  // xfade between intro/middle/outro segments
     static let fadeInOutDuration: Double = 0.3
 
     // MARK: - Splash

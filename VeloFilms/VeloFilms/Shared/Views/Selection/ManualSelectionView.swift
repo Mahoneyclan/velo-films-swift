@@ -439,69 +439,75 @@ private struct PerspectiveCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Thumbnail + overlays
+            // Thumbnail + overlays.
+            // Color.clear establishes the 16:9 size first; GeometryReader reads from
+            // the overlay (child of that settled size) to avoid AppKit layout recursion.
             ZStack(alignment: .topTrailing) {
-                GeometryReader { geo in
-                    ZStack(alignment: .bottomTrailing) {
-                        thumbView(primaryThumb)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
+                Color.clear
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .overlay {
+                        ZStack(alignment: .bottomTrailing) {
+                            thumbView(primaryThumb)
+                                .clipped()
 
-                        if partner != nil {
-                            let pipW = geo.size.width * 0.28
-                            let pipH = pipW * 9 / 16
-                            thumbView(partnerThumb)
-                                .frame(width: pipW, height: pipH)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .strokeBorder(.black.opacity(0.5), lineWidth: 1)
-                                }
-                                .padding(6)
-                        }
-                    }
-                    // Camera label + score bottom-left
-                    .overlay(alignment: .bottomLeading) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(primary.camera)
-                                .font(.caption2.bold().monospaced())
-                            Text(String(format: "%.3f", primary.scoreWeighted))
-                                .font(.caption2.monospaced())
-                        }
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 3)
-                        .background(.black.opacity(0.6))
-                        .foregroundStyle(.white)
-                        .padding(6)
-                    }
-                    // Detection class badges top-left
-                    .overlay(alignment: .topLeading) {
-                        if !detectedClasses.isEmpty {
-                            HStack(spacing: 4) {
-                                ForEach(detectedClasses.prefix(4), id: \.self) { cls in
-                                    HStack(spacing: 2) {
-                                        Image(systemName: classIcon(for: cls))
-                                            .font(.system(size: 8, weight: .bold))
-                                        Text(cls.capitalized)
-                                            .font(.system(size: 9, weight: .semibold))
-                                    }
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(.black.opacity(0.65))
-                                    .foregroundStyle(.white)
-                                    .clipShape(Capsule())
+                            if partner != nil {
+                                GeometryReader { geo in
+                                    let pipW = geo.size.width * 0.28
+                                    let pipH = pipW * 9 / 16
+                                    thumbView(partnerThumb)
+                                        .frame(width: pipW, height: pipH)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .strokeBorder(.black.opacity(0.5), lineWidth: 1)
+                                        }
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                               alignment: .bottomTrailing)
+                                        .padding(6)
                                 }
                             }
+                        }
+                        // Camera label + score bottom-left
+                        .overlay(alignment: .bottomLeading) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(primary.camera)
+                                    .font(.caption2.bold().monospaced())
+                                Text(String(format: "%.3f", primary.scoreWeighted))
+                                    .font(.caption2.monospaced())
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.6))
+                            .foregroundStyle(.white)
                             .padding(6)
                         }
+                        // Detection class badges top-left
+                        .overlay(alignment: .topLeading) {
+                            if !detectedClasses.isEmpty {
+                                HStack(spacing: 4) {
+                                    ForEach(detectedClasses.prefix(4), id: \.self) { cls in
+                                        HStack(spacing: 2) {
+                                            Image(systemName: classIcon(for: cls))
+                                                .font(.system(size: 8, weight: .bold))
+                                            Text(cls.capitalized)
+                                                .font(.system(size: 9, weight: .semibold))
+                                        }
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(.black.opacity(0.65))
+                                        .foregroundStyle(.white)
+                                        .clipShape(Capsule())
+                                    }
+                                }
+                                .padding(6)
+                            }
+                        }
                     }
-                }
-                .aspectRatio(16/9, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 3)
-                }
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 3)
+                    }
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
@@ -603,20 +609,23 @@ private struct ScoreBar: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 1) {
-                ForEach(segments, id: \.label) { seg in
-                    Rectangle()
-                        .fill(seg.color)
-                        .frame(width: max(1, geo.size.width * seg.value / 0.9))
+        Color.clear
+            .frame(height: 4)
+            .overlay {
+                GeometryReader { geo in
+                    HStack(spacing: 1) {
+                        ForEach(segments, id: \.label) { seg in
+                            Rectangle()
+                                .fill(seg.color)
+                                .frame(width: max(1, geo.size.width * seg.value / 0.9))
+                        }
+                        Spacer(minLength: 0)
+                    }
                 }
-                Spacer(minLength: 0)
             }
-        }
-        .frame(height: 4)
-        .clipShape(RoundedRectangle(cornerRadius: 2))
-        .background(RoundedRectangle(cornerRadius: 2).fill(.quaternary))
-        .help(scoreTooltip)
+            .clipShape(RoundedRectangle(cornerRadius: 2))
+            .background(RoundedRectangle(cornerRadius: 2).fill(.quaternary))
+            .help(scoreTooltip)
     }
 
     private var scoreTooltip: String {

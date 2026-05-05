@@ -156,16 +156,21 @@ enum OutroBuilder {
         // Fade out entire frame: fade out of the parent via video composition instruction
         // (handled by crossDissolveChain xfade to black, so no additional fade needed here)
 
-        let videoComp = AVMutableVideoComposition()
-        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
-        videoComp.renderSize    = CGSize(width: W, height: H)
-        videoComp.animationTool = AVVideoCompositionCoreAnimationTool(
-            postProcessingAsVideoLayer: videoLayer, in: parentLayer)
+        let animTool = AVVideoCompositionCoreAnimationTool(configuration:
+            .init(postProcessingAsVideoLayer: videoLayer, containingLayer: parentLayer))
 
-        let instr    = AVMutableVideoCompositionInstruction()
-        instr.timeRange = CMTimeRange(start: .zero, duration: durCM)
-        instr.layerInstructions = [AVMutableVideoCompositionLayerInstruction(assetTrack: vTrack)]
-        videoComp.instructions = [instr]
+        let layerInstr = AVVideoCompositionLayerInstruction(
+            configuration: .init(assetTrack: vTrack))
+        var instrConfig = AVVideoCompositionInstruction.Configuration(
+            timeRange: CMTimeRange(start: .zero, duration: durCM))
+        instrConfig.layerInstructions = [layerInstr]
+        var compConfig = AVVideoComposition.Configuration(
+            frameDuration: CMTime(value: 1, timescale: 30),
+            instructions: [AVVideoCompositionInstruction(configuration: instrConfig)],
+            renderSize: CGSize(width: W, height: H)
+        )
+        compConfig.animationTool = animTool
+        let videoComp = AVVideoComposition(configuration: compConfig)
 
         try await VideoEncoder.export(composition: composition,
                                       videoComposition: videoComp,

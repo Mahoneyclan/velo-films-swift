@@ -142,17 +142,6 @@ enum FrameSampler {
         return await extractFrame(using: gen, atSecond: second)
     }
 
-    /// Extract multiple frames at specified second offsets (one generator, one asset load).
-    static func extractFrames(videoURL: URL, atSeconds seconds: [Double]) async -> [(Double, CGImage?)] {
-        let gen = makeGenerator(for: videoURL)
-        defer { gen.cancelAllCGImageGeneration() }
-        var results: [(Double, CGImage?)] = seconds.map { ($0, nil) }
-        for (i, second) in seconds.enumerated() {
-            results[i].1 = await extractFrame(using: gen, atSecond: second)
-        }
-        return results
-    }
-
     // MARK: - Thumbnail persistence
 
     static func saveJPEG(_ image: CGImage, to url: URL) {
@@ -175,11 +164,4 @@ enum FrameSampler {
         UInt64(data[i+6]) << 8  | UInt64(data[i+7])
     }
 
-    private static func parseISO8601(_ string: String) -> Date? {
-        let fmt = ISO8601DateFormatter()
-        fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = fmt.date(from: string) { return d }
-        fmt.formatOptions = [.withInternetDateTime]
-        return fmt.date(from: string)
-    }
 }

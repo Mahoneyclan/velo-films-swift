@@ -4,6 +4,7 @@ struct ImportView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var showCopyVideos = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -24,6 +25,14 @@ struct ImportView: View {
             .sheet(isPresented: $showCopyVideos) { CopyVideosView { dismiss() } }
         }
         .frame(minWidth: 360, minHeight: 220)
+        .alert("Failed to Create Project", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private func pickFolder() {
@@ -44,11 +53,15 @@ struct ImportView: View {
         if let root = GlobalSettings.shared.projectsRoot {
             folderURL = root.appending(path: name)
         } else {
-            // No projects root set — create working files inside the source folder
             folderURL = sourceURL
         }
         let project = Project(name: name, folderURL: folderURL, sourceVideoURL: sourceURL)
-        try? ProjectFileManager.createDirectoryStructure(for: project)
+        do {
+            try ProjectFileManager.createDirectoryStructure(for: project)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         store.add(project)
         dismiss()
     }

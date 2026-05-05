@@ -22,7 +22,7 @@ enum VideoEncoder {
         let W = AppConfig.HUD.outputW
         let H = AppConfig.HUD.outputH
 
-        let scaled = scaleAndPad(image: image, toWidth: W, height: H)
+        let scaled = try scaleAndPad(image: image, toWidth: W, height: H)
         let pixelBuffer = try makePixelBuffer(from: scaled, width: W, height: H)
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
@@ -90,23 +90,16 @@ enum VideoEncoder {
             throw PipelineError.renderFailed("AVAssetExportSession could not be created")
         }
 
-        session.outputURL        = outputURL
-        session.outputFileType   = .mp4
         session.videoComposition = videoComposition
         session.audioMix         = audioMix
         session.shouldOptimizeForNetworkUse = true
 
-        await session.export()
-
-        if let err = session.error { throw err }
-        guard session.status == .completed else {
-            throw PipelineError.renderFailed("Export ended with status \(session.status.rawValue)")
-        }
+        try await session.export(to: outputURL, as: .mp4)
     }
 
     // MARK: - Scale / pad helper (letterbox to exact W×H)
 
-    static func scaleAndPad(image: CGImage, toWidth W: Int, height H: Int) -> CGImage {
+    static func scaleAndPad(image: CGImage, toWidth W: Int, height H: Int) throws -> CGImage {
         let srcW = CGFloat(image.width)
         let srcH = CGFloat(image.height)
         let scale = min(CGFloat(W) / srcW, CGFloat(H) / srcH)
@@ -115,16 +108,21 @@ enum VideoEncoder {
         let offX  = (CGFloat(W) - dstW) / 2
         let offY  = (CGFloat(H) - dstH) / 2
 
-        let ctx = CGContext(
+        guard let ctx = CGContext(
             data: nil, width: W, height: H,
             bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )!
+        ) else {
+            throw PipelineError.renderFailed("VideoEncoder: CGContext creation failed")
+        }
         ctx.setFillColor(.black)
         ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
         ctx.draw(image, in: CGRect(x: offX, y: offY, width: dstW, height: dstH))
-        return ctx.makeImage()!
+        guard let result = ctx.makeImage() else {
+            throw PipelineError.renderFailed("VideoEncoder: CGImage creation failed")
+        }
+        return result
     }
 
     // MARK: - Pixel buffer
