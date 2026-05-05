@@ -1,7 +1,10 @@
 import Foundation
+import AVFoundation
+import CoreGraphics
 
-/// Assembles each clip's HUD overlay via FFmpegBridge filter_complex.
-/// Mirrors clip_renderer.py. Filter strings ported verbatim from the Python source.
+/// Assembles each clip's HUD overlay.
+/// macOS: FFmpegBridge filter_complex + loudnorm (mirrors clip_renderer.py).
+/// iOS:   AVMutableComposition + ClipVideoCompositor (Metal GPU compositing, no FFmpeg).
 struct ClipCompositor: Sendable {
     let bridge: any FFmpegBridge
     let outputDir: URL
@@ -25,6 +28,7 @@ struct ClipCompositor: Sendable {
     ) async throws -> URL {
         let outputURL = outputDir.appending(path: String(format: "clip_%04d.mp4", clipIndex))
 
+#if os(macOS)
         let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
         let duration   = AppConfig.clipOutLenS
 
@@ -61,10 +65,95 @@ struct ClipCompositor: Sendable {
         ]
 
         try await bridge.execute(arguments: args)
+
+#else
+        // iOS: AVMutableComposition + ClipVideoCompositor (Metal GPU compositing, no FFmpeg)
+        let ts         = CMTimeScale(600)
+        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let duration   = AppConfig.clipOutLenS
+        let startCM    = CMTimeMakeWithSeconds(tStartMain, preferredTimescale: ts)
+        let durCM      = CMTimeMakeWithSeconds(duration,   preferredTimescale: ts)
+        let srcRange   = CMTimeRange(start: startCM, duration: durCM)
+
+        guard let minimapCG = IntroBuilder.loadCGImage(from: minimapPath),
+              let elevCG    = IntroBuilder.loadCGImage(from: elevationPath) else {
+            throw PipelineError.renderFailed("ClipCompositor: could not load overlay PNGs")
+        }
+
+        // Load gauge frames from the pre-rendered PNG sequence
+        let numFrames = Int(ceil(AppConfig.clipOutLenS)) + 1
+        var gaugeImages: [CGImage] = []
+        for i in 1...numFrames {
+            let url = gaugeDir.appending(path: String(format: "gauge_%04d.png", i))
+            if let cg = IntroBuilder.loadCGImage(from: url) { gaugeImages.append(cg) }
+        }
+        guard !gaugeImages.isEmpty else {
+            throw PipelineError.renderFailed(
+                "ClipCompositor: no gauge frames in \(gaugeDir.lastPathComponent)")
+        }
+
+        let composition = AVMutableComposition()
+        let mainAsset   = AVURLAsset(url: URL(fileURLWithPath: mainRow.videoPath))
+
+        guard let mainVSrc = try await mainAsset.loadTracks(withMediaType: .video).first else {
+            throw PipelineError.renderFailed("ClipCompositor: no video track in main clip")
+        }
+        let mainTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        try mainTrack.insertTimeRange(srcRange, of: mainVSrc, at: .zero)
+
+        var pipTrackID: CMPersistentTrackID? = nil
+        if let pip = pipRow {
+            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
+            let pipStart  = CMTimeMakeWithSeconds(tStartPip, preferredTimescale: ts)
+            let pipRange  = CMTimeRange(start: pipStart, duration: durCM)
+            let pipAsset  = AVURLAsset(url: URL(fileURLWithPath: pip.videoPath))
+            if let pipVSrc = try? await pipAsset.loadTracks(withMediaType: .video).first {
+                let pipTrack = composition.addMutableTrack(
+                    withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+                try? pipTrack.insertTimeRange(pipRange, of: pipVSrc, at: .zero)
+                pipTrackID = pipTrack.trackID
+            }
+        }
+
+        // Camera audio at raw volume (no loudnorm available on iOS)
+        var audioParams: [AVMutableAudioMixInputParameters] = []
+        if let mainASrc = try? await mainAsset.loadTracks(withMediaType: .audio).first {
+            let audioTrack = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            try? audioTrack.insertTimeRange(srcRange, of: mainASrc, at: .zero)
+            let params = AVMutableAudioMixInputParameters(track: audioTrack)
+            params.setVolume(Float(GlobalSettings.shared.rawAudioVolume), at: .zero)
+            audioParams.append(params)
+        }
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = audioParams
+
+        let instrRange  = CMTimeRange(start: .zero, duration: durCM)
+        let instruction = ClipCompositionInstruction(
+            timeRange:    instrRange,
+            mainTrackID:  mainTrack.trackID,
+            pipTrackID:   pipTrackID,
+            minimapImage: minimapCG,
+            elevImage:    elevCG,
+            gaugeImages:  gaugeImages
+        )
+
+        let videoComp = AVMutableVideoComposition()
+        videoComp.customVideoCompositorClass = ClipVideoCompositor.self
+        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComp.renderSize    = CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
+        videoComp.instructions  = [instruction]
+
+        try await VideoEncoder.export(composition: composition,
+                                       videoComposition: videoComp,
+                                       audioMix: audioMix,
+                                       to: outputURL)
+#endif
         return outputURL
     }
 
-    // MARK: - Filter complex strings (mirrored from clip_renderer.py)
+    // MARK: - Filter complex strings (FFmpeg / macOS only)
 
     private static func filterComplexWithPiP(mapIdx: Int, elevIdx: Int, gaugeIdx: Int) -> String {
         let H = AppConfig.HUD.self

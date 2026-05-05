@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 /// Orchestrates the build step: pre-render assets then composite clips.
 /// Mirrors build.py: minimaps → elevation strips → gauges → clip render → segment concat.
@@ -147,15 +148,17 @@ struct BuildStep: PipelineStep {
         return Double(clipCount) * d - Double(max(0, clipCount - 1)) * x
     }
 
-    // MARK: - FFmpeg xfade concat
+    // MARK: - Clip concatenation with crossfade
 
-    /// Concatenate clips with crossfade transitions and optional fade in/out.
-    /// Mirrors segment_concatenator.py: xfade+acrossfade chain, 0.3s fade in/out on first/last.
+    /// Concatenate clips with crossfade transitions.
+    /// macOS: FFmpeg xfade+acrossfade filter chain with optional fade in/out.
+    /// iOS:   AVMutableComposition A/B opacity ramps + audio volume ramps.
     private func concatenateWithXfade(clips: [URL], outputURL: URL,
                                        isFirst: Bool, isLast: Bool,
                                        bridge: any FFmpegBridge) async throws {
         guard !clips.isEmpty else { return }
 
+#if os(macOS)
         let D       = AppConfig.clipOutLenS
         let X       = AppConfig.xfadeDuration
         let fade    = AppConfig.fadeInOutDuration
@@ -180,7 +183,6 @@ struct BuildStep: PipelineStep {
                     vf += "fade=t=out:st=\(totalDur - fade):d=\(fade),"
                     af += "afade=t=out:st=\(totalDur - fade):d=\(fade),"
                 }
-                // trim trailing commas
                 vf = String(vf.dropLast()); af = String(af.dropLast())
                 try await bridge.execute(arguments: [
                     "-i", clips[0].path,
@@ -201,7 +203,6 @@ struct BuildStep: PipelineStep {
         var prevV = "[0:v]"
         var prevA = "[0:a]"
         for i in 1..<clips.count {
-            // Offset for xfade i (measured in cumulative output timeline): (D-X)*i
             let offset = (D - X) * Double(i)
             let isLast_ = (i == clips.count - 1)
             let vOut = isLast_ ? "[vchain]" : "[v\(i)]"
@@ -211,7 +212,6 @@ struct BuildStep: PipelineStep {
             prevV = vOut; prevA = aOut
         }
 
-        // Append fade in/out on the final chained stream
         let totalDur = segmentDuration(clipCount: clips.count)
         var vfPost = ""
         var afPost = ""
@@ -224,7 +224,7 @@ struct BuildStep: PipelineStep {
             afPost += "afade=t=out:st=\(totalDur - fade):d=\(fade),"
         }
         if !vfPost.isEmpty {
-            vfPost = String(vfPost.dropLast())   // trim trailing comma
+            vfPost = String(vfPost.dropLast())
             afPost = String(afPost.dropLast())
             filterParts.append("[vchain]\(vfPost)[vout]")
             filterParts.append("[achain]\(afPost)[aout]")
@@ -243,16 +243,125 @@ struct BuildStep: PipelineStep {
             "-movflags", "+faststart",
             "-y", outputURL.path,
         ])
+
+#else
+        // iOS: A/B alternating tracks with opacity + audio volume crossfades
+        if clips.count == 1 {
+            try? FileManager.default.removeItem(at: outputURL)
+            try FileManager.default.copyItem(at: clips[0], to: outputURL)
+            return
+        }
+
+        let D   = AppConfig.clipOutLenS
+        let X   = AppConfig.xfadeDuration
+        let ts  = CMTimeScale(600)
+        let dCM = CMTimeMakeWithSeconds(D, preferredTimescale: ts)
+        let xCM = CMTimeMakeWithSeconds(X, preferredTimescale: ts)
+        let stepCM = dCM - xCM
+
+        let composition = AVMutableComposition()
+        let vidA = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        let vidB = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        let audA = composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        let audB = composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+
+        var insertTime = CMTime.zero
+        for (i, url) in clips.enumerated() {
+            let asset = AVURLAsset(url: url)
+            let vT = (i % 2 == 0) ? vidA : vidB
+            let aT = (i % 2 == 0) ? audA : audB
+            if let src = try? await asset.loadTracks(withMediaType: .video).first {
+                try? vT.insertTimeRange(CMTimeRange(start: .zero, duration: dCM), of: src, at: insertTime)
+            }
+            if let src = try? await asset.loadTracks(withMediaType: .audio).first {
+                try? aT.insertTimeRange(CMTimeRange(start: .zero, duration: dCM), of: src, at: insertTime)
+            }
+            if i < clips.count - 1 { insertTime = insertTime + stepCM }
+        }
+
+        let totalDurS  = segmentDuration(clipCount: clips.count)
+        let totalDurCM = CMTimeMakeWithSeconds(totalDurS, preferredTimescale: ts)
+
+        // Video composition with opacity crossfades between A/B tracks
+        var instructions: [any AVVideoCompositionInstructionProtocol] = []
+        for i in 0..<clips.count {
+            let useA      = (i % 2 == 0)
+            let curr      = useA ? vidA : vidB
+            let next      = useA ? vidB : vidA
+            let clipStart = CMTimeMakeWithSeconds(Double(i) * (D - X), preferredTimescale: ts)
+
+            let midStart = i == 0 ? clipStart : clipStart + xCM
+            let midEnd   = i < clips.count - 1 ? clipStart + stepCM : totalDurCM
+            if midStart < midEnd {
+                var iCfg = AVVideoCompositionInstruction.Configuration(
+                    timeRange: CMTimeRange(start: midStart, end: midEnd))
+                iCfg.layerInstructions = [
+                    AVVideoCompositionLayerInstruction(configuration: .init(assetTrack: curr)),
+                ]
+                instructions.append(AVVideoCompositionInstruction(configuration: iCfg))
+            }
+
+            if i < clips.count - 1 {
+                let transStart = clipStart + stepCM
+                let transRange = CMTimeRange(start: transStart, duration: xCM)
+                var outCfg = AVVideoCompositionLayerInstruction.Configuration(assetTrack: curr)
+                outCfg.addOpacityRamp(.init(timeRange: transRange, start: 1.0, end: 0.0))
+                var inCfg = AVVideoCompositionLayerInstruction.Configuration(assetTrack: next)
+                inCfg.addOpacityRamp(.init(timeRange: transRange, start: 0.0, end: 1.0))
+                var iCfg = AVVideoCompositionInstruction.Configuration(timeRange: transRange)
+                iCfg.layerInstructions = [
+                    AVVideoCompositionLayerInstruction(configuration: inCfg),
+                    AVVideoCompositionLayerInstruction(configuration: outCfg),
+                ]
+                instructions.append(AVVideoCompositionInstruction(configuration: iCfg))
+            }
+        }
+
+        let videoComp = AVVideoComposition(configuration: AVVideoComposition.Configuration(
+            frameDuration: CMTime(value: 1, timescale: 30),
+            instructions: instructions,
+            renderSize: CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
+        ))
+
+        // Audio volume ramps matching video crossfades
+        let paramsA = AVMutableAudioMixInputParameters(track: audA)
+        let paramsB = AVMutableAudioMixInputParameters(track: audB)
+        for i in 0..<clips.count - 1 {
+            // Transition i starts at (i+1)*(D-X) in the composition timeline
+            let transStart = CMTimeMakeWithSeconds(Double(i + 1) * (D - X), preferredTimescale: ts)
+            let transRange = CMTimeRange(start: transStart, duration: xCM)
+            if i % 2 == 0 {
+                paramsA.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 0.0, timeRange: transRange)
+                paramsB.setVolumeRamp(fromStartVolume: 0.0, toEndVolume: 1.0, timeRange: transRange)
+            } else {
+                paramsB.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 0.0, timeRange: transRange)
+                paramsA.setVolumeRamp(fromStartVolume: 0.0, toEndVolume: 1.0, timeRange: transRange)
+            }
+        }
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = [paramsA, paramsB]
+
+        print("[BuildStep] xfade concat (AVF): \(clips.count) clips → \(outputURL.lastPathComponent)")
+        try await VideoEncoder.export(composition: composition,
+                                       videoComposition: videoComp,
+                                       audioMix: audioMix,
+                                       to: outputURL)
+#endif
     }
 
     // MARK: - Music mixing
 
-    /// Mix background music under the segment audio using FFmpeg amix.
-    /// Uses -stream_loop to handle music shorter than the segment.
-    /// Video is stream-copied (no re-encode).
+    /// Mix background music under the segment audio.
+    /// macOS: FFmpeg amix with stream loop; video is stream-copied.
+    /// iOS:   AVMutableComposition dual-track (raw + music) with volume params.
     private func mixMusic(videoURL: URL, musicURL: URL,
                            musicOffset: Double, outputURL: URL,
                            bridge: any FFmpegBridge) async throws {
+#if os(macOS)
         let rv = GlobalSettings.shared.rawAudioVolume
         let mv = GlobalSettings.shared.musicVolume
         let abr = "\(AppConfig.Encoding.audioBitrate / 1000)k"
@@ -273,6 +382,70 @@ struct BuildStep: PipelineStep {
             "-movflags", "+faststart",
             "-y", outputURL.path,
         ])
+
+#else
+        // iOS: AVMutableComposition — video + raw audio (already at rawAudioVolume) + music
+        let ts         = CMTimeScale(600)
+        let videoAsset = AVURLAsset(url: videoURL)
+        let musicAsset = AVURLAsset(url: musicURL)
+        let vidDur     = try await videoAsset.load(.duration)
+        let musicDur   = try await musicAsset.load(.duration)
+
+        let composition = AVMutableComposition()
+
+        if let srcV = try? await videoAsset.loadTracks(withMediaType: .video).first {
+            let vTrack = composition.addMutableTrack(
+                withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            try? vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: vidDur), of: srcV, at: .zero)
+        }
+
+        // Raw audio from video (already encoded at rawAudioVolume by ClipCompositor)
+        if let srcA = try? await videoAsset.loadTracks(withMediaType: .audio).first {
+            let aTrack = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            try? aTrack.insertTimeRange(CMTimeRange(start: .zero, duration: vidDur), of: srcA, at: .zero)
+        }
+
+        // Music track looped from musicOffset
+        var musicTrackComp: AVMutableCompositionTrack? = nil
+        if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
+            let mTrack    = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            let offsetCM  = CMTimeMakeWithSeconds(musicOffset, preferredTimescale: ts)
+            var remaining = vidDur
+            var destTime  = CMTime.zero
+            // First chunk: from musicOffset to end of music file
+            let firstStart = CMTimeMinimum(offsetCM, musicDur)
+            let firstDur   = musicDur - firstStart
+            if firstDur > .zero {
+                let insert = CMTimeMinimum(remaining, firstDur)
+                try? mTrack.insertTimeRange(
+                    CMTimeRange(start: firstStart, duration: insert), of: srcM, at: destTime)
+                destTime  = destTime + insert
+                remaining = remaining - insert
+            }
+            // Loop from beginning to fill remaining duration
+            while remaining > .zero {
+                let insert = CMTimeMinimum(remaining, musicDur)
+                try? mTrack.insertTimeRange(
+                    CMTimeRange(start: .zero, duration: insert), of: srcM, at: destTime)
+                destTime  = destTime + insert
+                remaining = remaining - insert
+            }
+            musicTrackComp = mTrack
+        }
+
+        var inputParams: [AVMutableAudioMixInputParameters] = []
+        if let mt = musicTrackComp {
+            let p = AVMutableAudioMixInputParameters(track: mt)
+            p.setVolume(Float(GlobalSettings.shared.musicVolume), at: .zero)
+            inputParams.append(p)
+        }
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = inputParams
+
+        try await VideoEncoder.export(composition: composition, audioMix: audioMix, to: outputURL)
+#endif
     }
 
     // MARK: - Music lookup
@@ -291,7 +464,6 @@ struct BuildStep: PipelineStep {
             candidates += Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "music") ?? []
         }
         if candidates.isEmpty {
-            // Xcode may flatten the subfolder; check root, excluding splash assets
             let splash = Set(["intro", "outro"])
             for ext in extensions {
                 let rootURLs = (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [])
