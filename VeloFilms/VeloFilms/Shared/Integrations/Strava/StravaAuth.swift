@@ -121,7 +121,7 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         if let window = scenes.first?.windows.first { return window }
         if let scene = scenes.first { return UIWindow(windowScene: scene) }
-        return UIWindow() // unreachable during normal auth flow
+        fatalError("No connected UIWindowScene — cannot present Strava auth UI")
     }
 #endif
 

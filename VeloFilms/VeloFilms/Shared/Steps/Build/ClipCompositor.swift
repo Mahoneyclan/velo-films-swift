@@ -139,11 +139,13 @@ struct ClipCompositor: Sendable {
             gaugeImages:  gaugeImages
         )
 
-        let videoComp = AVMutableVideoComposition()
-        videoComp.customVideoCompositorClass = ClipVideoCompositor.self
-        videoComp.frameDuration = CMTime(value: 1, timescale: 30)
-        videoComp.renderSize    = CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
-        videoComp.instructions  = [instruction]
+        var compCfg = AVVideoComposition.Configuration(
+            frameDuration: CMTime(value: 1, timescale: 30),
+            instructions: [instruction],
+            renderSize: CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
+        )
+        compCfg.customVideoCompositorClass = ClipVideoCompositor.self
+        let videoComp = AVVideoComposition(configuration: compCfg)
 
         try await VideoEncoder.export(composition: composition,
                                        videoComposition: videoComp,

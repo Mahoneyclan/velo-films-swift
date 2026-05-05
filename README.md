@@ -1,17 +1,19 @@
 # Velo Films
 
-Turn your [Cycliq](https://cycliq.com) ride footage into a polished highlight reel, automatically scored and synced to your GPS route.
+Turn your [Cycliq](https://cycliq.com) ride footage into a polished highlight reel, automatically scored and synced to your GPS route — on your Mac or iPad.
 
 ## What it does
 
 Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear) camera, matches them against a GPX file downloaded from Strava or Garmin, scores every 5-second clip using speed, gradient, YOLO object detection, and scene-change metrics, then assembles the top-scoring clips into a single video complete with a minimap, speed/cadence gauges, elevation strip, and intro/outro splash screens.
+
+**The portable workflow:** ride ends → plug Cycliq cameras into iPad via USB-C hub → Copy from Camera in VeloFilms → pipeline runs → share the highlight reel. No Mac required. A direct alternative to the Cycliq app, with automated highlight selection, dual-camera sync, and GPS overlays the Cycliq app does not offer.
 
 ## Platforms
 
 - **macOS 26+** — full pipeline via system FFmpeg (`/opt/homebrew/bin/ffmpeg`); `Process()` spawn for filter_complex operations
 - **iPadOS 26+** — full pipeline via AVFoundation: `ClipCompositor` uses `AVMutableComposition` + `ClipVideoCompositor` (Metal GPU CIImage compositing); build/concat steps use A/B track opacity crossfades with audio volume ramps; music mixing via `AVMutableComposition` dual audio tracks. No FFmpegKit dependency.
 
-Both platforms share all pipeline logic; `#if os(macOS)` / `#else` blocks select the appropriate render backend.
+Both platforms share all pipeline logic; `#if os(macOS)` / `#else` blocks select the appropriate render backend. iPad is the primary portable product; Mac is retained for fast development and production runs.
 
 ## Pipeline
 
@@ -119,8 +121,30 @@ Each candidate clip is scored on five dimensions (weights sum to 1.0):
 
 - Xcode 26.4+
 - macOS 26+ (FFmpeg pipeline); iPadOS 26+ (AVFoundation pipeline — full functionality)
-- FFmpeg installed via Homebrew (`brew install ffmpeg`) for the macOS target
+- FFmpeg installed via Homebrew (`brew install ffmpeg`) for the macOS target only
 - Strava or Garmin account for GPX import (or drop a `.gpx` file directly into the project folder)
+- External drive formatted exFAT or APFS (NTFS is read-only on Apple platforms — pipeline writes will fail)
+
+## Repo location
+
+`/Volumes/GDrive/Github/velo-films-swift`
+
+## Immediate priorities (May 2026)
+
+1. **Clean simulator build** — confirm all iOS 26 build errors resolved (StravaAuth UIWindow deprecation, AVMutableVideoComposition API, entitlement conditionals, NS*UsageDescription strings)
+2. **Device deploy** — direct device build to iPad Air M2 via Xcode
+3. **Real-footage QA** — run full pipeline on a real ride; visual QA of gauges, minimap, PiP composite, splash cards
+4. **Share/Export** — add `ShareLink` + Photos save after concat; stretch goal: Strava video upload
+5. **BGProcessingTask** — wire iOS background task so app can be left running during long renders
+6. **Concurrent clip rendering** — `TaskGroup` in `BuildStep` (cap 3 on iPad for thermal management)
+7. **App Store decision** — Option A (AVFoundation on macOS too, App Store on both) vs Option B (FFmpeg on Mac, direct distribution)
+
+## Known bugs / deferred
+
+- Intermittent xfade "inputs too short" error in intro builder (macOS FFmpeg path)
+- Route overview map in splash — currently a black placeholder frame
+- `ClipPreviewView` (inline `VideoPlayer` tap preview) — deferred
+- `CameraCalibrationView` (frame preview + offset sliders) — deferred
 
 ## License
 

@@ -45,11 +45,13 @@ Hardware: iPad Air 11-inch M2 (8GB RAM), iPadOS 26.4. Mac Mini M1.
 
 ## Hardware Notes (iPad Air M2)
 
-- **8GB RAM** — half the recommended 16GB. YOLO batch size capped at 2–4. Process frames sequentially, never buffer a full ride in memory. Render clips one at a time.
+- **8GB RAM** — half the recommended 16GB. YOLO batch size capped at 2–4. Process frames sequentially, never buffer a full ride in memory.
 - **16-core Neural Engine** — Core ML YOLO inference will be fast, likely faster than CPU-bound PyTorch on Mac.
-- **USB-C USB 3 (10Gb/s)** — external drive access is viable. Raw videos stay on the drive exactly as they do today.
-- **VideoToolbox** — H.264 encoding fully supported. H.265 multi-pass not available on iPadOS; output uses H.264 at 8M bitrate (visually identical, slightly larger files).
+- **USB-C USB 3 (10Gb/s)** — external drive access is viable. Raw videos stay on the drive exactly as they do today. Drive must be exFAT or APFS — NTFS is read-only on Apple platforms.
+- **VideoToolbox** — H.264 hardware encoding fully supported. Switching to AVAssetWriter enables H.265 HEVC at ~5 Mbps for smaller output files.
+- **Thermal throttling** — M2 iPad will throttle after 5–10 min of sustained video work. Use concurrent `TaskGroup` with a cap of ~3 concurrent clip encodes to manage thermals. For a once-a-week personal tool, this is workable; plug in and leave the app open.
 - **iPadOS 26** — improved background task budgets for video workloads. Target iPadOS 26 as minimum — this is a personal app, no reason to support older versions.
+- **Mac Mini M1** — retained as the fast development/production machine. macOS FFmpeg path remains for now; may be replaced by AVFoundation in Phase 6.5 if App Store Option A is chosen.
 
 ## External Drive Access
 
@@ -336,23 +338,62 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 
 **iOS pipeline is now fully implemented** — AVFoundation replaces FFmpeg for all build/concat steps on iOS.
 
-- [ ] Deploy to iPad via TestFlight (or direct device build in Xcode)
-- [ ] Run each pipeline step on a real ride with real Cycliq footage from external drive
-- Visual QA every rendered output: gauges, minimap, PiP composite, splash cards
-- Memory pressure testing with 10GB+ footage across multiple clips
-- Background processing behaviour — document what renders survive app backgrounding; adapt UX (progress persistence, resume on foreground) if needed
-- Performance tuning: Core ML batch sizes, VideoToolbox encoder settings, gauge render throughput
-- [x] Strava and Garmin OAuth end-to-end — complete on macOS; iPadOS needs device test
+**Critical path: simulator build → physical device → real footage QA.**
+
+- [ ] Get a clean simulator build — confirm all iOS 26 build errors resolved (StravaAuth UIWindow, AVMutableVideoComposition, entitlement conditionals, NS*UsageDescription strings)
+- [ ] Deploy to iPad via direct device build in Xcode (or TestFlight)
+- [ ] Run full pipeline end-to-end on a real ride with real Cycliq footage from external drive
+- [ ] Visual QA every rendered output: gauges, minimap, PiP composite, splash cards — output must match macOS FFmpeg quality
+- [ ] Memory pressure testing with 10GB+ footage across multiple clips
+- [ ] Strava and Garmin OAuth end-to-end on physical device
+- [ ] Background processing behaviour — `BGProcessingTask` registration in `PipelineExecutor` iOS path; if pipeline exceeds ~10 min budget, surface "keep app open" message in `PipelineView`. Pipeline already has `ProgressReporter` + step-level completion tracking so resumption from last completed step is feasible.
+- [ ] Performance tuning: Core ML batch sizes, VideoToolbox encoder settings, gauge render throughput
+- [ ] Concurrent clip rendering — replace sequential `BuildStep` loop with `TaskGroup` (concurrency cap 3 on iPad for thermal/memory management); could halve build step time on M2
+
+**Architectural gaps to close before release:**
+
+**1. Share/Export — completely missing**
+After concat finishes there is no way to get the video out of the app on iPad. Needs:
+- `ShareLink` in `PipelineView` after successful concat (SwiftUI, works on both platforms)
+- `PHPhotoLibrary.performChanges` to save to Photos library
+- (stretch) Direct Strava video upload — genuine differentiator over the Cycliq app
+
+**2. In-memory gauge rendering**
+Switch `BuildStep` from `GaugeRenderer.writeFramesToDisk()` to `GaugeRenderer.renderFrames()` returning `[CGImage]` in memory — eliminates the temp PNG encode/decode round-trip and reduces disk I/O on every clip.
+
+**3. AVAssetWriter for clip export**
+`AVAssetExportSession` locks to H.264 preset bitrates. Switch to `AVAssetWriter` + `AVAssetReaderVideoCompositionOutput`:
+- HEVC H.265 at ~5 Mbps vs 8 Mbps H.264 for equivalent quality (matters for iPad storage)
+- Full bitrate control
+- Enables concurrent clip exports on M2 media engine
+
+---
+
+### Phase 6.5 — App Store Decision (required before Phase 7)
+
+**Must decide before submitting to either App Store.**
+
+| Option | macOS | iPad | Impact |
+|---|---|---|---|
+| **A — App Store both** | Drop FFmpeg; AVFoundation on macOS too | App Store | `#if os(macOS)` pipeline splits disappear. Lose `loudnorm` audio normalisation. Single pipeline codebase. Recommended. |
+| **B — Direct distribution Mac** | Keep FFmpeg; notarized DMG outside App Store | App Store | Maintain dual pipeline forever. Better audio quality on Mac. Heavier maintenance. |
+
+**Recommendation: Option A.** The dual code path is maintenance overhead, the quality difference is marginal for this use case, and App Store on both platforms is the right product move. The FFmpeg path on macOS would be replaced by the same AVFoundation pipeline already shipping on iPad.
 
 ---
 
 ### Phase 7 — Polish & Release
 
-- App icon and launch screen
-- iPad multitasking — Split View and Slide Over (SwiftUI handles most of this automatically)
-- Error handling and user-facing messages for all failure modes
-- Archive / export flow
-- Final drive format check UX (warn if NTFS detected — writes will fail)
+- [ ] App icon and launch screen
+- [ ] Share/Export flow (see Phase 6 gap — ShareLink + Photos + Strava upload)
+- [ ] Background task handling (`BGProcessingTask`) with progress persistence and resume
+- [ ] iPad multitasking — Split View and Slide Over (SwiftUI handles most of this automatically)
+- [ ] Error handling and user-facing messages for all failure modes
+- [ ] Progress persistence UX — user guidance to keep app open during long renders; "pipeline is running" indicator
+- [ ] Final drive format check UX (warn if NTFS detected — writes will fail)
+- [ ] App Store submission: Mac App Store + App Store (iPad). Sandbox, entitlements, and privacy strings already fixed.
+- [ ] VTFrameProcessor evaluation — iOS 26 ML-based super-resolution + temporal noise filtering on Cycliq footage (enhancement, not blocking)
+- [ ] TestFlight setup for beta distribution
 
 ---
 
@@ -424,28 +465,31 @@ Completion-check logic lives partly in `PipelineStep` enum and partly in individ
 | Decision | Choice | Reason |
 |---|---|---|
 | Minimum OS | iPadOS 26 / macOS 14 | Personal app, no need for older device support. Latest background task APIs. |
+| Product target | Dual-OS (macOS + iPad) — iPad is the product | Portability is the core value: ride ends → plug in cameras → pipeline runs → share. Competes directly with Cycliq's own app. Mac remains for fast development/production runs. |
+| Programming language | Swift + SwiftUI | Only language with full AVFoundation, Core ML, Metal, MKMapSnapshotter access. No alternative. |
+| iOS video pipeline | AVFoundation (no FFmpegKit) | FFmpegKit SPM package archived; AVFoundation with VideoToolbox hardware encoding performs comparably on M2. |
 | Video source location | External USB-C drive | Same workflow as today. Security-scoped bookmarks handle iPadOS access. |
 | Music assets | Bundle in app | Simpler than requiring user import. ~50MB addition to app size. |
 | Background rendering UX | Keep app frontmost + progress persistence | iPadOS 26 improved budgets help; still show guidance to user for long renders. |
-| Output codec on iPad | H.264 via VideoToolbox | H.265 multi-pass not available on iPadOS. Visually identical at 8M bitrate. |
+| Output codec on iPad | H.264 via VideoToolbox (upgrade to H.265 in Phase 7) | H.265 multi-pass not available via AVAssetExportSession; switching to AVAssetWriter enables HEVC at ~5 Mbps. |
 | YOLO batch size on iPad | 2–4 | 8GB RAM constraint. Mac target can use 8. |
+| App Store strategy | Option A — App Store on both platforms (pending final decision) | Drop FFmpeg on macOS, use AVFoundation everywhere. Eliminates `#if os(macOS)` dual pipeline. Loses loudnorm only. |
 
 ---
 
 ## Research: AVFoundation compositor & iOS FFmpeg implications
 
-Concise findings from recent research (full reports saved in session state and repo):
+Concise findings from recent research:
 
-- AVFoundation compositing options: AVMutableVideoComposition + AVVideoCompositionCoreAnimationTool (fast to implement, good for HUD overlays) and AVVideoCompositing (custom Metal compositor for per-frame GPU-accelerated compositing and precise xfade behavior). See full report: /Volumes/AData/Github/velo-films-swift/avfoundation-compositor.md
+- AVFoundation compositing options: AVMutableVideoComposition + AVVideoCompositionCoreAnimationTool (fast to implement, good for HUD overlays) and AVVideoCompositing (custom Metal compositor for per-frame GPU-accelerated compositing and precise xfade behavior). See full report: /Volumes/GDrive/Github/velo-films-swift/avfoundation-compositor.md
 
-- iOS FFmpeg implications: on-device ffmpeg must be embedded (use FFmpegKit); expect larger app size, licensing considerations (LGPL vs GPL), prefer VideoToolbox acceleration for performance, and handle long-running exports and sandboxed file paths. See full report: /Users/mahoney/.copilot/session-state/c164cfe9-dcf2-4c28-a01a-22435ab123db/research/ios-ffmpeg-implications.md
+- iOS FFmpeg implications: resolved — iOS pipeline fully implemented via AVFoundation with no FFmpegKit dependency. AVAssetWriter + VideoToolbox hardware H.264 encode is used throughout. No FFmpegKit required.
 
-Actionable recommendations (summary):
-1. Short-term: Keep ffmpeg on macOS; use FFmpegKit on iOS for parity and enable VideoToolbox where possible.
-2. Medium-term: Implement CoreAnimation overlay path for HUD rendering on iOS and use AVAssetExportSession for exports; continue using ffmpeg/FFmpegKit for loudness normalization if needed.
-3. Long-term: Implement a Metal-based AVVideoCompositing compositor for highest performance and full feature parity; fall back to FFmpegKit where features are impractical to reimplement.
-
-(Reports saved to the repo and session-state for full details.)
+Actionable improvements identified (May 2026):
+1. Pre-convert gauge `CGImage` array to `[CIImage]` at instruction init time — removes repeated per-frame conversion inside the compositor.
+2. Switch `BuildStep` to call `GaugeRenderer.renderFrames()` (in-memory `[CGImage]`) instead of `writeFramesToDisk()` — eliminates the temp PNG encode/decode round-trip entirely.
+3. Switch clip export to `AVAssetWriter` — gives HEVC H.265 at ~5 Mbps vs 8 Mbps H.264 for equivalent quality (matters for iPad storage), full bitrate control, and ability to run multiple clip exports concurrently on the M2 media engine.
+4. Evaluate `VTFrameProcessor` (new in iOS 26) — ML-based super-resolution and temporal noise filtering on CVPixelBuffer output; could meaningfully improve Cycliq action-cam footage quality.
 
 ---
 
@@ -460,38 +504,24 @@ Priority: High — required before reliable iPad testing
   - `BuildStep.findMusicTrack()` — same Bundle API pattern, 5 bundled tracks found correctly
   - `IntroBuilder`/`OutroBuilder` — use `findResourceImage/Audio` which check bundle first
 
-- Add FFmpegKit to the iOS target and implement FFmpegKitBridge
-  - Add Swift Package: FFmpegKit (LGPL build preferred) to the iPadOS target.
-  - Implement /Volumes/AData/Github/velo-films-swift/VeloFilms/VeloFilms/Shared/Video/FFmpegBridge.swift FFmpegKitBridge.execute(arguments:) using FFmpegKit.executeAsync, map return codes to PipelineError.ffmpegFailed, support cancellation and return combined logs.
-  - Test: run a simple clip render command on-device, verify VideoToolbox hw accel is enabled in the FFmpegKit build.
+- [x] FFmpegKit dependency removed ✅ — iOS pipeline fully implemented via AVFoundation. No FFmpegKit needed.
 
 - Fix security-scoped bookmark lifecycle
-  - File: /Volumes/AData/Github/velo-films-swift/VeloFilms/VeloFilms/Shared/Core/Config/GlobalSettings.swift
-  - Ensure startAccessingSecurityScopedResource() / stopAccessingSecurityScopedResource() lifecycle is balanced. Either hold access for project lifetime and stop on project close/ app termination, or acquire/release around I/O calls. Add comments documenting the chosen behaviour.
+  - File: `VeloFilms/VeloFilms/Shared/Core/Config/GlobalSettings.swift`
+  - Ensure `startAccessingSecurityScopedResource()` / `stopAccessingSecurityScopedResource()` lifecycle is balanced. Either hold access for project lifetime and stop on project close/app termination, or acquire/release around I/O calls.
 
 Priority: Medium — improve stability and developer experience
 
-- Prevent ffmpeg deadlocks on macOS (helps parity debugging)
-  - File: /Volumes/AData/Github/velo-films-swift/VeloFilms/VeloFilms/Shared/Video/FFmpegBridge.swift (FFmpegMacBridge)
-  - Change Process usage to read standardOutput/standardError asynchronously using fileHandle.readabilityHandler and accumulate output while process runs; add a configurable timeout and argument logging to help reproduce failing filter_complex invocations.
+- Prevent FFmpeg deadlocks on macOS (helps parity debugging)
+  - File: `VeloFilms/VeloFilms/Shared/Video/FFmpegBridge.swift` (FFmpegMacBridge)
+  - Change `Process` usage to read stdout/stderr asynchronously using `fileHandle.readabilityHandler` and accumulate output while process runs; add a configurable timeout and argument logging.
 
 - [x] Consolidate duplicate Shared sources ✅ (2026-04-29) — old top-level `Shared/`, `macOS/`, `iPadOS/`, `VeloFilmsTests/` directories deleted; canonical path is `VeloFilms/VeloFilms/Shared/`
 
 Priority: Low — polish and policy
 
-- Decide FFmpeg licensing strategy
-  - Choose LGPL build for FFmpegKit where possible and document compliance steps (or accept GPL and prepare source offer). See research: /Users/mahoney/.copilot/session-state/c164cfe9-dcf2-4c28-a01a-22435ab123db/research/ios-ffmpeg-implications.md
-
 - Background export UX
-  - Implement cancellable exports, progress UI, and guidance that long exports should stay in foreground; consider offloading to a backend if on-device resource usage proves unacceptable.
-
-Suggested next steps (concrete commits)
-1. Patch: remove repo-path fallbacks in IntroBuilder + ProjectPreferencesView and add runtime warnings (small, safe).
-2. Patch: implement FFmpegKitBridge (scaffold + throwing stub) and add SPM entry instructions to README (requires developer to add SPM package locally or CI).
-3. Patch: FFmpegMacBridge async stdout/stderr reading and add timeout.
-4. Housekeeping: consolidate duplicated Shared tree (manual review + symlink) or update Xcode file references.
-
-Add these items to the `todos` table if you want them tracked as actionable tasks.
+  - Implement cancellable exports, progress UI, and guidance that long exports should stay in foreground (see BGProcessingTask item in Phase 6 below).
 
 ---
 
