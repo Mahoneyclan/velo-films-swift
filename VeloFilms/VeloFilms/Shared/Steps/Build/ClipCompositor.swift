@@ -53,7 +53,7 @@ struct ClipCompositor: Sendable {
         let args: [String] = inputs + [
             "-filter_complex", filterComplex,
             "-map", "[vhud]", "-map", "[anorm]",
-            "-c:v", "libx264",
+            "-c:v", AppConfig.Encoding.videoCodec,
             "-b:v", "\(AppConfig.Encoding.videoBitrate / 1000)k",
             "-c:a", "aac", "-b:a", "\(AppConfig.Encoding.audioBitrate / 1000)k",
             "-movflags", "+faststart",

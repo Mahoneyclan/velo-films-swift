@@ -107,7 +107,7 @@ struct ConcatStep: PipelineStep {
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-b:v", vbr,
+            "-c:v", AppConfig.Encoding.videoCodec, "-b:v", vbr,
             "-c:a", "aac", "-b:a", abr,
             "-movflags", "+faststart",
             "-y", outputURL.path,

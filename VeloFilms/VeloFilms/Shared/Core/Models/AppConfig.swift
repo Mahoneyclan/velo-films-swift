@@ -150,6 +150,13 @@ enum AppConfig {
     enum Encoding {
         static let videoBitrate: Int = 8_000_000   // 8 Mbps H.264
         static let audioBitrate: Int = 192_000     // 192 kbps AAC
+        // macOS: libx264 software encoder (matches segment output from earlier steps).
+        // iOS: VideoToolbox hardware encoder (Native FFmpegKit build has no libx264).
+        #if os(macOS)
+        static let videoCodec = "libx264"
+        #else
+        static let videoCodec = "h264_videotoolbox"
+        #endif
     }
 
     // MARK: - FFmpeg loudnorm

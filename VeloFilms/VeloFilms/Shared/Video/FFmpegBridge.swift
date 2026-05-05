@@ -65,27 +65,35 @@ struct FFmpegMacBridge: FFmpegBridge {
 }
 #endif
 
-// MARK: - iOS (FFmpegKit)
-// To enable: add https://github.com/arthenica/ffmpeg-kit via Swift Package Manager
-// (product: ffmpeg-kit-ios-min), then replace the body below with:
-//
-//   import ffmpegkit
-//   let cmd = (["-hide_banner"] + arguments).joined(separator: " ")
-//   try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-//       FFmpegKit.executeAsync(cmd) { session in
-//           guard let session else { cont.resume(throwing: PipelineError.ffmpegFailed(-1, "nil session")); return }
-//           if ReturnCode.isSuccess(session.getReturnCode()) { cont.resume() }
-//           else {
-//               let code = Int32(session.getReturnCode()?.getValue() ?? -1)
-//               cont.resume(throwing: PipelineError.ffmpegFailed(code, session.getAllLogsAsString() ?? ""))
-//           }
-//       }
-//   }
+// MARK: - iOS (FFmpegKit Native 6.0.LTS)
+// Setup: download ffmpeg-kit-ios-min XCFramework from github.com/arthenica/ffmpeg-kit/releases
+// (SPM unavailable — repo archived with no Package.swift).
+// In Xcode: drag ffmpegkit.xcframework into the project, iOS target only, Embed & Sign.
+// Then uncomment the import below and delete the stub body.
 
 #if os(iOS)
+// import ffmpegkit   // ← uncomment after adding XCFramework to Xcode target
+
 struct FFmpegKitBridge: FFmpegBridge {
     func execute(arguments: [String]) async throws {
-        throw PipelineError.ffmpegFailed(-1, "FFmpegKit not yet linked — add the Swift Package to the iOS target")
+        // TODO: uncomment body and import above after adding ffmpegkit.xcframework
+        // let cmd = (["-hide_banner"] + arguments).joined(separator: " ")
+        // try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        //     FFmpegKit.executeAsync(cmd) { session in
+        //         guard let session else {
+        //             cont.resume(throwing: PipelineError.ffmpegFailed(-1, "nil session"))
+        //             return
+        //         }
+        //         if ReturnCode.isSuccess(session.getReturnCode()) {
+        //             cont.resume()
+        //         } else {
+        //             let code = Int32(session.getReturnCode()?.getValue() ?? -1)
+        //             let log  = session.getAllLogsAsString() ?? ""
+        //             cont.resume(throwing: PipelineError.ffmpegFailed(code, log))
+        //         }
+        //     }
+        // }
+        throw PipelineError.ffmpegFailed(-1, "FFmpegKit XCFramework not yet added — see FFmpegBridge.swift setup instructions")
     }
 }
 #endif
