@@ -8,8 +8,10 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 
 ## Platforms
 
-- **macOS 14+** — primary target, full FFmpeg pipeline via VideoToolbox hardware acceleration
-- **iPadOS 17+** — YOLO inference and analysis supported; FFmpeg pipeline **not yet functional on device** (FFmpegKit SPM package unavailable — arthenica/ffmpeg-kit archived)
+- **macOS 26+** — full pipeline via system FFmpeg (`/opt/homebrew/bin/ffmpeg`); `Process()` spawn for filter_complex operations
+- **iPadOS 26+** — full pipeline via AVFoundation: `ClipCompositor` uses `AVMutableComposition` + `ClipVideoCompositor` (Metal GPU CIImage compositing); build/concat steps use A/B track opacity crossfades with audio volume ramps; music mixing via `AVMutableComposition` dual audio tracks. No FFmpegKit dependency.
+
+Both platforms share all pipeline logic; `#if os(macOS)` / `#else` blocks select the appropriate render backend.
 
 ## Pipeline
 
@@ -116,7 +118,7 @@ Each candidate clip is scored on five dimensions (weights sum to 1.0):
 ## Requirements
 
 - Xcode 26.4+
-- macOS 14+ (primary); iPadOS 26+ (analysis only — FFmpeg pipeline not yet on iOS)
+- macOS 26+ (FFmpeg pipeline); iPadOS 26+ (AVFoundation pipeline — full functionality)
 - FFmpeg installed via Homebrew (`brew install ffmpeg`) for the macOS target
 - Strava or Garmin account for GPX import (or drop a `.gpx` file directly into the project folder)
 

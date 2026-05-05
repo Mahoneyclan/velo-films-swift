@@ -188,7 +188,7 @@ Do this before writing a single line of Swift.
 - [x] Install Xcode 26.4.1 (17E202)
 - [x] Create GitHub repo `velo-films-swift`, clone locally
 - [x] Create Xcode multiplatform project targeting macOS 14+ and iPadOS 26+
-- [ ] Add Swift Package dependency: FFmpegKit (iOS target only) — **BLOCKED**: arthenica/ffmpeg-kit archived, no Package.swift; needs alternative (pre-built XCFramework or fork)
+- [x] iOS pipeline: **resolved via AVFoundation** — no FFmpegKit needed. ClipCompositor, BuildStep, ConcatStep all have `#if os(macOS)` (FFmpeg) / `#else` (AVFoundation) dual paths. kingslay/FFmpegKit package removed from project (was causing `duplicate _main` linker error).
 - [ ] Run `Scripts/export_coreml.py`: `yolo11s.pt` → `VeloYOLO.mlpackage`, add to project
 - [ ] Set up TestFlight for iPad distribution
 - [x] Commit skeleton project structure
@@ -264,7 +264,7 @@ The hardest phase. Video QA requires real footage on real hardware.
 **FFmpegBridge**
 - [x] `FFmpegBridge` protocol — `execute(arguments: [String]) async throws -> String`
 - [x] `FFmpegMacBridge` — direct `Process()` exec of `/opt/homebrew/bin/ffmpeg`; no shell wrapper so filter_complex arguments (spaces, quotes, colons) are passed verbatim. Fixes word-split bugs that broke `drawtext='Velo Films'` and xfade filters.
-- [ ] `FFmpegiOS` — FFmpegKit wrapper (iPadOS target; **BLOCKED** — SPM package unavailable, see Phase 0 note)
+- [x] iOS pipeline: AVFoundation path implemented in `ClipCompositor`, `BuildStep`, `ConcatStep` — all video compositing and concatenation uses AVFoundation `#else` blocks; no FFmpegKit needed
 
 **Build Step**
 - [x] `GaugeRenderer.swift` — Core Graphics rewrite of `gauge_prerenderer.py`. Arc drawing, text labels, semi-transparency. Output: per-clip PNG strip.
@@ -334,8 +334,10 @@ Can be built and iterated in Simulator while Phase 4 is being tested on device.
 
 Cannot be compressed. Needs real rides, real footage, real iPad.
 
-- Deploy to iPad via TestFlight
-- Run each pipeline step on a real ride with real Cycliq footage from external drive
+**iOS pipeline is now fully implemented** — AVFoundation replaces FFmpeg for all build/concat steps on iOS.
+
+- [ ] Deploy to iPad via TestFlight (or direct device build in Xcode)
+- [ ] Run each pipeline step on a real ride with real Cycliq footage from external drive
 - Visual QA every rendered output: gauges, minimap, PiP composite, splash cards
 - Memory pressure testing with 10GB+ footage across multiple clips
 - Background processing behaviour — document what renders survive app backgrounding; adapt UX (progress persistence, resume on foreground) if needed
