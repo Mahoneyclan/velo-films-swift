@@ -116,7 +116,7 @@ enum VideoEncoder {
         ) else {
             throw PipelineError.renderFailed("VideoEncoder: CGContext creation failed")
         }
-        ctx.setFillColor(.black)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
         ctx.draw(image, in: CGRect(x: offX, y: offY, width: dstW, height: dstH))
         guard let result = ctx.makeImage() else {

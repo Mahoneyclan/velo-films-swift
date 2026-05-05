@@ -101,14 +101,9 @@ final class GlobalSettings {
 
     // MARK: - URL bookmark helpers
 
-#if os(iOS)
-    private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = .withSecurityScope
-    private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = .withSecurityScope
-#else
-    // macOS: app is not sandboxed, security scope is a no-op
+    // .withSecurityScope is macOS-only; on iOS plain bookmarks + startAccessingSecurityScopedResource() suffice
     private static let bookmarkCreationOptions: URL.BookmarkCreationOptions = []
     private static let bookmarkResolutionOptions: URL.BookmarkResolutionOptions = []
-#endif
 
     private func saveURL(_ url: URL?, pathKey: String, bookmarkKey: String) {
         UserDefaults.standard.set(url?.path, forKey: pathKey)
