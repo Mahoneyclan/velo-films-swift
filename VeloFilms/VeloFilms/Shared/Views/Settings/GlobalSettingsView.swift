@@ -108,84 +108,174 @@ struct GlobalSettingsView: View {
 
                 // MARK: Focus Mode Defaults
                 GroupBox("Focus Mode Defaults") {
-                    VStack(spacing: 12) {
-                        Text("These values control the Focus Mode filter chips in the clip selection screen.")
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Controls the filter chips in clip selection — view-only, no effect on AI scores.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Divider()
-                        NumRow(label: "First N minutes",
-                               value: $settings.focusFirstNMinutes)
+
+                        FocusSliderRow(label: "First N minutes", icon: "clock",
+                                       value: $settings.focusFirstNMinutes, in: 1...60,
+                                       unit: "min")
                             .onChange(of: settings.focusFirstNMinutes) { settings.save() }
-                        Divider()
-                        NumRow(label: "Last N minutes",
-                               value: $settings.focusLastNMinutes)
+                        FocusSliderRow(label: "Last N minutes", icon: "clock.badge.checkmark",
+                                       value: $settings.focusLastNMinutes, in: 1...60,
+                                       unit: "min")
                             .onChange(of: settings.focusLastNMinutes) { settings.save() }
+
                         Divider()
-                        NumRow(label: "Climb gradient (%)",
-                               value: $settings.focusClimbGradientPct)
+
+                        FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
+                                       value: $settings.focusClimbGradientPct, in: 1...20,
+                                       unit: "%", prefix: "≥")
                             .onChange(of: settings.focusClimbGradientPct) { settings.save() }
+                            .help("Show clips where gradient ≥ this value")
+
+                        // descentGradientPct stored as negative; show abs value to avoid user confusion
+                        let descentAbs = Binding<Double>(
+                            get: { abs(settings.focusDescentGradientPct) },
+                            set: { settings.focusDescentGradientPct = -abs($0); settings.save() }
+                        )
+                        FocusSliderRow(label: "Descent steepness", icon: "arrow.down.right",
+                                       value: descentAbs, in: 1...20,
+                                       unit: "%", prefix: "≥")
+                            .help("Show clips where gradient ≤ −this value")
+
                         Divider()
-                        NumRow(label: "Descent gradient (%)",
-                               value: $settings.focusDescentGradientPct)
-                            .onChange(of: settings.focusDescentGradientPct) { settings.save() }
-                        Divider()
-                        IntRow(label: "Group min riders",
-                               value: $settings.focusGroupMinDetections)
+
+                        HStack {
+                            Label("Group min riders", systemImage: "person.3")
+                                .font(.caption)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Stepper(value: $settings.focusGroupMinDetections, in: 1...20) {
+                                Text("\(settings.focusGroupMinDetections) detected")
+                                    .font(.caption.bold().monospacedDigit())
+                            }
                             .onChange(of: settings.focusGroupMinDetections) { settings.save() }
+                        }
+                        .help("Show clips with at least this many person + bicycle detections")
                     }
                     .padding(8)
                 }
 
                 // MARK: Detection & Scoring
                 GroupBox("Detection & Scoring") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Adjust how the AI detects objects and scores clips. Changes take effect on the next Enrich/Select run.")
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Changes take effect on the next Enrich / Select run.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Divider()
-                        NumRow(label: "YOLO confidence (0–1)",
-                               value: $settings.yoloMinConfidence)
-                            .onChange(of: settings.yoloMinConfidence) { settings.save() }
-                        Divider()
-                        NumRow(label: "Candidate pool (×)",
-                               value: $settings.candidateFraction)
-                            .onChange(of: settings.candidateFraction) { settings.save() }
-                        Divider()
 
-                        let weightSum = settings.scoreWeightDetect + settings.scoreWeightScene
-                            + settings.scoreWeightSpeed + settings.scoreWeightGradient
-                            + settings.scoreWeightBboxArea + settings.scoreWeightSegment
-                            + settings.scoreWeightDualCamera
-                        HStack {
-                            Text("Score weights")
-                                .font(.caption)
+                        // YOLO confidence
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Label("Min detection confidence", systemImage: "eye")
+                                        .font(.caption.bold())
+                                    Spacer()
+                                    Text(String(format: "%.2f", settings.yoloMinConfidence))
+                                        .font(.caption.bold().monospacedDigit())
+                                        .foregroundStyle(.accentColor)
+                                }
+                                Slider(value: $settings.yoloMinConfidence, in: 0.05...0.50, step: 0.05)
+                                    .onChange(of: settings.yoloMinConfidence) { settings.save() }
+                                HStack {
+                                    Text("More detections")
+                                    Spacer()
+                                    Text("Fewer false positives")
+                                }
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("Sum: \(String(format: "%.2f", weightSum))")
-                                .font(.caption.bold())
-                                .foregroundStyle(abs(weightSum - 1.0) < 0.01 ? .green : .red)
+                            }
                         }
-                        NumRow(label: "Detect score (YOLO)",
-                               value: $settings.scoreWeightDetect)
-                            .onChange(of: settings.scoreWeightDetect) { settings.save() }
-                        NumRow(label: "Scene change",
-                               value: $settings.scoreWeightScene)
-                            .onChange(of: settings.scoreWeightScene) { settings.save() }
-                        NumRow(label: "Speed",
-                               value: $settings.scoreWeightSpeed)
-                            .onChange(of: settings.scoreWeightSpeed) { settings.save() }
-                        NumRow(label: "Gradient",
-                               value: $settings.scoreWeightGradient)
-                            .onChange(of: settings.scoreWeightGradient) { settings.save() }
-                        NumRow(label: "Bounding box area",
-                               value: $settings.scoreWeightBboxArea)
-                            .onChange(of: settings.scoreWeightBboxArea) { settings.save() }
-                        NumRow(label: "Strava segment",
-                               value: $settings.scoreWeightSegment)
-                            .onChange(of: settings.scoreWeightSegment) { settings.save() }
-                        NumRow(label: "Dual camera bonus",
-                               value: $settings.scoreWeightDualCamera)
-                            .onChange(of: settings.scoreWeightDualCamera) { settings.save() }
+                        .help("Lower = more objects detected but more false positives. Default: 0.10")
+
+                        // Candidate pool
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Label("Candidate pool", systemImage: "list.number")
+                                        .font(.caption.bold())
+                                    Spacer()
+                                    Text(String(format: "%.1f×", settings.candidateFraction))
+                                        .font(.caption.bold().monospacedDigit())
+                                        .foregroundStyle(.accentColor)
+                                }
+                                Slider(value: $settings.candidateFraction, in: 1.0...5.0, step: 0.5)
+                                    .onChange(of: settings.candidateFraction) { settings.save() }
+                                let shown = Int((Double(AppConfig.targetClips) * settings.candidateFraction).rounded(.up))
+                                Text("Shows ~\(shown) clips in manual selection for \(AppConfig.targetClips)-clip target")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .help("How many candidate clips to display in manual selection. Higher = more choice, longer list.")
+
+                        // Score weights
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 10) {
+                                let sum = settings.scoreWeightDetect + settings.scoreWeightScene
+                                    + settings.scoreWeightSpeed + settings.scoreWeightGradient
+                                    + settings.scoreWeightBboxArea + settings.scoreWeightSegment
+                                    + settings.scoreWeightDualCamera
+                                let balanced = abs(sum - 1.0) < 0.01
+
+                                HStack {
+                                    Text("Score weights").font(.caption.bold())
+                                    Spacer()
+                                    Text("Sum: \(Int((sum * 100).rounded()))%")
+                                        .font(.caption.bold())
+                                        .padding(.horizontal, 8).padding(.vertical, 3)
+                                        .background(balanced ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                                        .foregroundStyle(balanced ? Color.green : Color.red)
+                                        .clipShape(Capsule())
+                                    Button("Reset") {
+                                        settings.scoreWeightDetect    = 0.30
+                                        settings.scoreWeightScene     = 0.10
+                                        settings.scoreWeightSpeed     = 0.20
+                                        settings.scoreWeightGradient  = 0.20
+                                        settings.scoreWeightBboxArea  = 0.05
+                                        settings.scoreWeightSegment   = 0.05
+                                        settings.scoreWeightDualCamera = 0.10
+                                        settings.save()
+                                    }
+                                    .font(.caption)
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                // Proportion bar — colour segments show relative contribution
+                                ScoreProportionBar(weights: [
+                                    (.green,  settings.scoreWeightDetect),
+                                    (.purple, settings.scoreWeightScene),
+                                    (.blue,   settings.scoreWeightSpeed),
+                                    (.orange, settings.scoreWeightGradient),
+                                    (.yellow, settings.scoreWeightBboxArea),
+                                    (.teal,   settings.scoreWeightSegment),
+                                    (.pink,   settings.scoreWeightDualCamera),
+                                ])
+
+                                WeightSliderRow(label: "YOLO detections", icon: "eye",          color: .green,
+                                                value: $settings.scoreWeightDetect)    { settings.save() }
+                                    .help("Clips with more detected objects (people, cyclists, cars) score higher. Default: 30%")
+                                WeightSliderRow(label: "Scene change",    icon: "camera.aperture", color: .purple,
+                                                value: $settings.scoreWeightScene)     { settings.save() }
+                                    .help("Bonus for visually interesting moments — transitions, changing surroundings. Default: 10%")
+                                WeightSliderRow(label: "Speed",           icon: "speedometer",   color: .blue,
+                                                value: $settings.scoreWeightSpeed)     { settings.save() }
+                                    .help("Faster clips score higher. Normalised to 60 km/h. Default: 20%")
+                                WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",color: .orange,
+                                                value: $settings.scoreWeightGradient)  { settings.save() }
+                                    .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
+                                WeightSliderRow(label: "Object area",     icon: "viewfinder",    color: .yellow,
+                                                value: $settings.scoreWeightBboxArea)  { settings.save() }
+                                    .help("Objects filling more of the frame score higher. Default: 5%")
+                                WeightSliderRow(label: "Strava segment",  icon: "location",      color: .teal,
+                                                value: $settings.scoreWeightSegment)   { settings.save() }
+                                    .help("Bonus for clips during a Strava segment effort — higher for PRs. Default: 5%")
+                                WeightSliderRow(label: "Dual camera",     icon: "camera.on.rectangle", color: .pink,
+                                                value: $settings.scoreWeightDualCamera) { settings.save() }
+                                    .help("Bonus when both front and rear cameras captured this moment. Default: 10%")
+                            }
+                        }
                     }
                     .padding(8)
                 }
@@ -365,6 +455,81 @@ private struct StrRow: View {
 #if os(macOS)
                 .textFieldStyle(.roundedBorder)
 #endif
+        }
+    }
+}
+
+/// Slider row for Focus Mode numeric thresholds (minutes, gradient %).
+private struct FocusSliderRow: View {
+    let label: String
+    let icon: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let unit: String
+    var prefix: String = ""
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(label)
+                .font(.caption)
+                .frame(width: 120, alignment: .leading)
+            Slider(value: $value, in: range, step: 1)
+            Text("\(prefix)\(Int(value))\(unit)")
+                .font(.caption.bold().monospacedDigit())
+                .foregroundStyle(.accentColor)
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+}
+
+/// Horizontal proportion bar showing relative weight contributions as coloured segments.
+private struct ScoreProportionBar: View {
+    let weights: [(Color, Double)]
+
+    var body: some View {
+        let total = max(weights.map(\.1).reduce(0, +), 0.001)
+        GeometryReader { geo in
+            HStack(spacing: 2) {
+                ForEach(weights.indices, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(weights[i].0)
+                        .frame(width: max(0, geo.size.width * weights[i].1 / total - 2))
+                        .opacity(weights[i].1 > 0 ? 1 : 0.15)
+                }
+            }
+        }
+        .frame(height: 10)
+    }
+}
+
+/// Single weight slider row: icon · label · slider · percentage.
+private struct WeightSliderRow: View {
+    let label: String
+    let icon: String
+    let color: Color
+    @Binding var value: Double
+    let onSave: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(color)
+                .frame(width: 16)
+            Text(label)
+                .font(.caption)
+                .frame(width: 120, alignment: .leading)
+            Slider(value: $value, in: 0...1, step: 0.05)
+                .tint(color)
+                .onChange(of: value) { onSave() }
+            Text("\(Int((value * 100).rounded()))%")
+                .font(.caption.bold().monospacedDigit())
+                .foregroundStyle(color)
+                .frame(width: 32, alignment: .trailing)
         }
     }
 }
