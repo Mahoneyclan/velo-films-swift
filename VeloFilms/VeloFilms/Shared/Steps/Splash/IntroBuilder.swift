@@ -22,8 +22,9 @@ enum IntroBuilder {
         let assetsDir = project.splashAssetsDir
         try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
 
-        let stats  = computeRideStats(flattenRows: flattenRows)
-        let frames = collectFrames(from: project.framesDir, selectRows: selectRows, max: 24)
+        let stats       = computeRideStats(flattenRows: flattenRows)
+        let frames      = collectFrames(from: project.framesDir, selectRows: selectRows, max: 24)
+        let description = loadFilteredDescription(from: project.descriptionTXT)
 
         let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
         let bannerH = AppConfig.bannerHeight
@@ -31,6 +32,7 @@ enum IntroBuilder {
         // 1. Render PNG assets
         let mapPNG = assetsDir.appending(path: "intro_map.png")
         await renderMapBanner(flattenRows: flattenRows, stats: stats, project: project,
+                              description: description,
                               outputURL: mapPNG, width: W, height: H, bannerHeight: bannerH)
 
         let collagePNG = assetsDir.appending(path: "intro_collage.png")
@@ -283,7 +285,8 @@ enum IntroBuilder {
     // MARK: - Map + banner
 
     static func renderMapBanner(flattenRows: [FlattenRow], stats: RideStats,
-                                  project: Project, outputURL: URL,
+                                  project: Project, description: [String]?,
+                                  outputURL: URL,
                                   width: Int, height: Int, bannerHeight: Int) async {
         let mapH = height - bannerHeight
         let gpxPoints = flattenRows.map {
@@ -353,6 +356,30 @@ enum IntroBuilder {
                     y: mapH + bannerHeight * 2 / 3,
                     fontSize: CGFloat(48 * width / 2560), bold: false)
 
+        // Description overlay — left side of map, semi-transparent background
+        if let lines = description, !lines.isEmpty {
+            let fontSize    = CGFloat(38 * width / 1920)
+            let lineSpacing = fontSize * 1.55
+            let padX        = CGFloat(48 * width / 1920)
+            let padY        = CGFloat(28 * width / 1920)
+            let boxW        = CGFloat(width) * 0.42
+            let blockH      = CGFloat(lines.count) * lineSpacing + padY * 2
+
+            // Vertically centred in the lower half of the map area (CG: low y = visual bottom)
+            let boxY = CGFloat(mapH) * 0.08
+
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.52))
+            ctx.fill(CGRect(x: padX, y: boxY, width: boxW, height: blockH))
+
+            for (i, line) in lines.enumerated() {
+                // In CG (bottom-up), first line has highest y inside the box
+                let textY = boxY + padY + CGFloat(lines.count - 1 - i) * lineSpacing + fontSize * 0.25
+                drawLeftAligned(line, in: ctx,
+                                x: Int(padX + padY), y: Int(textY),
+                                fontSize: fontSize)
+            }
+        }
+
         savePNG(ctx, to: outputURL)
     }
 
@@ -410,6 +437,30 @@ enum IntroBuilder {
     }
 
     // MARK: - Drawing helpers
+
+    static func drawLeftAligned(_ text: String, in ctx: CGContext,
+                                 x: Int, y: Int, fontSize: CGFloat) {
+        let font  = CTFontCreateWithName("SFNS-Regular" as CFString, fontSize, nil)
+        let attrs: [CFString: Any] = [
+            kCTFontAttributeName:            font,
+            kCTForegroundColorAttributeName: CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+        ]
+        let line = CTLineCreateWithAttributedString(
+            CFAttributedStringCreate(nil, text as CFString, attrs as CFDictionary)!)
+        ctx.textPosition = CGPoint(x: CGFloat(x), y: CGFloat(y))
+        CTLineDraw(line, ctx)
+    }
+
+    /// Loads description.txt and strips third-party tool sections (Wandrer, myWindsock).
+    /// Returns nil when the file doesn't exist or has no usable lines.
+    static func loadFilteredDescription(from url: URL) -> [String]? {
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let lines = raw.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .prefix(while: { !$0.hasPrefix("--") })
+            .filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : Array(lines)
+    }
 
     static func drawCentred(_ text: String, in ctx: CGContext,
                              x: Int, y: Int, fontSize: CGFloat, bold: Bool) {

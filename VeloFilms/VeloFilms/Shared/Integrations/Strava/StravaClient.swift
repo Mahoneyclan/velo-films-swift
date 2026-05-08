@@ -59,11 +59,17 @@ struct StravaClient {
 
     // MARK: - Segment efforts + laps (single request)
 
-    func downloadActivityDetails(activityID: Int, segmentsTo: URL, lapsTo: URL) async throws {
+    func downloadActivityDetails(activityID: Int, segmentsTo: URL, lapsTo: URL,
+                                 descriptionTo: URL) async throws {
         let token = try await auth.ensureValidToken()
         let url = URL(string: "\(baseURL)/activities/\(activityID)?include_all_efforts=true")!
         let data = try await getData(url: url, token: token)
         guard let activity = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        // Activity description → description.txt (optional, present only when set on Strava)
+        if let desc = activity["description"] as? String, !desc.isEmpty {
+            try? desc.write(to: descriptionTo, atomically: true, encoding: .utf8)
+        }
 
         // Segment efforts → segments.json
         if let efforts = activity["segment_efforts"] as? [[String: Any]] {
