@@ -25,7 +25,7 @@ Each ride project goes through five phases:
 | **Analyse** | Extract → Enrich → Select | `extract.jsonl`, `enrich.jsonl`, `select.jsonl` |
 | **Review** | Manual selection UI | User can add/remove clips before build |
 | **Build** | Build → Splash | Per-clip composites with HUD overlays, intro/outro |
-| **Finish** | Concat | Final `{project name}.mp4` with xfade crossfades between segments |
+| **Finish** | Concat | Final `{project name}.mp4` — xfade crossfades between all clips + music mixed in one pass |
 
 Steps are dependency-aware — running "Build" from cold will automatically run all prerequisite steps.
 
@@ -50,7 +50,7 @@ Shared/
     Select/               ClipSelector, PartnerMatcher (dual-camera pairing) → SelectStep
     Build/                ClipCompositor, GaugeRenderer, ElevationRenderer, MinimapRenderer
     Splash/               IntroBuilder, OutroBuilder → SplashStep
-    Concat/               ConcatStep (FFmpeg xfade crossfades between intro/middles/outro)
+    Concat/               ConcatStep (xfade crossfades + music mix: intro → clips → outro)
   Video/                  FFmpegBridge (shared protocol)
   Views/
     Main/                 ContentView, ProjectListView, ProjectDetailView
@@ -199,6 +199,10 @@ The Settings screen shows a live proportion bar and a sum badge (green when weig
 4. **BGProcessingTask** — wire iOS background task so app can be left running during long renders
 5. **Concurrent clip rendering** — `TaskGroup` in `BuildStep` (cap 3 on iPad for thermal management)
 6. **App Store decision** — Option A (AVFoundation on macOS too, App Store on both) vs Option B (FFmpeg on Mac, direct distribution)
+
+## Pipeline architecture notes
+
+**Build → Concat** (no intermediate segments): `BuildStep` renders individual `clip_NNNN.mp4` files with HUD overlays. `ConcatStep` joins `_intro + clip_0001…N + _outro` in a single xfade chain pass and mixes music in the same FFmpeg command (macOS) or `AVMutableComposition` (iOS). The old "middles" segmentation layer has been removed — it was a workaround for an FFmpeg concat-filter input limit that does not apply to the xfade chain approach. Rides with 80–100 clips are handled in a single pass.
 
 ## YOLO model
 

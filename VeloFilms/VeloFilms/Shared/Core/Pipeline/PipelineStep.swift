@@ -48,7 +48,7 @@ enum StepName: String, CaseIterable {
             switch self {
             case .build:
                 let files = (try? FileManager.default.contentsOfDirectory(atPath: project.clipsDir.path)) ?? []
-                return files.contains { $0.hasPrefix("_middle_") && $0.hasSuffix(".mp4") }
+                return files.contains { $0.hasPrefix("clip_") && $0.hasSuffix(".mp4") }
             case .splash:
                 return FileManager.default.fileExists(atPath: project.clipsDir.appending(path: "_intro.mp4").path)
             default:

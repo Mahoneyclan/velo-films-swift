@@ -9,15 +9,7 @@ struct ClipCompositor: Sendable {
     let bridge: any FFmpegBridge
     let outputDir: URL
 
-    /// Render a single clip with PiP, map, elevation, and gauge overlays.
-    ///
-    /// - Parameters:
-    ///   - mainRow: Primary (recommended) enriched row.
-    ///   - pipRow: Optional partner-camera row for PiP overlay.
-    ///   - minimapPath: Pre-rendered minimap PNG.
-    ///   - elevationPath: Pre-rendered elevation strip PNG.
-    ///   - gaugeDir: Directory of per-second gauge PNGs (gauge_0001.png, …).
-    ///   - clipIndex: 1-based index used for the output filename.
+    @discardableResult
     func renderClip(
         mainRow:       EnrichRow,
         pipRow:        EnrichRow?,

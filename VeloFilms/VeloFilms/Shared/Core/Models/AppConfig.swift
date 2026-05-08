@@ -170,11 +170,8 @@ enum AppConfig {
     static let musicVolume: Double = 0.7
     static let rawAudioVolume: Double = 0.3
 
-    // MARK: - Segment concat
-    static let highlightsPerSegment: Int = 8   // Int(30.0 / clipOutLenS)
-    static let xfadeDuration: Double = 0.5        // xfade between clips within a segment
-    static let concatXfadeDuration: Double = 0.5  // xfade between intro/middle/outro segments
-    static let fadeInOutDuration: Double = 0.3
+    // MARK: - Concat
+    static let concatXfadeDuration: Double = 0.5
 
     // MARK: - Splash
     static let bannerHeight: Int = 165         // 220 * 1080 / 1440

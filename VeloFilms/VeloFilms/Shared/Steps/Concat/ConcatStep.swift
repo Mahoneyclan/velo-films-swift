@@ -1,41 +1,44 @@
 import Foundation
 import AVFoundation
 
-/// Joins _intro + _middle_01…N + _outro into {rideName}.mp4 with crossfade transitions.
-/// macOS: FFmpeg xfade/acrossfade filter chain with timebase normalisation.
-/// iOS:   AVMutableComposition A/B opacity + audio volume ramps.
+/// Joins _intro + clip_0001…N + _outro into {rideName}.mp4 with crossfade transitions and music.
+/// macOS: FFmpeg xfade/acrossfade filter chain with timebase normalisation + amix.
+/// iOS:   AVMutableComposition A/B opacity + audio volume ramps + music track.
 struct ConcatStep: PipelineStep {
     let name = "concat"
 
     init() {}
 
     func run(project: Project, reporter: ProgressReporter) async throws {
-        await reporter.report(current: 1, total: 3, message: "Collecting segments...")
+        await reporter.report(current: 1, total: 3, message: "Collecting clips...")
 
         let clipsDir = project.clipsDir
         let allFiles = (try? FileManager.default.contentsOfDirectory(
             at: clipsDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
 
-        let middleFiles = allFiles
-            .filter { $0.lastPathComponent.hasPrefix("_middle_") && $0.pathExtension == "mp4" }
+        let clipFiles = allFiles
+            .filter { $0.lastPathComponent.hasPrefix("clip_") && $0.pathExtension == "mp4" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
-        guard !middleFiles.isEmpty else {
+        guard !clipFiles.isEmpty else {
             throw PipelineError.missingInput(
-                "No _middle_##.mp4 segments found — run build step first")
+                "No clip_####.mp4 files found — run build step first")
         }
 
         var parts: [URL] = []
         let intro = clipsDir.appending(path: "_intro.mp4")
         let outro = clipsDir.appending(path: "_outro.mp4")
         if FileManager.default.fileExists(atPath: intro.path) { parts.append(intro) }
-        parts.append(contentsOf: middleFiles)
+        parts.append(contentsOf: clipFiles)
         if FileManager.default.fileExists(atPath: outro.path) { parts.append(outro) }
 
         await reporter.report(current: 2, total: 3,
                               message: "Joining \(parts.count) segment(s) with crossfades...")
 
         try? FileManager.default.removeItem(at: project.finalReelURL)
+
+        let prefs    = project.loadPreferences()
+        let musicURL = findMusicTrack(preferred: prefs.selectedMusicTrack)
 
         if parts.count == 1 {
             try FileManager.default.copyItem(at: parts[0], to: project.finalReelURL)
@@ -49,10 +52,12 @@ struct ConcatStep: PipelineStep {
 #if os(macOS)
             let bridge = makeBridge()
             try await xfadeConcat(parts: parts, durations: durations,
-                                   outputURL: project.finalReelURL, bridge: bridge)
+                                   outputURL: project.finalReelURL, bridge: bridge,
+                                   musicURL: musicURL)
 #else
             try await crossFadeConcatAVF(parts: parts, durations: durations,
-                                          outputURL: project.finalReelURL)
+                                          outputURL: project.finalReelURL,
+                                          musicURL: musicURL)
 #endif
         }
 
@@ -68,20 +73,25 @@ struct ConcatStep: PipelineStep {
     // MARK: - FFmpeg xfade segment join (macOS)
 
     private func xfadeConcat(parts: [URL], durations: [Double],
-                              outputURL: URL, bridge: any FFmpegBridge) async throws {
+                              outputURL: URL, bridge: any FFmpegBridge,
+                              musicURL: URL?) async throws {
         let X   = AppConfig.concatXfadeDuration
         let vbr = "\(AppConfig.Encoding.videoBitrate / 1000)k"
         let abr = "\(AppConfig.Encoding.audioBitrate / 1000)k"
+        let rv  = GlobalSettings.shared.rawAudioVolume
+        let mv  = GlobalSettings.shared.musicVolume
 
         var inputs: [String] = []
         for part in parts { inputs += ["-i", part.path] }
+        if let music = musicURL {
+            inputs += ["-stream_loop", "-1", "-i", music.path]
+        }
 
         var filterParts: [String] = []
 
-        // Normalise every input to a common timebase (fps=30) and sample rate (48 kHz)
-        // before xfade/acrossfade — the filters require matching specs across all inputs.
-        // Intro/outro come from AVFoundation (1/600 tb, 48 kHz); middles come from
-        // FFmpeg libx264 (1/15360 tb, 96 kHz); fps + aresample unify them.
+        // Normalise every input to a common timebase (fps=30) and sample rate (48 kHz).
+        // Clips come from FFmpeg libx264 (1/15360 tb, 96 kHz); intro/outro from AVFoundation
+        // (1/600 tb, 48 kHz). fps + aresample unify them before the xfade chain.
         for i in 0..<parts.count {
             filterParts.append("[\(i):v]fps=fps=30[vn\(i)]")
             filterParts.append("[\(i):a]aresample=48000[an\(i)]")
@@ -104,10 +114,18 @@ struct ConcatStep: PipelineStep {
         }
 
         filterParts.append("[vchain]null[vout]")
-        filterParts.append("[achain]anull[aout]")
+        if let _ = musicURL {
+            let N = parts.count
+            filterParts.append(
+                "[achain]volume=\(rv)[rawA];[\(N):a]volume=\(mv)[musicA];" +
+                "[rawA][musicA]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+            )
+        } else {
+            filterParts.append("[achain]anull[aout]")
+        }
 
         let filter = filterParts.joined(separator: ";")
-        print("[ConcatStep] xfade join: \(parts.count) parts, X=\(X)s → \(outputURL.lastPathComponent)")
+        print("[ConcatStep] xfade join: \(parts.count) parts, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
@@ -121,9 +139,9 @@ struct ConcatStep: PipelineStep {
     // MARK: - AVFoundation crossfade segment join (iOS)
 
     private func crossFadeConcatAVF(parts: [URL], durations: [Double],
-                                     outputURL: URL) async throws {
-        let X  = AppConfig.concatXfadeDuration
-        let ts = CMTimeScale(600)
+                                     outputURL: URL, musicURL: URL?) async throws {
+        let X   = AppConfig.concatXfadeDuration
+        let ts  = CMTimeScale(600)
         let xCM = CMTimeMakeWithSeconds(X, preferredTimescale: ts)
 
         let composition = AVMutableComposition()
@@ -136,7 +154,6 @@ struct ConcatStep: PipelineStep {
         let audB = composition.addMutableTrack(
             withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
 
-        // Insert each segment into the A/B alternating tracks
         var insertTime = CMTime.zero
         var clipStarts: [CMTime] = []
         for (i, url) in parts.enumerated() {
@@ -144,8 +161,8 @@ struct ConcatStep: PipelineStep {
             let dur   = durations[i]
             let durCM = CMTimeMakeWithSeconds(dur, preferredTimescale: ts)
             let asset = AVURLAsset(url: url)
-            let vT = (i % 2 == 0) ? vidA : vidB
-            let aT = (i % 2 == 0) ? audA : audB
+            let vT    = (i % 2 == 0) ? vidA : vidB
+            let aT    = (i % 2 == 0) ? audA : audB
             if let src = try? await asset.loadTracks(withMediaType: .video).first {
                 try? vT.insertTimeRange(CMTimeRange(start: .zero, duration: durCM), of: src, at: insertTime)
             }
@@ -153,8 +170,7 @@ struct ConcatStep: PipelineStep {
                 try? aT.insertTimeRange(CMTimeRange(start: .zero, duration: durCM), of: src, at: insertTime)
             }
             if i < parts.count - 1 {
-                let stepCM = durCM - xCM
-                insertTime = insertTime + stepCM
+                insertTime = insertTime + durCM - xCM
             }
         }
 
@@ -164,14 +180,14 @@ struct ConcatStep: PipelineStep {
         }
         let totalDurCM = CMTimeMakeWithSeconds(totalDur, preferredTimescale: ts)
 
-        // Video composition instructions with opacity crossfades
+        // Video composition with opacity crossfades between A/B tracks
         var instructions: [any AVVideoCompositionInstructionProtocol] = []
         for i in 0..<parts.count {
-            let dur   = durations[i]
-            let durCM = CMTimeMakeWithSeconds(dur, preferredTimescale: ts)
-            let useA  = (i % 2 == 0)
-            let curr  = useA ? vidA : vidB
-            let next  = useA ? vidB : vidA
+            let dur       = durations[i]
+            let durCM     = CMTimeMakeWithSeconds(dur, preferredTimescale: ts)
+            let useA      = (i % 2 == 0)
+            let curr      = useA ? vidA : vidB
+            let next      = useA ? vidB : vidA
             let clipStart = clipStarts[i]
 
             let midStart = i == 0 ? clipStart : clipStart + xCM
@@ -207,14 +223,14 @@ struct ConcatStep: PipelineStep {
             renderSize: CGSize(width: AppConfig.HUD.outputW, height: AppConfig.HUD.outputH)
         ))
 
-        // Audio volume ramps matching video crossfades
+        // Audio volume ramps matching video crossfades.
+        // rawAudioVolume is already baked into the clip files by ClipCompositor, so use 1.0 here.
         let paramsA = AVMutableAudioMixInputParameters(track: audA)
         let paramsB = AVMutableAudioMixInputParameters(track: audB)
         var timelinePos = CMTime.zero
         for i in 0..<parts.count - 1 {
-            let dur   = durations[i]
-            let durCM = CMTimeMakeWithSeconds(dur, preferredTimescale: ts)
-            // Transition starts at end of clip i minus xfade overlap
+            let dur        = durations[i]
+            let durCM      = CMTimeMakeWithSeconds(dur, preferredTimescale: ts)
             let transStart = timelinePos + durCM - xCM
             let transRange = CMTimeRange(start: transStart, duration: xCM)
             if i % 2 == 0 {
@@ -226,13 +242,64 @@ struct ConcatStep: PipelineStep {
             }
             timelinePos = timelinePos + durCM - xCM
         }
-        let audioMix = AVMutableAudioMix()
-        audioMix.inputParameters = [paramsA, paramsB]
+        var inputParams: [AVMutableAudioMixInputParameters] = [paramsA, paramsB]
 
-        print("[ConcatStep] crossfade join (AVF): \(parts.count) parts → \(outputURL.lastPathComponent)")
+        // Music track looped from beginning to fill total duration
+        if let musicURL = musicURL {
+            let musicAsset = AVURLAsset(url: musicURL)
+            let musicDur   = try await musicAsset.load(.duration)
+            if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
+                let mTrack = composition.addMutableTrack(
+                    withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+                var remaining = totalDurCM
+                var destTime  = CMTime.zero
+                while remaining > .zero {
+                    let insert = CMTimeMinimum(remaining, musicDur)
+                    try? mTrack.insertTimeRange(
+                        CMTimeRange(start: .zero, duration: insert), of: srcM, at: destTime)
+                    destTime  = destTime + insert
+                    remaining = remaining - insert
+                }
+                let mp = AVMutableAudioMixInputParameters(track: mTrack)
+                mp.setVolume(Float(GlobalSettings.shared.musicVolume), at: .zero)
+                inputParams.append(mp)
+            }
+        }
+
+        let audioMix = AVMutableAudioMix()
+        audioMix.inputParameters = inputParams
+
+        print("[ConcatStep] crossfade join (AVF): \(parts.count) parts, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
         try await VideoEncoder.export(composition: composition,
                                        videoComposition: videoComp,
                                        audioMix: audioMix,
                                        to: outputURL)
+    }
+
+    // MARK: - Music lookup
+
+    private func findMusicTrack(preferred: String = "") -> URL? {
+        if let url = GlobalSettings.shared.musicURL,
+           FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+        let extensions = ["mp3", "m4a", "aac", "wav"]
+        var candidates: [URL] = []
+        for ext in extensions {
+            candidates += Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "music") ?? []
+        }
+        if candidates.isEmpty {
+            let splash = Set(["intro", "outro"])
+            for ext in extensions {
+                let rootURLs = (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [])
+                    .filter { !splash.contains($0.deletingPathExtension().lastPathComponent) }
+                candidates += rootURLs
+            }
+        }
+        if !preferred.isEmpty,
+           let match = candidates.first(where: { $0.lastPathComponent == preferred }) {
+            return match
+        }
+        return candidates.randomElement()
     }
 }
