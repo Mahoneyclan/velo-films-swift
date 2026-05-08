@@ -33,6 +33,7 @@ extension Project {
     var enrichedJSONL: URL  { workingDir.appending(path: "enriched.jsonl") }
     var selectJSONL: URL    { workingDir.appending(path: "select.jsonl") }
     var segmentsJSON: URL    { workingDir.appending(path: "segments.json") }
+    var lapsJSON: URL        { workingDir.appending(path: "laps.json") }
     var finalConcatList: URL { workingDir.appending(path: "final_concat_list.txt") }
     var finalReelURL: URL    { folderURL.appending(path: "\(name).mp4") }
 

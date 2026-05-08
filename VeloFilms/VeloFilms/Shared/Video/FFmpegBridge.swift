@@ -33,25 +33,29 @@ struct FFmpegMacBridge: FFmpegBridge {
             // Drain stderr asynchronously to prevent pipe-full deadlock.
             // FFmpeg writes continuous progress lines to stderr; without draining,
             // the 64KB pipe buffer fills and FFmpeg blocks indefinitely.
+            // Class wrapper lets both closures capture a reference (not a mutable var),
+            // satisfying Swift 6 concurrency rules; drainQueue serialises all access.
+            final class StderrAccumulator: @unchecked Sendable { var chunks: [Data] = [] }
             let drainQueue = DispatchQueue(label: "ffmpeg.stderr.drain")
-            var stderrChunks: [Data] = []
+            let stderrAcc  = StderrAccumulator()
             errPipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 guard !chunk.isEmpty else { return }
-                drainQueue.async { stderrChunks.append(chunk) }
+                drainQueue.async { stderrAcc.chunks.append(chunk) }
             }
 
             process.terminationHandler = { proc in
                 errPipe.fileHandleForReading.readabilityHandler = nil
                 // Final synchronous drain of any bytes written before handler was cleared.
                 let tail = errPipe.fileHandleForReading.readDataToEndOfFile()
-                drainQueue.sync {
-                    if !tail.isEmpty { stderrChunks.append(tail) }
+                let combined: Data = drainQueue.sync {
+                    if !tail.isEmpty { stderrAcc.chunks.append(tail) }
+                    return stderrAcc.chunks.reduce(Data(), +)
                 }
                 if proc.terminationStatus == 0 {
                     cont.resume()
                 } else {
-                    let stderr = String(data: stderrChunks.reduce(Data(), +), encoding: .utf8) ?? ""
+                    let stderr = String(data: combined, encoding: .utf8) ?? ""
                     cont.resume(throwing: PipelineError.ffmpegFailed(proc.terminationStatus, stderr))
                 }
             }

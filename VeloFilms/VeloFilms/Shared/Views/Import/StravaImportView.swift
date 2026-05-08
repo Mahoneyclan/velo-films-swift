@@ -140,10 +140,11 @@ struct StravaImportView: View {
                 activityName: activity.name,
                 to:           project.gpxFile
             )
-            // Segment efforts are optional — failure doesn't block the import
-            try? await StravaClient().segmentEfforts(
-                activityID: activity.id,
-                to:         project.segmentsJSON
+            // Segment efforts + laps are optional — failure doesn't block the import
+            try? await StravaClient().downloadActivityDetails(
+                activityID:  activity.id,
+                segmentsTo:  project.segmentsJSON,
+                lapsTo:      project.lapsJSON
             )
             if targetProject == nil { store.add(project) }
             onComplete?()

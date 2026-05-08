@@ -12,7 +12,8 @@ Requirements:
     pip install ultralytics coremltools
 
 Notes:
-- nms=False: Vision framework handles NMS natively; baking it in bloats the model
+- nms=False: YOLOInference.swift decodes the raw [1, 84, 8400] tensor directly and
+  applies per-class NMS in Swift, avoiding Vision framework limitations.
 - int8 quantisation cuts the package from ~12MB to ~3MB with negligible accuracy loss
   on the 11 object classes we care about (person, bicycle, car, motorcycle, bus, truck,
   traffic light, stop sign)
@@ -38,11 +39,11 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 print(f"Loading {YOLO_PT} ...")
 model = YOLO(str(YOLO_PT))
 
-print("Exporting to Core ML (int8, nms=False, imgsz=640) ...")
+print("Exporting to Core ML (int8, nms=True, imgsz=640) ...")
 exported = model.export(
     format="coreml",
     imgsz=640,
-    nms=False,
+    nms=True,
     int8=True,
 )
 
@@ -56,6 +57,5 @@ exported_path.rename(dest)
 
 print(f"\nDone: {dest}")
 print("Next steps:")
-print("  1. Open VeloFilms.xcodeproj in Xcode")
-print("  2. Drag Shared/ML/VeloYOLO.mlpackage into the Xcode project navigator")
-print("  3. Set target membership: both VeloFilms (macOS) and VeloFilms (iOS)")
+print("  1. Clean build folder in Xcode (Shift+Cmd+K) to force recompile of the model")
+print("  2. Build and run — the model is picked up automatically via file system sync")

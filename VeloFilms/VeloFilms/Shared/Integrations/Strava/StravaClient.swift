@@ -57,27 +57,47 @@ struct StravaClient {
         try gpxString.write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
-    // MARK: - Segment efforts (saved to segments.json)
+    // MARK: - Segment efforts + laps (single request)
 
-    func segmentEfforts(activityID: Int, to outputURL: URL) async throws {
+    func downloadActivityDetails(activityID: Int, segmentsTo: URL, lapsTo: URL) async throws {
         let token = try await auth.ensureValidToken()
         let url = URL(string: "\(baseURL)/activities/\(activityID)?include_all_efforts=true")!
         let data = try await getData(url: url, token: token)
-        guard let activity = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let efforts = activity["segment_efforts"] as? [[String: Any]] else { return }
-        let segments: [[String: Any]] = efforts.compactMap { effort -> [String: Any]? in
-            guard let seg = effort["segment"] as? [String: Any],
-                  let name = seg["name"] as? String,
-                  let startTime = effort["start_date"] as? String,
-                  let elapsed = effort["elapsed_time"] as? Int else { return nil }
-            return [
-                "name": name, "start_time": startTime, "elapsed_time": elapsed,
-                "pr_rank": effort["pr_rank"] as Any,
-                "distance": seg["distance"] ?? 0, "average_grade": seg["average_grade"] ?? 0,
-            ]
+        guard let activity = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        // Segment efforts → segments.json
+        if let efforts = activity["segment_efforts"] as? [[String: Any]] {
+            let segments: [[String: Any]] = efforts.compactMap { effort -> [String: Any]? in
+                guard let seg = effort["segment"] as? [String: Any],
+                      let name = seg["name"] as? String,
+                      let startTime = effort["start_date"] as? String,
+                      let elapsed = effort["elapsed_time"] as? Int else { return nil }
+                return [
+                    "name": name, "start_time": startTime, "elapsed_time": elapsed,
+                    "pr_rank": effort["pr_rank"] as Any,
+                    "distance": seg["distance"] ?? 0, "average_grade": seg["average_grade"] ?? 0,
+                ]
+            }
+            let segOut = try JSONSerialization.data(withJSONObject: segments, options: .prettyPrinted)
+            try segOut.write(to: segmentsTo, options: .atomic)
         }
-        let out = try JSONSerialization.data(withJSONObject: segments, options: .prettyPrinted)
-        try out.write(to: outputURL, options: .atomic)
+
+        // Laps → laps.json
+        if let laps = activity["laps"] as? [[String: Any]] {
+            let lapItems: [[String: Any]] = laps.compactMap { lap -> [String: Any]? in
+                guard let startDate = lap["start_date"] as? String,
+                      let elapsed = lap["elapsed_time"] as? Int else { return nil }
+                return [
+                    "name":       lap["name"] as? String ?? "Lap",
+                    "start_date": startDate,
+                    "elapsed_time": elapsed,
+                    "distance":   lap["distance"] ?? 0,
+                    "lap_index":  lap["lap_index"] ?? 0,
+                ]
+            }
+            let lapsOut = try JSONSerialization.data(withJSONObject: lapItems, options: .prettyPrinted)
+            try lapsOut.write(to: lapsTo, options: .atomic)
+        }
     }
 
     // MARK: - GPX construction from streams

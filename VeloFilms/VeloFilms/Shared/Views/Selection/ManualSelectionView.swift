@@ -52,8 +52,7 @@ struct ManualSelectionView: View {
     @State private var activeFocusFilter: FocusFilter = .all
     @State private var rideStartEpoch: Double = 0
     @State private var rideDurationS: Double = 0
-    @State private var segmentEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)] = []
-    @State private var availableSegmentNames: [String] = []
+    @State private var lapRanges: [(name: String, startEpoch: Double, endEpoch: Double)] = []
 
     var selectedCount: Int { selectRows.filter { $0.recommended }.count }
     var target: Int { AppConfig.targetClips }
@@ -71,7 +70,7 @@ struct ManualSelectionView: View {
             let ctx = FocusFilterContext(
                 rideStartEpoch:     rideStartEpoch,
                 rideDurationS:      rideDurationS,
-                segmentEpochRanges: segmentEpochRanges,
+                lapEpochRanges:     lapRanges,
                 firstNMinutes:      GlobalSettings.shared.focusFirstNMinutes,
                 lastNMinutes:       GlobalSettings.shared.focusLastNMinutes,
                 climbGradientPct:   GlobalSettings.shared.focusClimbGradientPct,
@@ -104,16 +103,24 @@ struct ManualSelectionView: View {
                 // Read settings here in body so @Observable tracking fires in this view
                 let s = GlobalSettings.shared
                 FocusModeBar(
-                    activeFocusFilter:    $activeFocusFilter,
-                    rideDurationS:        rideDurationS,
-                    availableSegmentNames: availableSegmentNames,
-                    firstNMinutes:        s.focusFirstNMinutes,
-                    lastNMinutes:         s.focusLastNMinutes,
-                    climbGradientPct:     s.focusClimbGradientPct,
-                    descentGradientPct:   s.focusDescentGradientPct,
-                    groupMinDetections:   s.focusGroupMinDetections
+                    activeFocusFilter:  $activeFocusFilter,
+                    rideDurationS:      rideDurationS,
+                    firstNMinutes:      s.focusFirstNMinutes,
+                    lastNMinutes:       s.focusLastNMinutes,
+                    climbGradientPct:   s.focusClimbGradientPct,
+                    descentGradientPct: s.focusDescentGradientPct,
+                    groupMinDetections: s.focusGroupMinDetections
                 )
                 .padding(.vertical, 6)
+
+                // Lap timeline — shown when Strava lap data is available
+                if !lapRanges.isEmpty {
+                    Divider()
+                    LapSegmentTimeline(
+                        lapRanges:         lapRanges,
+                        activeFocusFilter: $activeFocusFilter
+                    )
+                }
 
                 // Existing YOLO class filter — unchanged
                 if !availableClasses.isEmpty {
@@ -184,8 +191,8 @@ struct ManualSelectionView: View {
             return "No clips in the first \(Int(s.focusFirstNMinutes)) minutes of the ride."
         case .lastNMinutes:
             return "No clips in the last \(Int(s.focusLastNMinutes)) minutes of the ride."
-        case .segment(let name):
-            return "No clips were captured during segment '\(name)'."
+        case .lap(let name):
+            return "No clips were captured during lap '\(name)'."
         case .all:
             return "Run the analysis step to populate clips."
         }
@@ -234,21 +241,27 @@ struct ManualSelectionView: View {
             rideDurationS  = Double(last.momentId - first.momentId)
         }
 
-        // Strava segment epoch ranges for segment filter — pure view-level load, no pipeline impact
-        let ranges = Self.parseSegmentEpochs(from: project.segmentsJSON)
-        segmentEpochRanges  = ranges
-        availableSegmentNames = Array(Set(ranges.map(\.name))).sorted()
+        // Parse laps for the timeline (raw true-UTC from Strava API).
+        // abs_time_epoch uses local-time-as-UTC (Cycliq wrong-Z), so apply the timezone offset
+        // derived from rideStartEpoch vs earliest Strava epoch, rounded to the nearest whole hour.
+        let rawLapRanges = Self.parseLapEpochs(from: project.lapsJSON)
+        let offset = Self.stravaEpochOffset(rideStartEpoch: rideStartEpoch, lapRanges: rawLapRanges)
+        let allLapRanges = rawLapRanges.map { (name: $0.name, startEpoch: $0.startEpoch + offset, endEpoch: $0.endEpoch + offset) }
+
+        // Only show laps that contain at least one displayed moment.
+        let momentEpochs = Set(moments.map { Double($0.momentId) })
+        lapRanges = allLapRanges.filter { range in
+            momentEpochs.contains { $0 >= range.startEpoch && $0 <= range.endEpoch }
+        }
 
         isLoaded = true
     }
 
-    /// Parses segments.json into epoch ranges suitable for the segment focus filter.
-    /// Mirrors the parsing in SegmentMatcher.init without importing the pipeline type into the view layer.
-    private static func parseSegmentEpochs(
+    private static func parseLapEpochs(
         from url: URL
     ) -> [(name: String, startEpoch: Double, endEpoch: Double)] {
         guard let data = try? Data(contentsOf: url),
-              let efforts = try? JSONDecoder().decode([SegmentMatcher.SegmentEffort].self, from: data)
+              let laps = try? JSONDecoder().decode([LapRecord].self, from: data)
         else { return [] }
 
         let fmt1 = ISO8601DateFormatter()
@@ -256,11 +269,22 @@ struct ManualSelectionView: View {
         let fmt2 = ISO8601DateFormatter()
         fmt2.formatOptions = [.withInternetDateTime]
 
-        return efforts.compactMap { seg -> (String, Double, Double)? in
-            guard let date = fmt1.date(from: seg.startTime) ?? fmt2.date(from: seg.startTime) else { return nil }
+        return laps.compactMap { lap -> (String, Double, Double)? in
+            guard let date = fmt1.date(from: lap.startDate) ?? fmt2.date(from: lap.startDate) else { return nil }
             let s = date.timeIntervalSince1970
-            return (seg.name, s, s + seg.elapsedTime)
+            return (lap.name, s, s + Double(lap.elapsedTime))
         }
+    }
+
+    /// Strava lap start_date is true UTC; abs_time_epoch is local-time-as-UTC (Cycliq wrong-Z).
+    /// Returns the whole-hour offset (seconds) to add to Strava epochs so they align with abs_time_epoch.
+    /// Rounds to the nearest hour to absorb minor discrepancies between video start and lap start.
+    private static func stravaEpochOffset(
+        rideStartEpoch: Double,
+        lapRanges: [(name: String, startEpoch: Double, endEpoch: Double)]
+    ) -> Double {
+        guard rideStartEpoch > 0, let earliest = lapRanges.map(\.startEpoch).min() else { return 0 }
+        return ((rideStartEpoch - earliest) / 3600).rounded() * 3600
     }
 
     private func save() {
@@ -273,18 +297,12 @@ struct ManualSelectionView: View {
 private struct FocusModeBar: View {
     @Binding var activeFocusFilter: FocusFilter
     let rideDurationS: Double
-    let availableSegmentNames: [String]
     // Passed from parent body where @Observable tracking fires
     let firstNMinutes: Double
     let lastNMinutes: Double
     let climbGradientPct: Double
     let descentGradientPct: Double   // stored negative (e.g. -4.0)
     let groupMinDetections: Int
-
-    private var activeSegmentName: String? {
-        if case .segment(let n) = activeFocusFilter { return n }
-        return nil
-    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -328,32 +346,6 @@ private struct FocusModeBar: View {
                     icon: "person.3",
                     isActive: activeFocusFilter == .groupRiding
                 ) { activeFocusFilter = activeFocusFilter == .groupRiding ? .all : .groupRiding }
-
-                // Strava segments — single Menu picker instead of one chip per segment
-                if !availableSegmentNames.isEmpty {
-                    Menu {
-                        Button("None") { activeFocusFilter = .all }
-                        Divider()
-                        ForEach(availableSegmentNames, id: \.self) { name in
-                            Button(name) {
-                                let f = FocusFilter.segment(name: name)
-                                activeFocusFilter = activeFocusFilter == f ? .all : f
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "location").font(.caption2)
-                            Text(activeSegmentName ?? "Segment").font(.caption.bold())
-                            Image(systemName: "chevron.down").font(.caption2)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(activeSegmentName != nil ? Color.accentColor : Color.secondary.opacity(0.12))
-                        .foregroundStyle(activeSegmentName != nil ? Color.white : Color.primary)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(.horizontal, 12)
         }
@@ -379,6 +371,108 @@ private struct FocusChip: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Lap timeline
+
+/// Proportional lap timeline. Blocks are positioned in Strava epoch space.
+/// Tapping a block sets the active focus filter; tapping the active block returns to .all.
+private struct LapSegmentTimeline: View {
+    let lapRanges: [(name: String, startEpoch: Double, endEpoch: Double)]
+    @Binding var activeFocusFilter: FocusFilter
+
+    private var timelineStart: Double { lapRanges.map(\.startEpoch).min() ?? 0 }
+    private var timelineEnd: Double   { lapRanges.map(\.endEpoch).max() ?? 1 }
+    private var timelineSpan: Double  { max(1, timelineEnd - timelineStart) }
+
+    var body: some View {
+        TimelineRow(
+            label: "Laps",
+            ranges: lapRanges,
+            timelineStart: timelineStart,
+            timelineSpan: timelineSpan,
+            activeFilter: $activeFocusFilter,
+            rowHeight: 18,
+            makeFilter: { FocusFilter.lap(name: $0) },
+            isActive: { name in
+                if case .lap(let n) = activeFocusFilter { return n == name }
+                return false
+            }
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+    }
+}
+
+private struct TimelineRow: View {
+    let label: String
+    let ranges: [(name: String, startEpoch: Double, endEpoch: Double)]
+    let timelineStart: Double
+    let timelineSpan: Double
+    @Binding var activeFilter: FocusFilter
+    let rowHeight: CGFloat
+    let makeFilter: (String) -> FocusFilter
+    let isActive: (String) -> Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .trailing)
+
+            GeometryReader { geo in
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: rowHeight / 4)
+                        .fill(Color.secondary.opacity(0.10))
+                        .frame(width: geo.size.width, height: rowHeight)
+
+                    ForEach(Array(ranges.enumerated()), id: \.offset) { _, range in
+                        let xFrac = (range.startEpoch - timelineStart) / timelineSpan
+                        let wFrac = (range.endEpoch - range.startEpoch) / timelineSpan
+                        let x = CGFloat(xFrac) * geo.size.width
+                        let w = max(3, CGFloat(wFrac) * geo.size.width - 1)
+                        let active = isActive(range.name)
+
+                        Button {
+                            let f = makeFilter(range.name)
+                            activeFilter = activeFilter == f ? .all : f
+                        } label: {
+                            RoundedRectangle(cornerRadius: rowHeight / 4)
+                                .fill(active ? Color.accentColor : Color.accentColor.opacity(0.40))
+                                .frame(width: w, height: rowHeight)
+                                .overlay {
+                                    if w > 44 && rowHeight >= 16 {
+                                        Text(range.name)
+                                            .font(.system(size: 7, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .padding(.horizontal, 3)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: x)
+                        .help(range.name)
+                    }
+                }
+            }
+            .frame(height: rowHeight)
+        }
+    }
+}
+
+/// Decodable mirror of the lap objects written by StravaClient.downloadActivityDetails.
+private struct LapRecord: Decodable {
+    let name: String
+    let startDate: String
+    let elapsedTime: Int
+    enum CodingKeys: String, CodingKey {
+        case name
+        case startDate   = "start_date"
+        case elapsedTime = "elapsed_time"
     }
 }
 

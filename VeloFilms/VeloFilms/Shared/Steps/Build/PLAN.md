@@ -128,16 +128,9 @@ ClipCompositor (default path)
 ### Phase 3: Feature Completeness
 - [ ] Intro/outro builder integration (files exist but not wired)
 - [ ] Strava segment PR highlighting
-- [ ] Manual clip override UI (ManualSelectionView exists but incomplete)
 - [ ] Export quality presets (4K, 1080p, 720p)
-- [ ] Custom music track selection
+- [x] Custom music track selection
 
-### Phase 4: User Experience
-- [ ] Real-time progress with preview frames
-- [ ] Background processing (macOS: XPC service, iOS: BGProcessingTask)
-- [ ] iCloud project sync
-- [ ] Drag-and-drop video import
-- [ ] One-click "quick highlight" mode
 
 ---
 

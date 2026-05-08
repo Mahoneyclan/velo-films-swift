@@ -34,16 +34,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>        let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
+				<string>
 </string>
 				<key>leading</key>
-				<string>        try? FileManager.default.removeItem(at: outputURL)
-
+				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let duration   = AppConfig.clipOutLenS
 </string>
 				<key>trailing</key>
-				<string>
-        // MARK: - Synchronous encode on a single dedicated OS thread
-
+				<string>        // -framerate 1 must appear before -i when using an image sequence
+        var inputs: [String] = [
+            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
 </string>
 			</dict>
 			<key>title</key>
@@ -81,16 +81,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>        let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
+				<string>
 </string>
 				<key>leading</key>
-				<string>        try? FileManager.default.removeItem(at: outputURL)
-
+				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let duration   = AppConfig.clipOutLenS
 </string>
 				<key>trailing</key>
-				<string>
-        // MARK: - Synchronous encode on a single dedicated OS thread
-
+				<string>        // -framerate 1 must appear before -i when using an image sequence
+        var inputs: [String] = [
+            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
 </string>
 			</dict>
 			<key>title</key>
@@ -128,16 +128,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>        let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
+				<string>
 </string>
 				<key>leading</key>
-				<string>        try? FileManager.default.removeItem(at: outputURL)
-
+				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let duration   = AppConfig.clipOutLenS
 </string>
 				<key>trailing</key>
-				<string>
-        // MARK: - Synchronous encode on a single dedicated OS thread
-
+				<string>        // -framerate 1 must appear before -i when using an image sequence
+        var inputs: [String] = [
+            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
 </string>
 			</dict>
 			<key>title</key>
@@ -175,16 +175,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>        let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
+				<string>
 </string>
 				<key>leading</key>
-				<string>        try? FileManager.default.removeItem(at: outputURL)
-
+				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let duration   = AppConfig.clipOutLenS
 </string>
 				<key>trailing</key>
-				<string>
-        // MARK: - Synchronous encode on a single dedicated OS thread
-
+				<string>        // -framerate 1 must appear before -i when using an image sequence
+        var inputs: [String] = [
+            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
 </string>
 			</dict>
 			<key>title</key>

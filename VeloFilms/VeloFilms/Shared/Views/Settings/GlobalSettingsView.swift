@@ -114,18 +114,18 @@ struct GlobalSettingsView: View {
                             .foregroundStyle(.secondary)
 
                         FocusSliderRow(label: "First N minutes", icon: "clock",
-                                       value: $settings.focusFirstNMinutes, in: 1...60,
+                                       value: $settings.focusFirstNMinutes, range: 1...60,
                                        unit: "min")
                             .onChange(of: settings.focusFirstNMinutes) { settings.save() }
                         FocusSliderRow(label: "Last N minutes", icon: "clock.badge.checkmark",
-                                       value: $settings.focusLastNMinutes, in: 1...60,
+                                       value: $settings.focusLastNMinutes, range: 1...60,
                                        unit: "min")
                             .onChange(of: settings.focusLastNMinutes) { settings.save() }
 
                         Divider()
 
                         FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
-                                       value: $settings.focusClimbGradientPct, in: 1...20,
+                                       value: $settings.focusClimbGradientPct, range: 1...20,
                                        unit: "%", prefix: "≥")
                             .onChange(of: settings.focusClimbGradientPct) { settings.save() }
                             .help("Show clips where gradient ≥ this value")
@@ -136,7 +136,7 @@ struct GlobalSettingsView: View {
                             set: { settings.focusDescentGradientPct = -abs($0); settings.save() }
                         )
                         FocusSliderRow(label: "Descent steepness", icon: "arrow.down.right",
-                                       value: descentAbs, in: 1...20,
+                                       value: descentAbs, range: 1...20,
                                        unit: "%", prefix: "≥")
                             .help("Show clips where gradient ≤ −this value")
 
@@ -173,7 +173,7 @@ struct GlobalSettingsView: View {
                                     Spacer()
                                     Text(String(format: "%.2f", settings.yoloMinConfidence))
                                         .font(.caption.bold().monospacedDigit())
-                                        .foregroundStyle(.accentColor)
+                                        .foregroundStyle(Color.accentColor)
                                 }
                                 Slider(value: $settings.yoloMinConfidence, in: 0.05...0.50, step: 0.05)
                                     .onChange(of: settings.yoloMinConfidence) { settings.save() }
@@ -197,7 +197,7 @@ struct GlobalSettingsView: View {
                                     Spacer()
                                     Text(String(format: "%.1f×", settings.candidateFraction))
                                         .font(.caption.bold().monospacedDigit())
-                                        .foregroundStyle(.accentColor)
+                                        .foregroundStyle(Color.accentColor)
                                 }
                                 Slider(value: $settings.candidateFraction, in: 1.0...5.0, step: 0.5)
                                     .onChange(of: settings.candidateFraction) { settings.save() }
@@ -480,7 +480,7 @@ private struct FocusSliderRow: View {
             Slider(value: $value, in: range, step: 1)
             Text("\(prefix)\(Int(value))\(unit)")
                 .font(.caption.bold().monospacedDigit())
-                .foregroundStyle(.accentColor)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 44, alignment: .trailing)
         }
     }
