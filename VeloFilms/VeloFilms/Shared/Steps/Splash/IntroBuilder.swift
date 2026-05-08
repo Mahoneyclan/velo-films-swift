@@ -457,8 +457,7 @@ enum IntroBuilder {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let lines = raw.components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .prefix(while: { !$0.hasPrefix("--") })
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && !$0.hasPrefix("--") }
         return lines.isEmpty ? nil : Array(lines)
     }
 
