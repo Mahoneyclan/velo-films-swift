@@ -148,12 +148,17 @@ struct ConcatStep: PipelineStep {
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
-            filterParts.append("[\(i):v]fps=fps=30[vn\(i)]")
+            // trim+setpts clamps each part to its AVFoundation-reported duration before xfade.
+            // fps=fps=30 previously inflated Cycliq clips by ~0.5s due to a stray B-frame PTS
+            // extending past the container duration, causing xfade offsets to be miscalculated.
+            let clipDurStr = String(format: "%.6f", durations[i])
+            filterParts.append("[\(i):v]trim=end=\(clipDurStr),setpts=PTS-STARTPTS[vn\(i)]")
             if hasAudio[i] {
-                filterParts.append("[\(i):a]aresample=48000[an\(i)]")
+                filterParts.append(
+                    "[\(i):a]atrim=end=\(clipDurStr),asetpts=PTS-STARTPTS,aresample=48000[an\(i)]")
             } else {
                 filterParts.append(
-                    "aevalsrc=0:c=stereo:s=48000:d=\(String(format: "%.3f", durations[i]))[an\(i)]")
+                    "aevalsrc=0:c=stereo:s=48000:d=\(clipDurStr)[an\(i)]")
             }
         }
 
@@ -186,7 +191,7 @@ struct ConcatStep: PipelineStep {
                 "\(concatInputs)concat=n=\(musicLoopCount):v=0:a=1," +
                 "atrim=end=\(durStr),asetpts=PTS-STARTPTS," +
                 "volume=\(mv)[musicA];" +
-                "[rawA][musicA]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+                "[rawA][musicA]amix=inputs=2:duration=longest:dropout_transition=0[aout]"
             )
         } else {
             filterParts.append("[achain]volume=\(rv)[aout]")
@@ -224,12 +229,17 @@ struct ConcatStep: PipelineStep {
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
-            filterParts.append("[\(i):v]fps=fps=30[vn\(i)]")
+            // trim+setpts clamps each part to its AVFoundation-reported duration before xfade.
+            // fps=fps=30 previously inflated Cycliq clips by ~0.5s due to a stray B-frame PTS
+            // extending past the container duration, causing xfade offsets to be miscalculated.
+            let clipDurStr = String(format: "%.6f", durations[i])
+            filterParts.append("[\(i):v]trim=end=\(clipDurStr),setpts=PTS-STARTPTS[vn\(i)]")
             if hasAudio[i] {
-                filterParts.append("[\(i):a]aresample=48000[an\(i)]")
+                filterParts.append(
+                    "[\(i):a]atrim=end=\(clipDurStr),asetpts=PTS-STARTPTS,aresample=48000[an\(i)]")
             } else {
                 filterParts.append(
-                    "aevalsrc=0:c=stereo:s=48000:d=\(String(format: "%.3f", durations[i]))[an\(i)]")
+                    "aevalsrc=0:c=stereo:s=48000:d=\(clipDurStr)[an\(i)]")
             }
         }
 
