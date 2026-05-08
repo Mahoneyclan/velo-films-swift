@@ -25,7 +25,7 @@ Each ride project goes through five phases:
 | **Analyse** | Extract → Enrich → Select | `extract.jsonl`, `enrich.jsonl`, `select.jsonl` |
 | **Review** | Manual selection UI | User can add/remove clips before build |
 | **Build** | Build → Splash | Per-clip composites with HUD overlays, intro/outro |
-| **Finish** | Concat | Final `highlights.mp4` with xfade crossfades between segments |
+| **Finish** | Concat | Final `{project name}.mp4` with xfade crossfades between segments |
 
 Steps are dependency-aware — running "Build" from cold will automatically run all prerequisite steps.
 

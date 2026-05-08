@@ -744,10 +744,11 @@ private struct PerspectiveCard: View {
     @State private var partnerThumb: CGImage? = nil
 
     private var detectedClasses: [String] {
-        primary.detectedClasses
+        var seen = Set<String>()
+        return primary.detectedClasses
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     var body: some View {
