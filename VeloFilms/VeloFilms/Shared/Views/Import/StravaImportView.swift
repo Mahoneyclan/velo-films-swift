@@ -76,7 +76,7 @@ struct StravaImportView: View {
                             }
                             Spacer()
                             if isImporting {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView().frame(width: 20, height: 20)
                             } else {
                                 Image(systemName: "arrow.down.circle").foregroundStyle(.orange)
                             }

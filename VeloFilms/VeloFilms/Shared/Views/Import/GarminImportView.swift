@@ -84,7 +84,7 @@ struct GarminImportView: View {
                     if isSigningIn {
                         HStack {
                             Spacer()
-                            ProgressView().scaleEffect(0.8)
+                            ProgressView().frame(width: 20, height: 20)
                             Text("Signing in…")
                             Spacer()
                         }
@@ -139,7 +139,7 @@ struct GarminImportView: View {
                             }
                             Spacer()
                             if isImporting {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView().frame(width: 20, height: 20)
                             } else {
                                 Image(systemName: "arrow.down.circle").foregroundStyle(.blue)
                             }
