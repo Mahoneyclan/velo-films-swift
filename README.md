@@ -25,7 +25,7 @@ Each ride project goes through five phases:
 | **Analyse** | Extract → Enrich → Select | `extract.jsonl`, `enrich.jsonl`, `select.jsonl` |
 | **Review** | Manual selection UI | User can add/remove clips before build |
 | **Build** | Build → Splash | Per-clip composites with HUD overlays, intro/outro |
-| **Finish** | Concat | Final `{project name}.mp4` — xfade crossfades between all clips + music mixed in one pass |
+| **Finish** | Concat | `_middle.mp4` (clips + backing music), then `_intro + _middle + _outro` → `{project name}.mp4` |
 
 Steps are dependency-aware — running "Build" from cold will automatically run all prerequisite steps.
 
@@ -50,7 +50,7 @@ Shared/
     Select/               ClipSelector, PartnerMatcher (dual-camera pairing) → SelectStep
     Build/                ClipCompositor, GaugeRenderer, ElevationRenderer, MinimapRenderer
     Splash/               IntroBuilder, OutroBuilder → SplashStep
-    Concat/               ConcatStep (xfade crossfades + music mix: intro → clips → outro)
+    Concat/               ConcatStep (phase 1: clips+music→_middle; phase 2: intro+middle+outro→final)
   Video/                  FFmpegBridge (shared protocol)
   Views/
     Main/                 ContentView, ProjectListView, ProjectDetailView
@@ -85,10 +85,11 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 - Copies one card at a time, adding to the same destination folder on each run
 - Renames files to `Fly12Sport_0001.MP4` / `Fly6Pro_0001.MP4` for unambiguous camera identification
 
-**Strava import** downloads the GPX (built from streams for reliability), plus segment efforts and laps in a single API call:
+**Strava import** downloads the GPX (built from streams for reliability), plus segment efforts, laps, and activity description in a single API call:
 - `working/ride.gpx` — trackpoints with speed, elevation, HR, cadence
 - `working/segments.json` — segment effort names, start times, durations, grades
 - `working/laps.json` — lap names, start times, durations (feeds the Lap timeline in clip selection)
+- `working/description.txt` — activity description; third-party tool sections (`-- From Wandrer`, `-- myWindsock Report --`) are stripped; remaining lines overlaid on the intro map card
 
 ## Settings
 
@@ -202,7 +203,16 @@ The Settings screen shows a live proportion bar and a sum badge (green when weig
 
 ## Pipeline architecture notes
 
-**Build → Concat** (no intermediate segments): `BuildStep` renders individual `clip_NNNN.mp4` files with HUD overlays. `ConcatStep` joins `_intro + clip_0001…N + _outro` in a single xfade chain pass and mixes music in the same FFmpeg command (macOS) or `AVMutableComposition` (iOS). The old "middles" segmentation layer has been removed — it was a workaround for an FFmpeg concat-filter input limit that does not apply to the xfade chain approach. Rides with 80–100 clips are handled in a single pass.
+**Two-pass Concat:** `ConcatStep` runs in two phases:
+1. `clip_NNNN.mp4` files are joined with xfade crossfades and backing music mixed in → `_middle.mp4`. Music is looped via `aloop` filter (macOS) or `AVMutableCompositionTrack` segment copy (iOS) to cover any clip duration. rawAudioVolume and musicVolume are applied here.
+2. `_intro + _middle + _outro` are joined with xfade crossfades, audio passthrough only — each segment already carries its own music (`intro.mp3`, backing music, `outro.mp3`).
+
+**Intro map card overlay:** If `working/description.txt` exists, its content is overlaid as left-side text on the intro map splash card. Lines starting with `--` (Wandrer, myWindsock section headers) are stripped; all other lines are shown.
+
+**Audio ownership per segment:**
+- `_intro.mp4` — `intro.mp3` baked in by `IntroBuilder`
+- `_middle.mp4` — raw clip audio + looped backing music mixed by `ConcatStep`
+- `_outro.mp4` — `outro.mp3` baked in by `OutroBuilder`
 
 ## YOLO model
 
