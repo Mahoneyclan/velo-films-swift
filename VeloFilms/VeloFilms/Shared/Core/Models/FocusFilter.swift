@@ -96,7 +96,8 @@ extension FocusFilter {
             return (moment.primary?.gradientPct ?? 0) >= ctx.climbGradientPct
 
         case .descents:
-            return (moment.primary?.gradientPct ?? 0) <= -(ctx.descentGradientPct)
+            // descentGradientPct is stored as a negative value (e.g. -4.0); direct comparison works
+            return (moment.primary?.gradientPct ?? 0) <= ctx.descentGradientPct
 
         case .groupRiding:
             return Self.riderCount(for: moment) >= ctx.groupMinDetections

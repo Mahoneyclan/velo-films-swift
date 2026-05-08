@@ -101,10 +101,17 @@ struct ManualSelectionView: View {
 
                 // Focus Mode filter bar — always visible
                 Divider()
+                // Read settings here in body so @Observable tracking fires in this view
+                let s = GlobalSettings.shared
                 FocusModeBar(
                     activeFocusFilter:    $activeFocusFilter,
                     rideDurationS:        rideDurationS,
-                    availableSegmentNames: availableSegmentNames
+                    availableSegmentNames: availableSegmentNames,
+                    firstNMinutes:        s.focusFirstNMinutes,
+                    lastNMinutes:         s.focusLastNMinutes,
+                    climbGradientPct:     s.focusClimbGradientPct,
+                    descentGradientPct:   s.focusDescentGradientPct,
+                    groupMinDetections:   s.focusGroupMinDetections
                 )
                 .padding(.vertical, 6)
 
@@ -170,7 +177,7 @@ struct ManualSelectionView: View {
         case .climbs:
             return "No clips have a gradient ≥\(Int(s.focusClimbGradientPct))%. Confirm elevation data is present in the GPX."
         case .descents:
-            return "No clips have a gradient ≤−\(Int(s.focusDescentGradientPct))%."
+            return "No clips have a gradient ≤\(Int(s.focusDescentGradientPct))%."
         case .groupRiding:
             return "No clips have \(s.focusGroupMinDetections)+ riders (person or bicycle) detected."
         case .firstNMinutes:
@@ -267,8 +274,17 @@ private struct FocusModeBar: View {
     @Binding var activeFocusFilter: FocusFilter
     let rideDurationS: Double
     let availableSegmentNames: [String]
+    // Passed from parent body where @Observable tracking fires
+    let firstNMinutes: Double
+    let lastNMinutes: Double
+    let climbGradientPct: Double
+    let descentGradientPct: Double   // stored negative (e.g. -4.0)
+    let groupMinDetections: Int
 
-    private var settings: GlobalSettings { GlobalSettings.shared }
+    private var activeSegmentName: String? {
+        if case .segment(let n) = activeFocusFilter { return n }
+        return nil
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -281,45 +297,62 @@ private struct FocusModeBar: View {
                 // Time-based (only shown when ride duration is known)
                 if rideDurationS > 0 {
                     FocusChip(
-                        label: "First \(Int(settings.focusFirstNMinutes))m",
+                        label: "First \(Int(firstNMinutes))m",
                         icon: "clock",
                         isActive: activeFocusFilter == .firstNMinutes
                     ) { activeFocusFilter = activeFocusFilter == .firstNMinutes ? .all : .firstNMinutes }
 
                     FocusChip(
-                        label: "Last \(Int(settings.focusLastNMinutes))m",
+                        label: "Last \(Int(lastNMinutes))m",
                         icon: "clock.badge.checkmark",
                         isActive: activeFocusFilter == .lastNMinutes
                     ) { activeFocusFilter = activeFocusFilter == .lastNMinutes ? .all : .lastNMinutes }
                 }
 
-                // Terrain
+                // Terrain — descentGradientPct is negative; show abs for readability
                 FocusChip(
-                    label: "Climbs ≥\(Int(settings.focusClimbGradientPct))%",
+                    label: "Climbs ≥\(Int(climbGradientPct))%",
                     icon: "arrow.up.right",
                     isActive: activeFocusFilter == .climbs
                 ) { activeFocusFilter = activeFocusFilter == .climbs ? .all : .climbs }
 
                 FocusChip(
-                    label: "Descents ≥\(Int(settings.focusDescentGradientPct))%",
+                    label: "Descents ≥\(Int(abs(descentGradientPct)))%",
                     icon: "arrow.down.right",
                     isActive: activeFocusFilter == .descents
                 ) { activeFocusFilter = activeFocusFilter == .descents ? .all : .descents }
 
                 // Group riding
                 FocusChip(
-                    label: "Group \(settings.focusGroupMinDetections)+",
+                    label: "Group \(groupMinDetections)+",
                     icon: "person.3",
                     isActive: activeFocusFilter == .groupRiding
                 ) { activeFocusFilter = activeFocusFilter == .groupRiding ? .all : .groupRiding }
 
-                // Strava segments (only shown when segments.json is present and parsed)
-                ForEach(availableSegmentNames, id: \.self) { name in
-                    let f = FocusFilter.segment(name: name)
-                    FocusChip(label: name, icon: "location",
-                              isActive: activeFocusFilter == f) {
-                        activeFocusFilter = activeFocusFilter == f ? .all : f
+                // Strava segments — single Menu picker instead of one chip per segment
+                if !availableSegmentNames.isEmpty {
+                    Menu {
+                        Button("None") { activeFocusFilter = .all }
+                        Divider()
+                        ForEach(availableSegmentNames, id: \.self) { name in
+                            Button(name) {
+                                let f = FocusFilter.segment(name: name)
+                                activeFocusFilter = activeFocusFilter == f ? .all : f
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "location").font(.caption2)
+                            Text(activeSegmentName ?? "Segment").font(.caption.bold())
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(activeSegmentName != nil ? Color.accentColor : Color.secondary.opacity(0.12))
+                        .foregroundStyle(activeSegmentName != nil ? Color.white : Color.primary)
+                        .clipShape(Capsule())
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 12)
@@ -715,7 +748,7 @@ private struct PerspectiveCard: View {
                 }
                 if let grad = primary.gradientPct {
                     Label(String(format: "%+.1f%%", grad), systemImage: "arrow.up.right")
-                        .foregroundStyle(abs(grad) > 4 ? .orange : .secondary)
+                        .foregroundStyle(abs(grad) >= GlobalSettings.shared.focusClimbGradientPct ? .orange : .secondary)
                 }
                 Spacer()
                 if primary.sceneBoost > 0 {

@@ -25,7 +25,6 @@ enum AppConfig {
     static let sceneComparisonWindowS: Double = 15.0
 
     // MARK: - Selection
-    static let candidateFraction: Double = 2.5
     static let requireGpsForSelection: Bool = false
     static let startZoneDurationM: Double = 20.0
     static let endZoneDurationM: Double = 20.0
@@ -34,7 +33,7 @@ enum AppConfig {
 
     // MARK: - YOLO
     static let yoloImageSize: Int = 640
-    static let yoloMinConfidence: Float = 0.10
+    static var yoloMinConfidence: Float { Float(GlobalSettings.shared.yoloMinConfidence) }
     static let yoloBatchSizeMac: Int = 8
     static let yoloBatchSizeiPad: Int = 4
     static let yoloDetectClasses: Set<Int> = [0, 1, 2, 3, 5, 7, 9, 11]
@@ -44,16 +43,19 @@ enum AppConfig {
         case bus = 5, truck = 7, trafficLight = 9, stopSign = 11
     }
 
-    // MARK: - Scoring weights (composite sums to 0.90; dualCamera(0.10) is added by PartnerMatcher)
+    // MARK: - Scoring weights — reads from GlobalSettings so user can tune them
     enum ScoreWeights {
-        static let detectScore: Double = 0.30
-        static let sceneBoost: Double  = 0.10
-        static let speedKmh: Double    = 0.20
-        static let gradient: Double    = 0.20
-        static let bboxArea: Double    = 0.05
-        static let segmentBoost: Double = 0.05
-        static let dualCamera: Double  = 0.10
+        static var detectScore: Double  { GlobalSettings.shared.scoreWeightDetect }
+        static var sceneBoost: Double   { GlobalSettings.shared.scoreWeightScene }
+        static var speedKmh: Double     { GlobalSettings.shared.scoreWeightSpeed }
+        static var gradient: Double     { GlobalSettings.shared.scoreWeightGradient }
+        static var bboxArea: Double     { GlobalSettings.shared.scoreWeightBboxArea }
+        static var segmentBoost: Double { GlobalSettings.shared.scoreWeightSegment }
+        static var dualCamera: Double   { GlobalSettings.shared.scoreWeightDualCamera }
     }
+
+    // MARK: - Candidate pool size multiplier
+    static var candidateFraction: Double { GlobalSettings.shared.candidateFraction }
 
     // MARK: - Score normalisation denominators
     static let speedNormDivisor: Double = 60.0

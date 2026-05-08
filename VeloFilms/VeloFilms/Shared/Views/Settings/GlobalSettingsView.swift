@@ -136,6 +136,60 @@ struct GlobalSettingsView: View {
                     .padding(8)
                 }
 
+                // MARK: Detection & Scoring
+                GroupBox("Detection & Scoring") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Adjust how the AI detects objects and scores clips. Changes take effect on the next Enrich/Select run.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Divider()
+                        NumRow(label: "YOLO confidence (0–1)",
+                               value: $settings.yoloMinConfidence)
+                            .onChange(of: settings.yoloMinConfidence) { settings.save() }
+                        Divider()
+                        NumRow(label: "Candidate pool (×)",
+                               value: $settings.candidateFraction)
+                            .onChange(of: settings.candidateFraction) { settings.save() }
+                        Divider()
+
+                        let weightSum = settings.scoreWeightDetect + settings.scoreWeightScene
+                            + settings.scoreWeightSpeed + settings.scoreWeightGradient
+                            + settings.scoreWeightBboxArea + settings.scoreWeightSegment
+                            + settings.scoreWeightDualCamera
+                        HStack {
+                            Text("Score weights")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("Sum: \(String(format: "%.2f", weightSum))")
+                                .font(.caption.bold())
+                                .foregroundStyle(abs(weightSum - 1.0) < 0.01 ? .green : .red)
+                        }
+                        NumRow(label: "Detect score (YOLO)",
+                               value: $settings.scoreWeightDetect)
+                            .onChange(of: settings.scoreWeightDetect) { settings.save() }
+                        NumRow(label: "Scene change",
+                               value: $settings.scoreWeightScene)
+                            .onChange(of: settings.scoreWeightScene) { settings.save() }
+                        NumRow(label: "Speed",
+                               value: $settings.scoreWeightSpeed)
+                            .onChange(of: settings.scoreWeightSpeed) { settings.save() }
+                        NumRow(label: "Gradient",
+                               value: $settings.scoreWeightGradient)
+                            .onChange(of: settings.scoreWeightGradient) { settings.save() }
+                        NumRow(label: "Bounding box area",
+                               value: $settings.scoreWeightBboxArea)
+                            .onChange(of: settings.scoreWeightBboxArea) { settings.save() }
+                        NumRow(label: "Strava segment",
+                               value: $settings.scoreWeightSegment)
+                            .onChange(of: settings.scoreWeightSegment) { settings.save() }
+                        NumRow(label: "Dual camera bonus",
+                               value: $settings.scoreWeightDualCamera)
+                            .onChange(of: settings.scoreWeightDualCamera) { settings.save() }
+                    }
+                    .padding(8)
+                }
+
                 // MARK: Audio
                 GroupBox("Audio") {
                     VStack(spacing: 12) {
