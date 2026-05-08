@@ -87,14 +87,27 @@ struct ConcatStep: PipelineStep {
             inputs += ["-stream_loop", "-1", "-i", music.path]
         }
 
+        // Check which parts have audio tracks — intro/outro from AVFoundation may be silent
+        var hasAudio: [Bool] = []
+        for url in parts {
+            let asset = AVURLAsset(url: url)
+            let tracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+            hasAudio.append(!tracks.isEmpty)
+        }
+
         var filterParts: [String] = []
 
         // Normalise every input to a common timebase (fps=30) and sample rate (48 kHz).
         // Clips come from FFmpeg libx264 (1/15360 tb, 96 kHz); intro/outro from AVFoundation
         // (1/600 tb, 48 kHz). fps + aresample unify them before the xfade chain.
+        // Parts without an audio track (e.g. silent intro/outro) get a silence generator.
         for i in 0..<parts.count {
             filterParts.append("[\(i):v]fps=fps=30[vn\(i)]")
-            filterParts.append("[\(i):a]aresample=48000[an\(i)]")
+            if hasAudio[i] {
+                filterParts.append("[\(i):a]aresample=48000[an\(i)]")
+            } else {
+                filterParts.append("aevalsrc=0:c=stereo:s=48000:d=\(String(format: "%.3f", durations[i]))[an\(i)]")
+            }
         }
 
         var prevV = "[vn0]"

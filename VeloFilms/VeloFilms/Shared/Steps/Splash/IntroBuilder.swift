@@ -224,17 +224,29 @@ enum IntroBuilder {
 
     static func findResourceImage(named name: String) -> URL? {
         let exts = ["png", "jpg"]
+        let subdirs: [String?] = [nil, "Shared/Resources", "Resources"]
         for ext in exts {
-            if let u = Bundle.main.url(forResource: name, withExtension: ext) { return u }
+            for sub in subdirs {
+                if let u = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: sub) {
+                    return u
+                }
+            }
         }
+        print("[IntroBuilder] findResourceImage: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
         return nil
     }
 
     static func findResourceAudio(named name: String) -> URL? {
         let exts = ["mp3", "m4a", "aac", "wav"]
+        let subdirs: [String?] = [nil, "Shared/Resources", "Resources"]
         for ext in exts {
-            if let u = Bundle.main.url(forResource: name, withExtension: ext) { return u }
+            for sub in subdirs {
+                if let u = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: sub) {
+                    return u
+                }
+            }
         }
+        print("[IntroBuilder] findResourceAudio: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
         return nil
     }
 
