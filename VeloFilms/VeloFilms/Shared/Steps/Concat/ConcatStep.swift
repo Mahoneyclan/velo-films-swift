@@ -148,11 +148,11 @@ struct ConcatStep: PipelineStep {
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
-            // trim+setpts clamps each part to its AVFoundation-reported duration before xfade.
-            // fps=fps=30 previously inflated Cycliq clips by ~0.5s due to a stray B-frame PTS
-            // extending past the container duration, causing xfade offsets to be miscalculated.
+            // fps=30 first normalises to CFR and a consistent timebase, then trim clamps to the
+            // AVFoundation-reported duration (removing the stray Cycliq B-frame at PTS ~4.0s
+            // that fps alone would include), then setpts resets PTS to zero for xfade offsets.
             let clipDurStr = String(format: "%.6f", durations[i])
-            filterParts.append("[\(i):v]trim=end=\(clipDurStr),setpts=PTS-STARTPTS[vn\(i)]")
+            filterParts.append("[\(i):v]fps=30,trim=end=\(clipDurStr),setpts=PTS-STARTPTS[vn\(i)]")
             if hasAudio[i] {
                 filterParts.append(
                     "[\(i):a]atrim=end=\(clipDurStr),asetpts=PTS-STARTPTS,aresample=48000[an\(i)]")
@@ -229,11 +229,11 @@ struct ConcatStep: PipelineStep {
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
-            // trim+setpts clamps each part to its AVFoundation-reported duration before xfade.
-            // fps=fps=30 previously inflated Cycliq clips by ~0.5s due to a stray B-frame PTS
-            // extending past the container duration, causing xfade offsets to be miscalculated.
+            // fps=30 first normalises to CFR and a consistent timebase, then trim clamps to the
+            // AVFoundation-reported duration (removing the stray Cycliq B-frame at PTS ~4.0s
+            // that fps alone would include), then setpts resets PTS to zero for xfade offsets.
             let clipDurStr = String(format: "%.6f", durations[i])
-            filterParts.append("[\(i):v]trim=end=\(clipDurStr),setpts=PTS-STARTPTS[vn\(i)]")
+            filterParts.append("[\(i):v]fps=30,trim=end=\(clipDurStr),setpts=PTS-STARTPTS[vn\(i)]")
             if hasAudio[i] {
                 filterParts.append(
                     "[\(i):a]atrim=end=\(clipDurStr),asetpts=PTS-STARTPTS,aresample=48000[an\(i)]")
