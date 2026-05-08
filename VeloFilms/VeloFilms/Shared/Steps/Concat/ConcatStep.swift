@@ -121,9 +121,7 @@ struct ConcatStep: PipelineStep {
 
         var inputs: [String] = []
         for part in parts { inputs += ["-i", part.path] }
-        if let music = musicURL {
-            inputs += ["-stream_loop", "-1", "-i", music.path]
-        }
+        if let music = musicURL { inputs += ["-i", music.path] }
 
         var hasAudio: [Bool] = []
         for url in parts {
@@ -131,6 +129,10 @@ struct ConcatStep: PipelineStep {
             let tracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
             hasAudio.append(!tracks.isEmpty)
         }
+
+        // Total output duration — needed to trim the looped music exactly
+        var totalDur = durations[0]
+        for i in 1..<durations.count { totalDur += durations[i] - X }
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
@@ -163,8 +165,14 @@ struct ConcatStep: PipelineStep {
         filterParts.append("[vchain]null[vout]")
         if let _ = musicURL {
             let N = parts.count
+            // aloop loops the music at filter level (reliable across all formats);
+            // atrim clips it to exactly the video duration so amix gets clean inputs.
+            let durStr = String(format: "%.3f", totalDur)
             filterParts.append(
-                "[achain]volume=\(rv)[rawA];[\(N):a]volume=\(mv)[musicA];" +
+                "[achain]volume=\(rv)[rawA];" +
+                "[\(N):a]aloop=loop=-1:size=2147483647," +
+                "atrim=end=\(durStr),asetpts=PTS-STARTPTS," +
+                "volume=\(mv)[musicA];" +
                 "[rawA][musicA]amix=inputs=2:duration=first:dropout_transition=0[aout]"
             )
         } else {
