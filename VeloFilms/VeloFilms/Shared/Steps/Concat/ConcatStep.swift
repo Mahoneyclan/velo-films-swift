@@ -119,10 +119,6 @@ struct ConcatStep: PipelineStep {
         let rv  = GlobalSettings.shared.rawAudioVolume
         let mv  = GlobalSettings.shared.musicVolume
 
-        var inputs: [String] = []
-        for part in parts { inputs += ["-i", part.path] }
-        if let music = musicURL { inputs += ["-i", music.path] }
-
         var hasAudio: [Bool] = []
         for url in parts {
             let asset = AVURLAsset(url: url)
@@ -130,9 +126,25 @@ struct ConcatStep: PipelineStep {
             hasAudio.append(!tracks.isEmpty)
         }
 
-        // Total output duration — needed to trim the looped music exactly
+        // Total output duration — needed to calculate music copy count and trim
         var totalDur = durations[0]
         for i in 1..<durations.count { totalDur += durations[i] - X }
+
+        // Probe music duration and calculate how many copies are needed to cover totalDur.
+        // Using explicit copies + concat filter is more reliable than aloop (whose size
+        // parameter must match the exact sample count of the file to loop correctly).
+        var musicLoopCount = 1
+        if let music = musicURL {
+            let mAsset = AVURLAsset(url: music)
+            let mDur = (try? await mAsset.load(.duration)).map { CMTimeGetSeconds($0) } ?? totalDur
+            musicLoopCount = max(1, Int(ceil(totalDur / max(mDur, 0.001))) + 1)
+        }
+
+        var inputs: [String] = []
+        for part in parts { inputs += ["-i", part.path] }
+        if let music = musicURL {
+            for _ in 0..<musicLoopCount { inputs += ["-i", music.path] }
+        }
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
@@ -164,13 +176,14 @@ struct ConcatStep: PipelineStep {
 
         filterParts.append("[vchain]null[vout]")
         if let _ = musicURL {
-            let N = parts.count
-            // aloop loops the music at filter level (reliable across all formats);
-            // atrim clips it to exactly the video duration so amix gets clean inputs.
+            let N      = parts.count
             let durStr = String(format: "%.3f", totalDur)
+            // Concat N explicit copies of the music track, trim to totalDur.
+            // This avoids aloop's sample-count dependency and works for all formats.
+            let concatInputs = (0..<musicLoopCount).map { "[\(N + $0):a]" }.joined()
             filterParts.append(
                 "[achain]volume=\(rv)[rawA];" +
-                "[\(N):a]aloop=loop=-1:size=2147483647," +
+                "\(concatInputs)concat=n=\(musicLoopCount):v=0:a=1," +
                 "atrim=end=\(durStr),asetpts=PTS-STARTPTS," +
                 "volume=\(mv)[musicA];" +
                 "[rawA][musicA]amix=inputs=2:duration=first:dropout_transition=0[aout]"
