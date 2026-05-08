@@ -103,6 +103,26 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 | Music volume (0–1) | 0.7 | Background music level |
 | Raw audio volume (0–1) | 0.3 | Original camera audio level |
 
+## Focus Mode (Manual Clip Selection)
+
+After the AI selects clips, the manual selection screen lets you filter the visible list with focus mode chips. Focus mode is view-only — it never alters AI scores, the underlying `select.jsonl`, or the build pipeline.
+
+| Filter | What it shows | Configurable in |
+|--------|--------------|-----------------|
+| All Clips | Every AI-recommended candidate | — |
+| First N minutes | Clips from the opening N minutes of the ride | Settings → Focus Mode Defaults |
+| Last N minutes | Clips from the closing N minutes | Settings → Focus Mode Defaults |
+| Climbs ≥X% | Clips where `gradient_pct ≥ X` | Settings → Focus Mode Defaults |
+| Descents ≥X% | Clips where `gradient_pct ≤ −X` | Settings → Focus Mode Defaults |
+| Group N+ | Clips with N+ person/bicycle detections | Settings → Focus Mode Defaults |
+| Segment name | Clips captured during a Strava segment | Populated automatically from Strava import |
+
+**Behaviour:**
+- Tapping a chip activates it; tapping again returns to All Clips.
+- Only one focus filter is active at a time. The existing YOLO class filter (cyclist / car / person chips) can be active simultaneously — focus filter runs first, class filter chains after.
+- If no clips match (e.g. no elevation data for a terrain filter), a contextual empty state explains why.
+- Segment chips appear only when a Strava GPX with segment effort data has been imported.
+
 ## Scoring
 
 Each candidate clip is scored on five dimensions (weights sum to 1.0):

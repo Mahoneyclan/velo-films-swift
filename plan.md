@@ -295,6 +295,37 @@ The hardest phase. Video QA requires real footage on real hardware.
 
 ---
 
+### Phase 5.5 — Focus Mode Filters ✅
+
+View-level focus mode added to `ManualSelectionView`. Does not modify AI scoring, selection, or any pipeline step.
+
+**New files:**
+- [x] `Shared/Core/Models/FocusFilter.swift` — `FocusFilter` enum + `FocusFilterContext` struct + `matches(_:in:)` pure filtering logic
+
+**Modified files:**
+- [x] `GlobalSettings` — 5 new persisted preferences: `focusFirstNMinutes` (10), `focusLastNMinutes` (10), `focusClimbGradientPct` (3.0%), `focusDescentGradientPct` (3.0%), `focusGroupMinDetections` (5)
+- [x] `GlobalSettingsView` — "Focus Mode Defaults" GroupBox with `IntRow` for group threshold + `NumRow` for all other params
+- [x] `ManualSelectionView` — `FocusModeBar` + `FocusChip` components; updated `filteredMoments` chains focus filter before existing class filter; loads segment epoch ranges from `segments.json` at view level; improved empty state with context-aware title + description
+- [x] `README.md` — Focus Mode section documenting all filters and behaviour
+
+**Test file:**
+- [x] `VeloFilmsTests/FocusFilterTests.swift` — 20 tests covering all filters, edge cases, combined filters, AI-unchanged assertion, performance test on 2160-moment ride. Requires VeloFilmsTests target to be added to Xcode (see integration instructions).
+
+**Filters implemented:**
+1. Time-based: First N minutes / Last N minutes (N from GlobalSettings)
+2. Terrain: Climbs ≥X% / Descents ≥X% (X from GlobalSettings; nil gradient → fails gracefully)
+3. Group riding: person+bicycle detection count ≥ N (reuses `detectedClasses` field from YOLO; N from GlobalSettings)
+4. Strava Segment: clips within named segment epoch range (parsed from `segments.json`; chips only shown when segments exist)
+
+**Edge cases handled:**
+- No GPS data: nil `gradientPct` → terrain filters exclude the moment (graceful, not a crash)
+- No segments.json: `availableSegmentNames` is empty → no segment chips shown
+- Very short ride: last-N-minutes threshold clamps to 0 → all moments pass
+- No matching clips: `ContentUnavailableView` with filter-specific explanation
+- Combined focus + class filter: independent dimensions, both can be active simultaneously
+
+---
+
 ### Phase 5 — SwiftUI GUI (parallel with Phase 4) ✅
 
 Can be built and iterated in Simulator while Phase 4 is being tested on device.

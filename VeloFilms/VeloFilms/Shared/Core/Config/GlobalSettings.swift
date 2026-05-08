@@ -51,6 +51,18 @@ final class GlobalSettings {
     // MARK: - Display
     var dynamicGauges: Bool = true
 
+    // MARK: - Focus Mode Filter defaults
+    /// "First N minutes" filter window (minutes).
+    var focusFirstNMinutes: Double = 10.0
+    /// "Last N minutes" filter window (minutes).
+    var focusLastNMinutes: Double = 10.0
+    /// Gradient threshold for Climbs filter (%). Moments with gradientPct ≥ this value match.
+    var focusClimbGradientPct: Double = 3.0
+    /// Gradient threshold for Descents filter (%). Moments with gradientPct ≤ −this value match.
+    var focusDescentGradientPct: Double = 3.0
+    /// Minimum person+bicycle detection count for Group Riding filter. Default 5.
+    var focusGroupMinDetections: Int = 5
+
     private init() {
         inputBaseDir  = loadURL(pathKey: "inputBaseDirPath", bookmarkKey: "inputBaseDirBookmark")
         projectsRoot  = loadURL(pathKey: "projectsRootPath", bookmarkKey: "projectsRootBookmark")
@@ -76,6 +88,13 @@ final class GlobalSettings {
         rawAudioVolume          = UserDefaults.standard.double(forKey: "rawAudioVolume").nonZero
                                     ?? AppConfig.rawAudioVolume
         dynamicGauges           = (UserDefaults.standard.object(forKey: "dynamicGauges") as? Bool) ?? true
+
+        focusFirstNMinutes      = UserDefaults.standard.double(forKey: "focusFirstNMinutes").nonZero ?? 10.0
+        focusLastNMinutes       = UserDefaults.standard.double(forKey: "focusLastNMinutes").nonZero ?? 10.0
+        focusClimbGradientPct   = UserDefaults.standard.double(forKey: "focusClimbGradientPct").nonZero ?? 3.0
+        focusDescentGradientPct = UserDefaults.standard.double(forKey: "focusDescentGradientPct").nonZero ?? 3.0
+        let gmd = UserDefaults.standard.integer(forKey: "focusGroupMinDetections")
+        focusGroupMinDetections = gmd > 0 ? gmd : 5
     }
 
     func save() {
@@ -90,9 +109,14 @@ final class GlobalSettings {
         UserDefaults.standard.set(cameraCreationTimeIsLocalWrongZ, forKey: "cameraCreationTimeIsLocalWrongZ")
         UserDefaults.standard.set(musicVolume,             forKey: "musicVolume")
         UserDefaults.standard.set(rawAudioVolume,          forKey: "rawAudioVolume")
-        UserDefaults.standard.set(dynamicGauges,           forKey: "dynamicGauges")
+        UserDefaults.standard.set(dynamicGauges,            forKey: "dynamicGauges")
         UserDefaults.standard.set(hasFly12Sport,            forKey: "hasFly12Sport")
         UserDefaults.standard.set(hasFly6Pro,               forKey: "hasFly6Pro")
+        UserDefaults.standard.set(focusFirstNMinutes,       forKey: "focusFirstNMinutes")
+        UserDefaults.standard.set(focusLastNMinutes,        forKey: "focusLastNMinutes")
+        UserDefaults.standard.set(focusClimbGradientPct,    forKey: "focusClimbGradientPct")
+        UserDefaults.standard.set(focusDescentGradientPct,  forKey: "focusDescentGradientPct")
+        UserDefaults.standard.set(focusGroupMinDetections,  forKey: "focusGroupMinDetections")
     }
 
     var effectiveExtractInterval: Double {

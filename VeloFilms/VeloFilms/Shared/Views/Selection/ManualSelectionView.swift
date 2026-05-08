@@ -48,22 +48,48 @@ struct ManualSelectionView: View {
     @State private var classFilter: String? = nil
     @State private var isLoaded = false
 
+    // MARK: Focus Mode state (view-level only — does not affect AI selection)
+    @State private var activeFocusFilter: FocusFilter = .all
+    @State private var rideStartEpoch: Double = 0
+    @State private var rideDurationS: Double = 0
+    @State private var segmentEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)] = []
+    @State private var availableSegmentNames: [String] = []
+
     var selectedCount: Int { selectRows.filter { $0.recommended }.count }
     var target: Int { AppConfig.targetClips }
 
     private var stats: DetectionStats { DetectionStats(rows: selectRows) }
 
-    private var availableClasses: [String] {
-        stats.classCounts.map(\.name)
-    }
+    private var availableClasses: [String] { stats.classCounts.map(\.name) }
 
+    /// Applies focus filter first, then the existing YOLO class filter.
+    /// Neither filter modifies AI scores or the underlying select.jsonl data.
     private var filteredMoments: [PartnerMatcher.Moment] {
-        guard let filter = classFilter else { return moments }
-        return moments.filter { moment in
-            [moment.fly12Row, moment.fly6Row].compactMap { $0 }.contains {
-                $0.detectedClasses.localizedCaseInsensitiveContains(filter)
+        var result = moments
+
+        if activeFocusFilter != .all {
+            let ctx = FocusFilterContext(
+                rideStartEpoch:     rideStartEpoch,
+                rideDurationS:      rideDurationS,
+                segmentEpochRanges: segmentEpochRanges,
+                firstNMinutes:      GlobalSettings.shared.focusFirstNMinutes,
+                lastNMinutes:       GlobalSettings.shared.focusLastNMinutes,
+                climbGradientPct:   GlobalSettings.shared.focusClimbGradientPct,
+                descentGradientPct: GlobalSettings.shared.focusDescentGradientPct,
+                groupMinDetections: GlobalSettings.shared.focusGroupMinDetections
+            )
+            result = result.filter { activeFocusFilter.matches($0, in: ctx) }
+        }
+
+        if let cls = classFilter {
+            result = result.filter { moment in
+                [moment.fly12Row, moment.fly6Row].compactMap { $0 }.contains {
+                    $0.detectedClasses.localizedCaseInsensitiveContains(cls)
+                }
             }
         }
+
+        return result
     }
 
     var body: some View {
@@ -73,6 +99,16 @@ struct ManualSelectionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
 
+                // Focus Mode filter bar — always visible
+                Divider()
+                FocusModeBar(
+                    activeFocusFilter:    $activeFocusFilter,
+                    rideDurationS:        rideDurationS,
+                    availableSegmentNames: availableSegmentNames
+                )
+                .padding(.vertical, 6)
+
+                // Existing YOLO class filter — unchanged
                 if !availableClasses.isEmpty {
                     Divider()
                     ClassFilterBar(classes: availableClasses,
@@ -85,10 +121,9 @@ struct ManualSelectionView: View {
 
                 if isLoaded && filteredMoments.isEmpty {
                     ContentUnavailableView(
-                        classFilter != nil
-                            ? "No clips detected with '\(classFilter!.capitalized)'"
-                            : "No clips found",
-                        systemImage: "eye.slash"
+                        emptyStateTitle,
+                        systemImage: "eye.slash",
+                        description: Text(emptyStateDescription)
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -116,6 +151,37 @@ struct ManualSelectionView: View {
         }
         .frame(minWidth: 740, minHeight: 520)
         .task { await load() }
+    }
+
+    // MARK: - Empty state messaging
+
+    private var emptyStateTitle: String {
+        switch (activeFocusFilter, classFilter) {
+        case (.all, let cls?):  return "No clips detected with '\(cls.capitalized)'"
+        case (.all, nil):       return "No clips found"
+        case (let f, let cls?): return "No '\(cls.capitalized)' clips in \(f.label)"
+        case (let f, nil):      return "No clips match '\(f.label)'"
+        }
+    }
+
+    private var emptyStateDescription: String {
+        let s = GlobalSettings.shared
+        switch activeFocusFilter {
+        case .climbs:
+            return "No clips have a gradient ≥\(Int(s.focusClimbGradientPct))%. Confirm elevation data is present in the GPX."
+        case .descents:
+            return "No clips have a gradient ≤−\(Int(s.focusDescentGradientPct))%."
+        case .groupRiding:
+            return "No clips have \(s.focusGroupMinDetections)+ riders (person or bicycle) detected."
+        case .firstNMinutes:
+            return "No clips in the first \(Int(s.focusFirstNMinutes)) minutes of the ride."
+        case .lastNMinutes:
+            return "No clips in the last \(Int(s.focusLastNMinutes)) minutes of the ride."
+        case .segment(let name):
+            return "No clips were captured during segment '\(name)'."
+        case .all:
+            return "Run the analysis step to populate clips."
+        }
     }
 
     // MARK: - Data
@@ -155,11 +221,131 @@ struct ManualSelectionView: View {
             .filter { topMoments.contains($0.momentId) }
             .sorted { $0.momentId < $1.momentId }
 
+        // Ride time bounds — computed from allMoments (not filtered subset) for accurate time filters
+        if let first = allMoments.first, let last = allMoments.last {
+            rideStartEpoch = Double(first.momentId)
+            rideDurationS  = Double(last.momentId - first.momentId)
+        }
+
+        // Strava segment epoch ranges for segment filter — pure view-level load, no pipeline impact
+        let ranges = Self.parseSegmentEpochs(from: project.segmentsJSON)
+        segmentEpochRanges  = ranges
+        availableSegmentNames = Array(Set(ranges.map(\.name))).sorted()
+
         isLoaded = true
+    }
+
+    /// Parses segments.json into epoch ranges suitable for the segment focus filter.
+    /// Mirrors the parsing in SegmentMatcher.init without importing the pipeline type into the view layer.
+    private static func parseSegmentEpochs(
+        from url: URL
+    ) -> [(name: String, startEpoch: Double, endEpoch: Double)] {
+        guard let data = try? Data(contentsOf: url),
+              let efforts = try? JSONDecoder().decode([SegmentMatcher.SegmentEffort].self, from: data)
+        else { return [] }
+
+        let fmt1 = ISO8601DateFormatter()
+        fmt1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fmt2 = ISO8601DateFormatter()
+        fmt2.formatOptions = [.withInternetDateTime]
+
+        return efforts.compactMap { seg -> (String, Double, Double)? in
+            guard let date = fmt1.date(from: seg.startTime) ?? fmt2.date(from: seg.startTime) else { return nil }
+            let s = date.timeIntervalSince1970
+            return (seg.name, s, s + seg.elapsedTime)
+        }
     }
 
     private func save() {
         try? JSONLWriter().write(rows: selectRows, to: project.selectJSONL)
+    }
+}
+
+// MARK: - Focus Mode bar
+
+private struct FocusModeBar: View {
+    @Binding var activeFocusFilter: FocusFilter
+    let rideDurationS: Double
+    let availableSegmentNames: [String]
+
+    private var settings: GlobalSettings { GlobalSettings.shared }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FocusChip(label: "All Clips", icon: "square.grid.2x2",
+                          isActive: activeFocusFilter == .all) {
+                    activeFocusFilter = .all
+                }
+
+                // Time-based (only shown when ride duration is known)
+                if rideDurationS > 0 {
+                    FocusChip(
+                        label: "First \(Int(settings.focusFirstNMinutes))m",
+                        icon: "clock",
+                        isActive: activeFocusFilter == .firstNMinutes
+                    ) { activeFocusFilter = activeFocusFilter == .firstNMinutes ? .all : .firstNMinutes }
+
+                    FocusChip(
+                        label: "Last \(Int(settings.focusLastNMinutes))m",
+                        icon: "clock.badge.checkmark",
+                        isActive: activeFocusFilter == .lastNMinutes
+                    ) { activeFocusFilter = activeFocusFilter == .lastNMinutes ? .all : .lastNMinutes }
+                }
+
+                // Terrain
+                FocusChip(
+                    label: "Climbs ≥\(Int(settings.focusClimbGradientPct))%",
+                    icon: "arrow.up.right",
+                    isActive: activeFocusFilter == .climbs
+                ) { activeFocusFilter = activeFocusFilter == .climbs ? .all : .climbs }
+
+                FocusChip(
+                    label: "Descents ≥\(Int(settings.focusDescentGradientPct))%",
+                    icon: "arrow.down.right",
+                    isActive: activeFocusFilter == .descents
+                ) { activeFocusFilter = activeFocusFilter == .descents ? .all : .descents }
+
+                // Group riding
+                FocusChip(
+                    label: "Group \(settings.focusGroupMinDetections)+",
+                    icon: "person.3",
+                    isActive: activeFocusFilter == .groupRiding
+                ) { activeFocusFilter = activeFocusFilter == .groupRiding ? .all : .groupRiding }
+
+                // Strava segments (only shown when segments.json is present and parsed)
+                ForEach(availableSegmentNames, id: \.self) { name in
+                    let f = FocusFilter.segment(name: name)
+                    FocusChip(label: name, icon: "location",
+                              isActive: activeFocusFilter == f) {
+                        activeFocusFilter = activeFocusFilter == f ? .all : f
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+}
+
+private struct FocusChip: View {
+    let label: String
+    let icon: String
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.caption2)
+                Text(label).font(.caption.bold())
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isActive ? Color.accentColor : Color.secondary.opacity(0.12))
+            .foregroundStyle(isActive ? Color.white : Color.primary)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -106,6 +106,36 @@ struct GlobalSettingsView: View {
                     .padding(8)
                 }
 
+                // MARK: Focus Mode Defaults
+                GroupBox("Focus Mode Defaults") {
+                    VStack(spacing: 12) {
+                        Text("These values control the Focus Mode filter chips in the clip selection screen.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Divider()
+                        NumRow(label: "First N minutes",
+                               value: $settings.focusFirstNMinutes)
+                            .onChange(of: settings.focusFirstNMinutes) { settings.save() }
+                        Divider()
+                        NumRow(label: "Last N minutes",
+                               value: $settings.focusLastNMinutes)
+                            .onChange(of: settings.focusLastNMinutes) { settings.save() }
+                        Divider()
+                        NumRow(label: "Climb gradient (%)",
+                               value: $settings.focusClimbGradientPct)
+                            .onChange(of: settings.focusClimbGradientPct) { settings.save() }
+                        Divider()
+                        NumRow(label: "Descent gradient (%)",
+                               value: $settings.focusDescentGradientPct)
+                            .onChange(of: settings.focusDescentGradientPct) { settings.save() }
+                        Divider()
+                        IntRow(label: "Group min riders",
+                               value: $settings.focusGroupMinDetections)
+                            .onChange(of: settings.focusGroupMinDetections) { settings.save() }
+                    }
+                    .padding(8)
+                }
+
                 // MARK: Audio
                 GroupBox("Audio") {
                     VStack(spacing: 12) {
@@ -239,6 +269,24 @@ private struct NumRow: View {
             Text(label).frame(width: 220, alignment: .leading)
             Spacer()
             TextField("0.0", value: $value, format: .number)
+                .frame(width: 80)
+                .multilineTextAlignment(.trailing)
+#if os(macOS)
+                .textFieldStyle(.roundedBorder)
+#endif
+        }
+    }
+}
+
+private struct IntRow: View {
+    let label: String
+    @Binding var value: Int
+
+    var body: some View {
+        HStack {
+            Text(label).frame(width: 220, alignment: .leading)
+            Spacer()
+            TextField("0", value: $value, format: .number)
                 .frame(width: 80)
                 .multilineTextAlignment(.trailing)
 #if os(macOS)
