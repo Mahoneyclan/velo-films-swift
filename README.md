@@ -194,8 +194,8 @@ The Settings screen shows a live proportion bar and a sum badge (green when weig
 
 ## Immediate priorities (May 2026)
 
-1. **Device deploy** — direct device build to iPad Air M2 via Xcode
-2. **Real-footage QA** — run full pipeline on a real ride; visual QA of gauges, minimap, PiP composite, splash cards
+1. **iOS device build** — direct device build to iPad Air M2 via Xcode; QA full pipeline on device
+2. **Real-footage QA** — run full pipeline on a real ride; visual QA of new HUD layout, PiP composite, splash cards
 3. **Share/Export** — add `ShareLink` + Photos save after concat; stretch goal: Strava video upload
 4. **BGProcessingTask** — wire iOS background task so app can be left running during long renders
 5. **Concurrent clip rendering** — `TaskGroup` in `BuildStep` (cap 3 on iPad for thermal management)
@@ -204,8 +204,21 @@ The Settings screen shows a live proportion bar and a sum badge (green when weig
 ## Pipeline architecture notes
 
 **Two-pass Concat:** `ConcatStep` runs in two phases:
-1. `clip_NNNN.mp4` files are joined with xfade crossfades and backing music mixed in → `_middle.mp4`. Music is looped via `aloop` filter (macOS) or `AVMutableCompositionTrack` segment copy (iOS) to cover any clip duration. rawAudioVolume and musicVolume are applied here.
+1. `clip_NNNN.mp4` files are joined with xfade crossfades and backing music mixed in → `_middle.mp4`. Music is looped by adding N explicit `-i music.path` copies + `concat` audio filter + `atrim` (macOS), or `AVMutableCompositionTrack` segment copy loop (iOS). rawAudioVolume and musicVolume are applied here.
 2. `_intro + _middle + _outro` are joined with xfade crossfades, audio passthrough only — each segment already carries its own music (`intro.mp3`, backing music, `outro.mp3`).
+
+**HUD layout (1920×1080):**
+```
+x=0     x=390  x=398          x=1362  x=1370       x=1920
+┌───────┬───────────────────────┬────────────────────┐  y=615
+│  Map  │  5 Gauges  972×194   │  PiP (dual cam)    │  390px
+│390×390│  (bottom-aligned)    │  scaled to 465px   │
+├───────┤                       │  (map+elev height) │  y=1005
+│ Elev  │  open video           │                    │  75px
+│390×75 │  (x=398 to x=1370)   │                    │
+└───────┴───────────────────────┴────────────────────┘  y=1080
+```
+Single-camera mode uses the same layout without PiP. The pipeline infers single/dual from files present — no extra configuration needed beyond the camera toggles in Settings.
 
 **Intro map card overlay:** If `working/description.txt` exists, its content is overlaid as left-side text on the intro map splash card. Lines starting with `--` (Wandrer, myWindsock section headers) are stripped; all other lines are shown.
 
