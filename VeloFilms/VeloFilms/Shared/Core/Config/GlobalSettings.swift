@@ -157,6 +157,8 @@ final class GlobalSettings {
         UserDefaults.standard.set(focusGroupMinDetections,  forKey: "focusGroupMinDetections")
     }
 
+    var isDualCamera: Bool { hasFly12Sport && hasFly6Pro }
+
     var effectiveExtractInterval: Double {
         extractIntervalOverride ?? AppConfig.extractIntervalSeconds
     }

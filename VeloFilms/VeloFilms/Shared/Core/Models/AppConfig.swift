@@ -111,27 +111,32 @@ enum AppConfig {
         static let gaugeOrder: [String] = ["elev", "gradient", "speed", "hr", "cadence"]
         static let enabledGauges: [String] = ["speed", "cadence", "hr", "elev", "gradient"]
 
-        // PiP / Map strip (bottom bar)
-        static let pipH: Int = 390
+        // Layout (all at 1920×1080):
+        //   [Map 390][gap 8][Gauges 972][gap 8][PiP ~550]  ← y=615–1005 (390px)
+        //   [Elev 390]      [open video]       [PiP cont]  ← y=1005–1080 (75px)
+        // PiP spans full 465px (map+elev) flush to bottom; open video is below gauges only.
         static let mapW: Int = 390
         static let mapGap: Int = 8
         static let elevStripH: Int = 75
-        static let mapPipBottom: Int = 75
+        static let mapPipBottom: Int = 75      // y-from-bottom for map and gauges
 
-        // Overlay positions (x, y from top-left of 1920×1080 frame)
-        static let gaugeX: Int = 0
-        static let gaugeY: String = "H-h-75"     // FFmpeg expression
-        static let mapX: Int = 972
-        static let mapY: String = "H-h-75"
-        static let pipX: Int = 1370
-        static let pipY: String = "H-h-75"
-        static let elevX: Int = 972
+        // PiP spans map height + elev height so it fills the right column to the bottom edge
+        static let pipH: Int = 465             // mapH(390) + elevH(75)
+
+        // Overlay positions
+        static let mapX: Int = 0              // map anchors bottom-left
+        static let mapY: String = "H-h-75"   // FFmpeg: above elev strip
+        static let gaugeX: Int = 398          // mapW(390) + mapGap(8)
+        static let gaugeY: String = "H-h-75"
+        static let pipX: Int = 1370           // gaugeX(398) + gaugeCompositeW(972)
+        static let pipY: String = "H-h"       // flush bottom — pip covers elev row too
+        static let elevX: Int = 0            // below map, same left edge
         static let elevY: String = "H-h"
-        static let elevW: Int = 948              // outputW - gaugeCompositeW
+        static let elevW: Int = 390           // map width only
         static let elevH: Int = 75
 
-        // HUD padding (x flush-left, y = elevStripH)
-        static let paddingX: Int = 0
+        // HUD padding
+        static let paddingX: Int = 398        // gaugeX
         static let paddingY: Int = 75
     }
 

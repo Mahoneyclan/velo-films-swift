@@ -100,7 +100,7 @@ final class ClipVideoCompositor: NSObject, AVVideoCompositing {
             var pip    = pipSrc.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             pip = pip.transformed(by: CGAffineTransform(
                 translationX: CGFloat(AppConfig.HUD.pipX),
-                y:            CGFloat(AppConfig.HUD.mapPipBottom)))
+                y:            0))   // PiP flush to bottom — spans map+elev height
             composite = pip.composited(over: composite)
         }
 

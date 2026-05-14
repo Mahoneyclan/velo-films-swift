@@ -156,7 +156,7 @@ struct ClipCompositor: Sendable {
             "[0:v]scale=\(H.outputW):\(H.outputH):force_original_aspect_ratio=decrease," +
             "pad=\(H.outputW):\(H.outputH):(ow-iw)/2:(oh-ih)/2[vmain];" +
             "[1:v]scale=-1:\(H.pipH)[pipsc];" +
-            "[vmain][pipsc]overlay=\(H.pipX):H-h-\(H.mapPipBottom)[v1];" +
+            "[vmain][pipsc]overlay=\(H.pipX):\(H.pipY)[v1];" +
             "[v1][\(mapIdx):v]overlay=\(H.mapX):H-h-\(H.mapPipBottom)[vmap];" +
             "[vmap][\(elevIdx):v]overlay=\(H.elevX):H-h[velev];" +
             "[velev][\(gaugeIdx):v]overlay=\(H.gaugeX):H-h-\(H.mapPipBottom)[vhud];" +
