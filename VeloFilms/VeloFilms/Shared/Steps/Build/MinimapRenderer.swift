@@ -42,6 +42,7 @@ struct MinimapRenderer {
         )
         let size = AppConfig.HUD.mapW
         options.size = CGSize(width: size, height: size)
+        options.scale = 1.0  // force @1x: snapshot.point(for:) returns 0...size coords; @2x would double them
         options.mapType = .standard
         options.showsBuildings = false
 

@@ -10,10 +10,11 @@ struct ContentView: View {
     }
 
     var body: some View {
-#if os(macOS)
         NavigationSplitView {
             ProjectListView()
+#if os(macOS)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+#endif
         } detail: {
             if let project = projectStore.selected {
                 ProjectDetailView(project: project)
@@ -21,11 +22,6 @@ struct ContentView: View {
                 emptyDetail
             }
         }
-#else
-        NavigationStack {
-            ProjectListView()
-        }
-#endif
     }
 
     private var emptyDetail: some View {
