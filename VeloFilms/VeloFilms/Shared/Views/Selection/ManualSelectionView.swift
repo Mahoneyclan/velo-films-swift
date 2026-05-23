@@ -113,8 +113,8 @@ struct ManualSelectionView: View {
                 )
                 .padding(.vertical, 6)
 
-                // Lap timeline — shown when Strava lap data is available
-                if !lapRanges.isEmpty {
+                // Lap timeline — only shown when 2+ laps exist; a single whole-ride lap offers no useful filter
+                if lapRanges.count >= 2 {
                     Divider()
                     LapSegmentTimeline(
                         lapRanges:         lapRanges,
@@ -248,10 +248,11 @@ struct ManualSelectionView: View {
         let offset = Self.stravaEpochOffset(rideStartEpoch: rideStartEpoch, lapRanges: rawLapRanges)
         let allLapRanges = rawLapRanges.map { (name: $0.name, startEpoch: $0.startEpoch + offset, endEpoch: $0.endEpoch + offset) }
 
-        // Only show laps that contain at least one displayed moment.
-        let momentEpochs = Set(moments.map { Double($0.momentId) })
+        // Only show laps that contain at least one moment from the full ride (not just top-N).
+        // Using allMoments so laps whose clips scored below the display cutoff still appear.
+        let allEpochs = Set(allMoments.map { Double($0.momentId) })
         lapRanges = allLapRanges.filter { range in
-            momentEpochs.contains { $0 >= range.startEpoch && $0 <= range.endEpoch }
+            allEpochs.contains { $0 >= range.startEpoch && $0 <= range.endEpoch }
         }
 
         isLoaded = true
@@ -428,6 +429,9 @@ private struct TimelineRow: View {
                         .fill(Color.secondary.opacity(0.10))
                         .frame(width: geo.size.width, height: rowHeight)
 
+                    // Visual blocks only — tap detection handled by onTapGesture below.
+                    // .offset() moves pixels but NOT the hit-test frame, so Buttons with offset
+                    // would only be tappable at x=0; use coordinate-space detection instead.
                     ForEach(Array(ranges.enumerated()), id: \.offset) { _, range in
                         let xFrac = (range.startEpoch - timelineStart) / timelineSpan
                         let wFrac = (range.endEpoch - range.startEpoch) / timelineSpan
@@ -435,27 +439,29 @@ private struct TimelineRow: View {
                         let w = max(3, CGFloat(wFrac) * geo.size.width - 1)
                         let active = isActive(range.name)
 
-                        Button {
-                            let f = makeFilter(range.name)
-                            activeFilter = activeFilter == f ? .all : f
-                        } label: {
-                            RoundedRectangle(cornerRadius: rowHeight / 4)
-                                .fill(active ? Color.accentColor : Color.accentColor.opacity(0.40))
-                                .frame(width: w, height: rowHeight)
-                                .overlay {
-                                    if w > 44 && rowHeight >= 16 {
-                                        Text(range.name)
-                                            .font(.system(size: 7, weight: .semibold))
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .padding(.horizontal, 3)
-                                    }
+                        RoundedRectangle(cornerRadius: rowHeight / 4)
+                            .fill(active ? Color.accentColor : Color.accentColor.opacity(0.40))
+                            .frame(width: w, height: rowHeight)
+                            .overlay {
+                                if w > 44 && rowHeight >= 16 {
+                                    Text(range.name)
+                                        .font(.system(size: 7, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .padding(.horizontal, 3)
                                 }
-                        }
-                        .buttonStyle(.plain)
-                        .offset(x: x)
-                        .help(range.name)
+                            }
+                            .offset(x: x)
+                            .help(range.name)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { location in
+                    let tapEpoch = timelineStart + Double(location.x / geo.size.width) * timelineSpan
+                    if let hit = ranges.first(where: { tapEpoch >= $0.startEpoch && tapEpoch <= $0.endEpoch }) {
+                        let f = makeFilter(hit.name)
+                        activeFilter = activeFilter == f ? .all : f
                     }
                 }
             }

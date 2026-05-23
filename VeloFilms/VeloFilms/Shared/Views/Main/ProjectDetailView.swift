@@ -9,6 +9,7 @@ struct ProjectDetailView: View {
     @State private var showProjectPreferences = false
     @State private var pendingReviewPrompt = false
     @State private var reviewedFlag = false     // mirrors UserDefaults per-project
+    @State private var selectionSnapshot: Set<Int> = []  // recommended momentIds captured before fine-tune opens
 
     private var reviewedKey: String { "reviewed-\(project.id)" }
     private var artifacts: ProjectArtifacts { ProjectArtifacts.check(project) }
@@ -80,6 +81,11 @@ struct ProjectDetailView: View {
             if !showManualSelection && analysisComplete {
                 reviewedFlag = true
                 UserDefaults.standard.set(true, forKey: reviewedKey)
+                // If the selection changed and a reel already exists, the built artifacts are
+                // now stale — delete them so the user must re-build.
+                if buildComplete && recommendedMomentIds() != selectionSnapshot {
+                    invalidateBuiltArtifacts()
+                }
             }
         }
     }
@@ -181,11 +187,17 @@ struct ProjectDetailView: View {
                 HStack {
                     Spacer()
                     if reviewedFlag {
-                        Button("Fine-tune Again…") { showManualSelection = true }
-                            .buttonStyle(.bordered)
+                        Button("Fine-tune Again…") {
+                            selectionSnapshot = recommendedMomentIds()
+                            showManualSelection = true
+                        }
+                        .buttonStyle(.bordered)
                     } else {
-                        Button("Fine-tune Selection…") { showManualSelection = true }
-                            .buttonStyle(.borderedProminent)
+                        Button("Fine-tune Selection…") {
+                            selectionSnapshot = recommendedMomentIds()
+                            showManualSelection = true
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                     Spacer()
                 }
@@ -341,6 +353,24 @@ struct ProjectDetailView: View {
         executor.register(BuildStep(yoloModelURL: modelURL),   for: .build)
         executor.register(SplashStep(),                        for: .splash)
         executor.register(ConcatStep(),                        for: .concat)
+    }
+
+    private func recommendedMomentIds() -> Set<Int> {
+        guard let rows = try? JSONLReader().read(from: project.selectJSONL) as [SelectRow] else { return [] }
+        return Set(rows.filter { $0.recommended }.map { $0.base.momentId })
+    }
+
+    private func invalidateBuiltArtifacts() {
+        let fm = FileManager.default
+        try? fm.removeItem(at: project.finalReelURL)
+        for dir in [project.minimapsDir, project.elevationDir] {
+            guard let files = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
+            for f in files { try? fm.removeItem(at: dir.appending(path: f)) }
+        }
+        guard let clips = try? fm.contentsOfDirectory(atPath: project.clipsDir.path) else { return }
+        for f in clips where f.hasSuffix(".mp4") || f.hasSuffix(".mov") {
+            try? fm.removeItem(at: project.clipsDir.appending(path: f))
+        }
     }
 
     private func reveal(_ url: URL) {
