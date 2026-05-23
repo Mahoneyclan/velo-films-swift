@@ -52,7 +52,8 @@ final class GlobalSettings {
     var dynamicGauges: Bool = true
 
     // MARK: - Detection
-    var yoloMinConfidence: Double = 0.10
+    var yoloMinConfidence: Double = 0.10          // person + bicycle
+    var yoloVehicleConfidence: Double = 0.50      // car, motorcycle, bus, truck, traffic light, stop sign
 
     // MARK: - Score weights (should sum to 1.0)
     var scoreWeightDetect: Double    = 0.30
@@ -105,7 +106,8 @@ final class GlobalSettings {
         dynamicGauges           = (UserDefaults.standard.object(forKey: "dynamicGauges") as? Bool) ?? true
 
         // Use object(forKey:) for weights/confidence so 0.0 is a valid stored value (not treated as "unset")
-        yoloMinConfidence     = (UserDefaults.standard.object(forKey: "yoloMinConfidence")     as? Double) ?? yoloMinConfidence
+        yoloMinConfidence      = (UserDefaults.standard.object(forKey: "yoloMinConfidence")      as? Double) ?? yoloMinConfidence
+        yoloVehicleConfidence  = (UserDefaults.standard.object(forKey: "yoloVehicleConfidence")  as? Double) ?? yoloVehicleConfidence
         scoreWeightDetect     = (UserDefaults.standard.object(forKey: "scoreWeightDetect")     as? Double) ?? scoreWeightDetect
         scoreWeightScene      = (UserDefaults.standard.object(forKey: "scoreWeightScene")      as? Double) ?? scoreWeightScene
         scoreWeightSpeed      = (UserDefaults.standard.object(forKey: "scoreWeightSpeed")      as? Double) ?? scoreWeightSpeed
@@ -140,6 +142,7 @@ final class GlobalSettings {
         UserDefaults.standard.set(rawAudioVolume,          forKey: "rawAudioVolume")
         UserDefaults.standard.set(dynamicGauges,            forKey: "dynamicGauges")
         UserDefaults.standard.set(yoloMinConfidence,        forKey: "yoloMinConfidence")
+        UserDefaults.standard.set(yoloVehicleConfidence,   forKey: "yoloVehicleConfidence")
         UserDefaults.standard.set(scoreWeightDetect,        forKey: "scoreWeightDetect")
         UserDefaults.standard.set(scoreWeightScene,         forKey: "scoreWeightScene")
         UserDefaults.standard.set(scoreWeightSpeed,         forKey: "scoreWeightSpeed")

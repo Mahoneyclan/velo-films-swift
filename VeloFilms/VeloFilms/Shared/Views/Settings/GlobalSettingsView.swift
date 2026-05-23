@@ -166,17 +166,31 @@ struct GlobalSettingsView: View {
 
                         // YOLO confidence
                         GroupBox {
-                            VStack(alignment: .leading, spacing: 6) {
+                            VStack(alignment: .leading, spacing: 10) {
                                 HStack {
-                                    Label("Min detection confidence", systemImage: "eye")
+                                    Label("People & cyclists", systemImage: "figure.outdoor.cycle")
                                         .font(.caption.bold())
                                     Spacer()
                                     Text(String(format: "%.2f", settings.yoloMinConfidence))
                                         .font(.caption.bold().monospacedDigit())
                                         .foregroundStyle(Color.accentColor)
                                 }
-                                Slider(value: $settings.yoloMinConfidence, in: 0.05...0.50, step: 0.05)
+                                Slider(value: $settings.yoloMinConfidence, in: 0.05...0.95, step: 0.05)
                                     .onChange(of: settings.yoloMinConfidence) { settings.save() }
+
+                                Divider()
+
+                                HStack {
+                                    Label("Vehicles & signs", systemImage: "car")
+                                        .font(.caption.bold())
+                                    Spacer()
+                                    Text(String(format: "%.2f", settings.yoloVehicleConfidence))
+                                        .font(.caption.bold().monospacedDigit())
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                Slider(value: $settings.yoloVehicleConfidence, in: 0.05...0.95, step: 0.05)
+                                    .onChange(of: settings.yoloVehicleConfidence) { settings.save() }
+
                                 HStack {
                                     Text("More detections")
                                     Spacer()
@@ -186,7 +200,7 @@ struct GlobalSettingsView: View {
                                 .foregroundStyle(.secondary)
                             }
                         }
-                        .help("Lower = more objects detected but more false positives. Default: 0.10")
+                        .help("People & cyclists default 0.10 · Vehicles & signs default 0.50")
 
                         // Candidate pool
                         GroupBox {

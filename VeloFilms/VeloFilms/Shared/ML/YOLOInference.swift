@@ -31,17 +31,8 @@ final class YOLODetector {
         11: 1.0, // stop sign
     ]
 
-    /// Per-class confidence threshold overrides.
-    /// Person and bicycle use the global yoloMinConfidence (reliable classes).
-    /// All vehicle/sign classes need higher bars — they fire on partial, distant, or occluded objects.
-    private static let classThresholds: [Int: Float] = [
-        2: 0.50,  // car
-        3: 0.50,  // motorcycle
-        5: 0.50,  // bus
-        7: 0.50,  // truck
-        9: 0.50,  // traffic light
-        11: 0.50, // stop sign
-    ]
+    /// Classes that use the vehicle/sign confidence threshold instead of the global floor.
+    private static let vehicleClasses: Set<Int> = [2, 3, 5, 7, 9, 11]
 
     private static let classNames: [Int: String] = [
         0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
@@ -138,7 +129,9 @@ final class YOLODetector {
 
         let s1 = raw.strides[1].intValue
         let s2 = raw.strides[2].intValue
-        let globalThreshold = AppConfig.yoloMinConfidence
+        let s = GlobalSettings.shared
+        let peopleThreshold  = Float(s.yoloMinConfidence)
+        let vehicleThreshold = Float(s.yoloVehicleConfidence)
 
         var cands: [Cand] = []
         cands.reserveCapacity(512)
@@ -156,7 +149,7 @@ final class YOLODetector {
                     if val > bestConf { bestConf = val; bestCls = cls }
                 }
                 guard bestCls >= 0 else { continue }
-                let threshold = Self.classThresholds[bestCls] ?? globalThreshold
+                let threshold = Self.vehicleClasses.contains(bestCls) ? vehicleThreshold : peopleThreshold
                 guard bestConf >= threshold else { continue }
                 cands.append(Cand(
                     cls: bestCls, conf: bestConf,
@@ -178,7 +171,7 @@ final class YOLODetector {
                     if val > bestConf { bestConf = val; bestCls = cls }
                 }
                 guard bestCls >= 0 else { continue }
-                let threshold = Self.classThresholds[bestCls] ?? globalThreshold
+                let threshold = Self.vehicleClasses.contains(bestCls) ? vehicleThreshold : peopleThreshold
                 guard bestConf >= threshold else { continue }
                 cands.append(Cand(
                     cls: bestCls, conf: bestConf,
