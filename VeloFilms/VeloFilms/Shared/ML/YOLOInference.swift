@@ -24,16 +24,15 @@ final class YOLODetector {
         0: 1.0,  // person
         1: 1.0,  // bicycle
         2: 1.0,  // car
-        3: 1.0,  // motorcycle
-        5: 1.0,  // bus
-        7: 1.0,  // truck
-        9: 1.0,  // traffic light
+        // 3: motorcycle  — excluded: false positives against bicycles
+        // 5: bus         — excluded: false positives against trucks/vans
+        // 7: truck       — excluded: false positives against cars/vans
+        // 9: traffic light — excluded: false positives on commute footage
         11: 1.0, // stop sign
     ]
 
     private static let classNames: [Int: String] = [
-        0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
-        5: "bus", 7: "truck", 9: "traffic light", 11: "stop sign",
+        0: "person", 1: "bicycle", 2: "car", 11: "stop sign",
     ]
 
     init(modelURL: URL) {
