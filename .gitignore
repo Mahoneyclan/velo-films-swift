@@ -16,6 +16,12 @@ DerivedData/
 # Credentials (never commit)
 **/Secrets.swift
 
+# Music — user-supplied tracks; never commit copyrighted audio
+**/Resources/music/*.mp3
+**/Resources/music/*.m4a
+**/Resources/music/*.aac
+**/Resources/music/*.wav
+
 # Build artefacts (top-level only, not source step directories)
 /build/
 Shared/Resources/
