@@ -424,14 +424,12 @@ private struct TimelineRow: View {
                 .frame(width: 34, alignment: .trailing)
 
             GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
+                ZStack {
                     RoundedRectangle(cornerRadius: rowHeight / 4)
                         .fill(Color.secondary.opacity(0.10))
                         .frame(width: geo.size.width, height: rowHeight)
+                        .position(x: geo.size.width / 2, y: rowHeight / 2)
 
-                    // Visual blocks only — tap detection handled by onTapGesture below.
-                    // .offset() moves pixels but NOT the hit-test frame, so Buttons with offset
-                    // would only be tappable at x=0; use coordinate-space detection instead.
                     ForEach(Array(ranges.enumerated()), id: \.offset) { _, range in
                         let xFrac = (range.startEpoch - timelineStart) / timelineSpan
                         let wFrac = (range.endEpoch - range.startEpoch) / timelineSpan
@@ -439,31 +437,32 @@ private struct TimelineRow: View {
                         let w = max(3, CGFloat(wFrac) * geo.size.width - 1)
                         let active = isActive(range.name)
 
-                        RoundedRectangle(cornerRadius: rowHeight / 4)
-                            .fill(active ? Color.accentColor : Color.accentColor.opacity(0.40))
-                            .frame(width: w, height: rowHeight)
-                            .overlay {
-                                if w > 44 && rowHeight >= 16 {
-                                    Text(range.name)
-                                        .font(.system(size: 7, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .padding(.horizontal, 3)
+                        // .position() moves both the visual and the hit-test frame,
+                        // fixing the bug where .offset() left tap targets stuck at x=0.
+                        Button {
+                            let f = makeFilter(range.name)
+                            activeFilter = activeFilter == f ? .all : f
+                        } label: {
+                            RoundedRectangle(cornerRadius: rowHeight / 4)
+                                .fill(active ? Color.accentColor : Color.accentColor.opacity(0.40))
+                                .frame(width: w, height: rowHeight)
+                                .overlay {
+                                    if w > 44 && rowHeight >= 16 {
+                                        Text(range.name)
+                                            .font(.system(size: 7, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .padding(.horizontal, 3)
+                                    }
                                 }
-                            }
-                            .offset(x: x)
-                            .help(range.name)
+                        }
+                        .buttonStyle(.plain)
+                        .position(x: x + w / 2, y: rowHeight / 2)
+                        .help(range.name)
                     }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { location in
-                    let tapEpoch = timelineStart + Double(location.x / geo.size.width) * timelineSpan
-                    if let hit = ranges.first(where: { tapEpoch >= $0.startEpoch && tapEpoch <= $0.endEpoch }) {
-                        let f = makeFilter(hit.name)
-                        activeFilter = activeFilter == f ? .all : f
-                    }
-                }
+                .frame(width: geo.size.width, height: rowHeight)
             }
             .frame(height: rowHeight)
         }
