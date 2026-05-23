@@ -113,8 +113,8 @@ struct ManualSelectionView: View {
                 )
                 .padding(.vertical, 6)
 
-                // Lap timeline — only shown when 2+ laps exist; a single whole-ride lap offers no useful filter
-                if lapRanges.count >= 2 {
+                // Lap timeline — shown when Strava lap data is available
+                if !lapRanges.isEmpty {
                     Divider()
                     LapSegmentTimeline(
                         lapRanges:         lapRanges,
