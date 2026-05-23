@@ -35,12 +35,12 @@ final class YOLODetector {
     /// Person and bicycle use the global yoloMinConfidence (reliable classes).
     /// All vehicle/sign classes need higher bars — they fire on partial, distant, or occluded objects.
     private static let classThresholds: [Int: Float] = [
-        2: 0.40,  // car          — misidentified at distance / in shadows
-        3: 0.50,  // motorcycle   — similar silhouette to bicycle
-        5: 0.45,  // bus          — confusable with trucks / large vans
-        7: 0.45,  // truck        — confusable with buses / large vans
-        9: 0.55,  // traffic light — fires on any coloured light source
-        11: 0.40, // stop sign    — fires on red objects
+        2: 0.50,  // car
+        3: 0.50,  // motorcycle
+        5: 0.50,  // bus
+        7: 0.50,  // truck
+        9: 0.50,  // traffic light
+        11: 0.50, // stop sign
     ]
 
     private static let classNames: [Int: String] = [
