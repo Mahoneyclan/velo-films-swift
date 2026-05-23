@@ -19,7 +19,7 @@ final class YOLODetector {
     private let modelURL: URL
     private var outputName: String?
 
-    /// Class weights — all 1.0 (uniform importance).
+    /// Class weights — uniform importance across all active classes.
     private static let classWeights: [Int: Float] = [
         0: 1.0,  // person
         1: 1.0,  // bicycle
@@ -27,13 +27,25 @@ final class YOLODetector {
         3: 1.0,  // motorcycle
         5: 1.0,  // bus
         7: 1.0,  // truck
-        // 9: traffic light — excluded: too many false positives on commute footage
+        9: 1.0,  // traffic light
         11: 1.0, // stop sign
+    ]
+
+    /// Per-class confidence threshold overrides.
+    /// Person and bicycle use the global yoloMinConfidence (reliable classes).
+    /// All vehicle/sign classes need higher bars — they fire on partial, distant, or occluded objects.
+    private static let classThresholds: [Int: Float] = [
+        2: 0.40,  // car          — misidentified at distance / in shadows
+        3: 0.50,  // motorcycle   — similar silhouette to bicycle
+        5: 0.45,  // bus          — confusable with trucks / large vans
+        7: 0.45,  // truck        — confusable with buses / large vans
+        9: 0.55,  // traffic light — fires on any coloured light source
+        11: 0.40, // stop sign    — fires on red objects
     ]
 
     private static let classNames: [Int: String] = [
         0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
-        5: "bus", 7: "truck", 11: "stop sign",
+        5: "bus", 7: "truck", 9: "traffic light", 11: "stop sign",
     ]
 
     init(modelURL: URL) {
@@ -126,7 +138,7 @@ final class YOLODetector {
 
         let s1 = raw.strides[1].intValue
         let s2 = raw.strides[2].intValue
-        let threshold = AppConfig.yoloMinConfidence
+        let globalThreshold = AppConfig.yoloMinConfidence
 
         var cands: [Cand] = []
         cands.reserveCapacity(512)
@@ -143,7 +155,9 @@ final class YOLODetector {
                     let val = ptr[s1 * v + s2 * a]
                     if val > bestConf { bestConf = val; bestCls = cls }
                 }
-                guard bestConf >= threshold, bestCls >= 0 else { continue }
+                guard bestCls >= 0 else { continue }
+                let threshold = Self.classThresholds[bestCls] ?? globalThreshold
+                guard bestConf >= threshold else { continue }
                 cands.append(Cand(
                     cls: bestCls, conf: bestConf,
                     cx: ptr[s2 * a],
@@ -163,7 +177,9 @@ final class YOLODetector {
                     let val = Float(truncating: raw[[0, v, a] as [NSNumber]])
                     if val > bestConf { bestConf = val; bestCls = cls }
                 }
-                guard bestConf >= threshold, bestCls >= 0 else { continue }
+                guard bestCls >= 0 else { continue }
+                let threshold = Self.classThresholds[bestCls] ?? globalThreshold
+                guard bestConf >= threshold else { continue }
                 cands.append(Cand(
                     cls: bestCls, conf: bestConf,
                     cx: Float(truncating: raw[[0, 0, a] as [NSNumber]]),
