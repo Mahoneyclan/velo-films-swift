@@ -36,10 +36,11 @@ enum AppConfig {
     static var yoloMinConfidence: Float { Float(GlobalSettings.shared.yoloMinConfidence) }
     static let yoloBatchSizeMac: Int = 8
     static let yoloBatchSizeiPad: Int = 4
-    static let yoloDetectClasses: Set<Int> = [0, 1, 2, 11]
+    static let yoloDetectClasses: Set<Int> = [0, 1, 2, 3, 5, 7, 11]
 
     enum YOLOClass: Int, CaseIterable {
-        case person = 0, bicycle = 1, car = 2, stopSign = 11
+        case person = 0, bicycle = 1, car = 2, motorcycle = 3
+        case bus = 5, truck = 7, stopSign = 11
     }
 
     // MARK: - Scoring weights — reads from GlobalSettings so user can tune them
