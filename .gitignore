@@ -25,3 +25,13 @@ DerivedData/
 # Build artefacts (top-level only, not source step directories)
 /build/
 Shared/Resources/
+
+# Compiled app bundles — versioned builds and any .app in the repo root
+*.app/
+VeloFilms/VeloFilms\ v*/
+
+# Compiled ML models (generated from .mlpackage — not source)
+**/*.mlmodelc/
+
+# macOS metadata
+**/.DS_Store
