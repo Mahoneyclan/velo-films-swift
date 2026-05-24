@@ -292,7 +292,6 @@ struct ManualSelectionView: View {
         // Add ±1 temporal neighbors of every AI-recommended clip to the display pool.
         // This lets the user compare the selected moment against the clips immediately
         // before and after it in time, and swap in a better one if needed.
-        let recommendedIds = Set(rows.filter { $0.recommended }.map { $0.base.momentId })
         let sortedAll = allMoments.sorted { $0.momentId < $1.momentId }
         var neighbors: Set<Int> = []
         for (i, m) in sortedAll.enumerated() where recommendedIds.contains(m.momentId) {
