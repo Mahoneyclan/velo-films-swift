@@ -255,7 +255,7 @@ private struct ScoringTab: View {
                             Label("People & cyclists", systemImage: "figure.outdoor.cycle").font(.caption.bold())
                             Spacer()
                             Text(String(format: "%.2f", settings.yoloMinConfidence))
-                                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
                         }
                         Slider(value: $settings.yoloMinConfidence, in: 0.05...0.95, step: 0.05)
                             .onChange(of: settings.yoloMinConfidence) { settings.save() }
@@ -264,7 +264,7 @@ private struct ScoringTab: View {
                             Label("Vehicles & signs", systemImage: "car").font(.caption.bold())
                             Spacer()
                             Text(String(format: "%.2f", settings.yoloVehicleConfidence))
-                                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
                         }
                         Slider(value: $settings.yoloVehicleConfidence, in: 0.05...0.95, step: 0.05)
                             .onChange(of: settings.yoloVehicleConfidence) { settings.save() }
@@ -283,7 +283,7 @@ private struct ScoringTab: View {
                             Label("Pool size", systemImage: "list.number").font(.caption.bold())
                             Spacer()
                             Text(String(format: "%.1f×", settings.candidateFraction))
-                                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
                         }
                         Slider(value: $settings.candidateFraction, in: 1.0...5.0, step: 0.5)
                             .onChange(of: settings.candidateFraction) { settings.save() }
@@ -512,7 +512,7 @@ private struct FocusSliderRow: View {
             Text(label).font(.caption).frame(width: 120, alignment: .leading)
             Slider(value: $value, in: range, step: multiplier > 1 ? 1 / multiplier : 1)
             Text("\(prefix)\(Int(value * multiplier))\(unit)")
-                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
                 .frame(width: 44, alignment: .trailing)
         }
     }
