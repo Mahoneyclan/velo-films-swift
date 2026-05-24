@@ -2,14 +2,15 @@ import Foundation
 
 /// A single resampled GPX telemetry point (1Hz grid).
 struct GPXPoint {
-    var epoch: Double       // Unix timestamp (seconds)
+    var epoch: Double        // Unix timestamp (seconds)
     var lat: Double
     var lon: Double
-    var elevation: Double   // metres
+    var elevation: Double    // metres
     var hr: Double?
     var cadence: Double?
-    var speedKmh: Double    // computed from haversine + Δt
-    var gradientPct: Double // ((ele2 - ele1) / dist_m) * 100
+    var speedKmh: Double     // computed from haversine + Δt
+    var gradientPct: Double  // Strava grade_smooth if available, else 30-second window
+    var stravaGradePct: Double?  // interpolated from gpxtpx:grade; nil for non-Strava GPX
 }
 
 /// Parses a .gpx file using XMLParser and resamples to a 1Hz timeline.
@@ -35,6 +36,7 @@ final class GPXParser: NSObject, XMLParserDelegate {
     private var currentTime: String?
     private var currentHR: Double?
     private var currentCadence: Double?
+    private var currentGrade: Double?
     private var parseError: Error?
 
     private init(gpxTimeOffsetS: Double) {
@@ -59,7 +61,7 @@ final class GPXParser: NSObject, XMLParserDelegate {
         if elementName == "trkpt" {
             currentLat = attributes["lat"].flatMap(Double.init)
             currentLon = attributes["lon"].flatMap(Double.init)
-            currentEle = nil; currentTime = nil; currentHR = nil; currentCadence = nil
+            currentEle = nil; currentTime = nil; currentHR = nil; currentCadence = nil; currentGrade = nil
         }
     }
 
@@ -67,10 +69,11 @@ final class GPXParser: NSObject, XMLParserDelegate {
         let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return }
         switch currentElement {
-        case "ele":          currentEle = Double(s)
-        case "time":         currentTime = s
-        case "gpxtpx:hr":    currentHR = Double(s)
-        case "gpxtpx:cad":   currentCadence = Double(s)
+        case "ele":           currentEle = Double(s)
+        case "time":          currentTime = s
+        case "gpxtpx:hr":     currentHR = Double(s)
+        case "gpxtpx:cad":    currentCadence = Double(s)
+        case "gpxtpx:grade":  currentGrade = Double(s)
         default: break
         }
     }
@@ -85,7 +88,7 @@ final class GPXParser: NSObject, XMLParserDelegate {
                 epoch: epoch + gpxTimeOffsetS,
                 lat: lat, lon: lon,
                 elevation: currentEle ?? 0,
-                hr: currentHR, cadence: currentCadence
+                hr: currentHR, cadence: currentCadence, grade: currentGrade
             ))
         }
         currentElement = ""
@@ -112,10 +115,12 @@ final class GPXParser: NSObject, XMLParserDelegate {
             let lat  = before.lat + (after.lat - before.lat) * frac
             let lon  = before.lon + (after.lon - before.lon) * frac
             let ele  = before.elevation + (after.elevation - before.elevation) * frac
-            let hr   = interpolateOpt(before.hr, after.hr, frac: frac)
-            let cad  = interpolateOpt(before.cadence, after.cadence, frac: frac)
+            let hr    = interpolateOpt(before.hr, after.hr, frac: frac)
+            let cad   = interpolateOpt(before.cadence, after.cadence, frac: frac)
+            let grade = interpolateOpt(before.grade, after.grade, frac: frac)
             out.append(GPXPoint(epoch: t, lat: lat, lon: lon, elevation: ele,
-                                hr: hr, cadence: cad, speedKmh: 0, gradientPct: 0))
+                                hr: hr, cadence: cad, speedKmh: 0, gradientPct: 0,
+                                stravaGradePct: grade))
             t += 1
         }
 
@@ -130,17 +135,19 @@ final class GPXParser: NSObject, XMLParserDelegate {
             out[i].speedKmh = (dist / dt) * 3.6
         }
 
-        // Third pass: gradient over a ±15 s window (30-second centered average).
-        // GPS elevation accuracy is ±5–15 m; a 1-second window over 5 m of travel
-        // amplifies noise to ±100%+. The wider window averages out noise while still
-        // resolving real gradient changes on sub-minute climbs and descents.
+        // Third pass: gradient.
+        // Prefer Strava's grade_smooth (already smoothed, DEM-corrected elevation) when present.
+        // Fall back to a ±15 s centered window for non-Strava GPX files (Garmin export, manual drop).
         let hw = 15
         for i in out.indices {
-            let lo = max(0, i - hw)
-            let hi = min(out.count - 1, i + hw)
-            let dist = haversineM(out[lo].lat, out[lo].lon, out[hi].lat, out[hi].lon)
-            // Require at least 5 m of travel to avoid division noise when nearly stopped
-            out[i].gradientPct = dist > 5 ? ((out[hi].elevation - out[lo].elevation) / dist) * 100 : 0
+            if let g = out[i].stravaGradePct {
+                out[i].gradientPct = g
+            } else {
+                let lo = max(0, i - hw)
+                let hi = min(out.count - 1, i + hw)
+                let dist = haversineM(out[lo].lat, out[lo].lon, out[hi].lat, out[hi].lon)
+                out[i].gradientPct = dist > 5 ? ((out[hi].elevation - out[lo].elevation) / dist) * 100 : 0
+            }
         }
         return out
     }
@@ -223,4 +230,5 @@ private struct RawPoint {
     var elevation: Double
     var hr: Double?
     var cadence: Double?
+    var grade: Double?  // gpxtpx:grade from Strava grade_smooth stream; nil for non-Strava GPX
 }

@@ -50,7 +50,7 @@ struct StravaClient {
 
     func downloadGPX(activityID: Int, startDate: Date, activityName: String, to outputURL: URL) async throws {
         let token = try await auth.ensureValidToken()
-        let streamsURL = URL(string: "\(baseURL)/activities/\(activityID)/streams?keys=latlng,altitude,time,heartrate,cadence&key_by_type=true")!
+        let streamsURL = URL(string: "\(baseURL)/activities/\(activityID)/streams?keys=latlng,altitude,time,heartrate,cadence,grade_smooth&key_by_type=true")!
         let streamsData = try await getData(url: streamsURL, token: token)
         let streams = (try? JSONSerialization.jsonObject(with: streamsData) as? [String: Any]) ?? [:]
         let gpxString = buildGPX(from: streams, startDate: startDate, activityName: activityName)
@@ -109,11 +109,14 @@ struct StravaClient {
     // MARK: - GPX construction from streams
 
     private func buildGPX(from streams: [String: Any], startDate: Date, activityName: String) -> String {
-        let latlng    = (streams["latlng"]    as? [String: Any])?["data"] as? [[Double]] ?? []
-        let altitude  = (streams["altitude"]  as? [String: Any])?["data"] as? [Double]   ?? []
-        let time      = (streams["time"]      as? [String: Any])?["data"] as? [Int]       ?? []
-        let heartrate = (streams["heartrate"] as? [String: Any])?["data"] as? [Int]       ?? []
-        let cadence   = (streams["cadence"]   as? [String: Any])?["data"] as? [Int]       ?? []
+        let latlng       = (streams["latlng"]       as? [String: Any])?["data"] as? [[Double]] ?? []
+        let altitude     = (streams["altitude"]     as? [String: Any])?["data"] as? [Double]   ?? []
+        let time         = (streams["time"]         as? [String: Any])?["data"] as? [Int]       ?? []
+        let heartrate    = (streams["heartrate"]    as? [String: Any])?["data"] as? [Int]       ?? []
+        let cadence      = (streams["cadence"]      as? [String: Any])?["data"] as? [Int]       ?? []
+        // grade_smooth is Strava's own smoothed gradient (%) using corrected elevation.
+        // May be absent on older activities or activities without elevation correction.
+        let gradeSmooth  = (streams["grade_smooth"] as? [String: Any])?["data"] as? [Double]
 
         var trkpts = ""
         let fmt = ISO8601DateFormatter()
@@ -128,10 +131,14 @@ struct StravaClient {
 
             let ts = fmt.string(from: startDate.addingTimeInterval(Double(t)))
             var ext = ""
-            if hr >= 0 || cad >= 0 {
+            let hasExt = hr >= 0 || cad >= 0 || (gradeSmooth != nil && i < (gradeSmooth?.count ?? 0))
+            if hasExt {
                 ext = "<extensions><gpxtpx:TrackPointExtension>"
                 if hr  >= 0 { ext += "<gpxtpx:hr>\(hr)</gpxtpx:hr>" }
                 if cad >= 0 { ext += "<gpxtpx:cad>\(cad)</gpxtpx:cad>" }
+                if let g = gradeSmooth, i < g.count {
+                    ext += "<gpxtpx:grade>\(g[i])</gpxtpx:grade>"
+                }
                 ext += "</gpxtpx:TrackPointExtension></extensions>"
             }
             trkpts += "<trkpt lat=\"\(lat)\" lon=\"\(lon)\"><ele>\(ele)</ele><time>\(ts)</time>\(ext)</trkpt>\n"
