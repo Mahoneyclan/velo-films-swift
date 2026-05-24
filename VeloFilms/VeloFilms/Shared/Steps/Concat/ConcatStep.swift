@@ -110,9 +110,45 @@ struct ConcatStep: PipelineStep {
 
     // MARK: - FFmpeg xfade with music (macOS) — clips → _middle.mp4
 
+    private static let xfadeBatchSize = 30
+
     private func xfadeConcat(parts: [URL], durations: [Double],
                               outputURL: URL, bridge: any FFmpegBridge,
                               musicURL: URL?) async throws {
+        // Split large clip counts into batches to keep each FFmpeg invocation manageable.
+        // 30+ clips in one filter_complex causes SIGKILL on Apple Silicon due to graph size.
+        if parts.count > Self.xfadeBatchSize {
+            let X = AppConfig.concatXfadeDuration
+            let tmpDir = outputURL.deletingLastPathComponent()
+            var segURLs: [URL] = []
+            var segDurs: [Double] = []
+            let stride = Self.xfadeBatchSize
+            var offset = 0
+            var segIdx = 0
+            while offset < parts.count {
+                let end       = min(offset + stride, parts.count)
+                let bParts    = Array(parts[offset..<end])
+                let bDurs     = Array(durations[offset..<end])
+                let segURL    = tmpDir.appending(path: "_xseg_\(segIdx).mp4")
+                try? FileManager.default.removeItem(at: segURL)
+                print("[ConcatStep] batch \(segIdx): clips \(offset+1)–\(end) → \(segURL.lastPathComponent)")
+                try await xfadeConcat(parts: bParts, durations: bDurs,
+                                      outputURL: segURL, bridge: bridge, musicURL: nil)
+                let asset   = AVURLAsset(url: segURL)
+                let dur     = try await asset.load(.duration)
+                segURLs.append(segURL)
+                segDurs.append(CMTimeGetSeconds(dur))
+                offset  += stride
+                segIdx  += 1
+            }
+            // Join segments with music
+            print("[ConcatStep] joining \(segURLs.count) segments → \(outputURL.lastPathComponent)")
+            try await xfadeConcat(parts: segURLs, durations: segDurs,
+                                  outputURL: outputURL, bridge: bridge, musicURL: musicURL)
+            for seg in segURLs { try? FileManager.default.removeItem(at: seg) }
+            return
+        }
+
         let X   = AppConfig.concatXfadeDuration
         let vbr = "\(AppConfig.Encoding.videoBitrate / 1000)k"
         let abr = "\(AppConfig.Encoding.audioBitrate / 1000)k"
