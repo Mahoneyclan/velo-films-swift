@@ -62,8 +62,7 @@ struct FocusFilterContext {
 
 extension FocusFilter {
     func matches(_ moment: PartnerMatcher.Moment, in ctx: FocusFilterContext) -> Bool {
-        let t       = Double(moment.momentId)
-        let elapsed = t - ctx.rideStartEpoch
+        let t = Double(moment.momentId)
 
         switch self {
         case .all:
