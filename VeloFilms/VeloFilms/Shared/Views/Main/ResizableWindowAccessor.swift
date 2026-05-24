@@ -21,19 +21,25 @@ private struct _ResizableNSViewBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.styleMask.insert(.resizable)
-            // SwiftUI sheets resize the window whenever preferred content size changes
-            // (e.g., every clip toggle updates the stats strip, causing layout re-runs).
-            // Setting content hugging to defaultLow lets the hosting view fill the window
-            // instead of driving its size — user-initiated resizes still work normally.
-            DispatchQueue.main.async {
-                window.contentView?.setContentHuggingPriority(.defaultLow, for: .horizontal)
-                window.contentView?.setContentHuggingPriority(.defaultLow, for: .vertical)
-            }
+            view.window?.styleMask.insert(.resizable)
         }
         return view
     }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // SwiftUI sheets resize the hosting window whenever preferred content size changes
+        // (every clip toggle recalculates the stats strip, triggering a layout pass).
+        // We counter this by restoring the pre-render frame size after SwiftUI's layout
+        // settles, but only when the user is not actively dragging the window edge.
+        guard let window = nsView.window,
+              window.styleMask.contains(.resizable),
+              !window.inLiveResize else { return }
+        let savedFrame = window.frame
+        DispatchQueue.main.async {
+            guard let w = nsView.window, !w.inLiveResize,
+                  w.frame != savedFrame else { return }
+            w.setFrame(savedFrame, display: false, animate: false)
+        }
+    }
 }
 #endif
