@@ -19,17 +19,22 @@ final class YOLODetector {
     private let modelURL: URL
     private var outputName: String?
 
-    /// Class weights — uniform importance across all active classes.
+    /// Class weights for detectScore — cyclists/pedestrians score full; vehicles are context only.
+    /// Cars/trucks passing close by have high confidence and large bbox but are not highlight signals.
     private static let classWeights: [Int: Float] = [
-        0: 1.0,  // person
-        1: 1.0,  // bicycle
-        2: 1.0,  // car
-        3: 1.0,  // motorcycle
-        5: 1.0,  // bus
-        7: 1.0,  // truck
-        9: 1.0,  // traffic light
-        11: 1.0, // stop sign
+        0: 1.0,  // person    — full weight
+        1: 1.0,  // bicycle   — full weight
+        2: 0.3,  // car       — heavy penalty; a passing car is background
+        3: 0.6,  // motorcycle — partial; interesting but not as good as a cyclist
+        5: 0.2,  // bus       — very large; almost always background
+        7: 0.2,  // truck     — very large; almost always background
+        9: 0.1,  // traffic light — no highlight value
+        11: 0.1, // stop sign — no highlight value
     ]
+
+    /// Classes counted toward bboxArea — only cycling-relevant detections.
+    /// Excludes cars/trucks so a close-passing vehicle doesn't inflate the bboxArea score.
+    private static let bboxAreaClasses: Set<Int> = [0, 1]   // person, bicycle
 
     /// Classes that use the vehicle/sign confidence threshold instead of the global floor.
     private static let vehicleClasses: Set<Int> = [2, 3, 5, 7, 9, 11]
@@ -77,10 +82,12 @@ final class YOLODetector {
             return Double(det.confidence * w)
         }.max() ?? 0.0
 
-        // bbox_area = sum of detection areas as a fraction of the image (0–1).
-        // Keeping it resolution-independent so bboxNormDivisor is a simple area-fraction threshold.
+        // bbox_area = sum of person+bicycle detection areas as a frame fraction (0–1).
+        // Restricted to cycling-relevant classes so a large passing car doesn't inflate the score.
         let bboxArea = detections.reduce(0.0) { sum, det in
-            sum + Double(det.boundingBox.width * det.boundingBox.height)
+            Self.bboxAreaClasses.contains(det.classIndex)
+                ? sum + Double(det.boundingBox.width * det.boundingBox.height)
+                : sum
         }
 
         return (detections, detectScore, bboxArea)
