@@ -34,16 +34,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>
+				<string>            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
 </string>
 				<key>leading</key>
-				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
-        let duration   = AppConfig.clipOutLenS
+				<string>        let filterComplex: String
+        if let pip = pipRow {
 </string>
 				<key>trailing</key>
-				<string>        // -framerate 1 must appear before -i when using an image sequence
-        var inputs: [String] = [
-            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
+				<string>            inputs += ["-ss", String(tStartPip), "-t", String(duration), "-i", pip.videoPath]
+            // map=2, elev=3, gauge=4
+            inputs += ["-i", minimapPath.path,
 </string>
 			</dict>
 			<key>title</key>
@@ -81,16 +81,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>
+				<string>            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
 </string>
 				<key>leading</key>
-				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
-        let duration   = AppConfig.clipOutLenS
+				<string>        let filterComplex: String
+        if let pip = pipRow {
 </string>
 				<key>trailing</key>
-				<string>        // -framerate 1 must appear before -i when using an image sequence
-        var inputs: [String] = [
-            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
+				<string>            inputs += ["-ss", String(tStartPip), "-t", String(duration), "-i", pip.videoPath]
+            // map=2, elev=3, gauge=4
+            inputs += ["-i", minimapPath.path,
 </string>
 			</dict>
 			<key>title</key>
@@ -128,16 +128,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>
+				<string>            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
 </string>
 				<key>leading</key>
-				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
-        let duration   = AppConfig.clipOutLenS
+				<string>        let filterComplex: String
+        if let pip = pipRow {
 </string>
 				<key>trailing</key>
-				<string>        // -framerate 1 must appear before -i when using an image sequence
-        var inputs: [String] = [
-            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
+				<string>            inputs += ["-ss", String(tStartPip), "-t", String(duration), "-i", pip.videoPath]
+            // map=2, elev=3, gauge=4
+            inputs += ["-i", minimapPath.path,
 </string>
 			</dict>
 			<key>title</key>
@@ -175,16 +175,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>
+				<string>            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
 </string>
 				<key>leading</key>
-				<string>        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
-        let duration   = AppConfig.clipOutLenS
+				<string>        let filterComplex: String
+        if let pip = pipRow {
 </string>
 				<key>trailing</key>
-				<string>        // -framerate 1 must appear before -i when using an image sequence
-        var inputs: [String] = [
-            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
+				<string>            inputs += ["-ss", String(tStartPip), "-t", String(duration), "-i", pip.videoPath]
+            // map=2, elev=3, gauge=4
+            inputs += ["-i", minimapPath.path,
 </string>
 			</dict>
 			<key>title</key>
