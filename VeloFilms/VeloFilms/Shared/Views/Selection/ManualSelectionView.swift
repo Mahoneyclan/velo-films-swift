@@ -48,6 +48,8 @@ struct ManualSelectionView: View {
     @State private var classFilter: String? = nil
     @State private var isLoaded = false
 
+    @State private var showResetConfirm = false
+
     // MARK: Focus Mode state (view-level only — does not affect AI selection)
     @State private var activeFocusFilter: FocusFilter = .all
     @State private var rideStartEpoch: Double = 0
@@ -172,6 +174,22 @@ struct ManualSelectionView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                if selectRows.contains(where: { $0.manualOverride != nil }) {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Reset to AI", systemImage: "arrow.uturn.backward") {
+                            showResetConfirm = true
+                        }
+                        .tint(.orange)
+                    }
+                }
+            }
+            .confirmationDialog("Reset all manual overrides?",
+                                isPresented: $showResetConfirm,
+                                titleVisibility: .visible) {
+                Button("Reset to AI Picks", role: .destructive) { resetAllToAI() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("All manual clip choices will be discarded and the AI's original picks restored.")
             }
         }
         .frame(minWidth: 740, minHeight: 520)
@@ -334,6 +352,38 @@ struct ManualSelectionView: View {
 
     private func save() {
         try? JSONLWriter().write(rows: selectRows, to: project.selectJSONL)
+    }
+
+    /// Re-runs ClipSelector on the in-memory enriched rows and restores recommended/manualOverride
+    /// to the AI's picks. No I/O — uses zone epochs already computed during load().
+    private func resetAllToAI() {
+        let grouped = PartnerMatcher.group(selectRows.map { $0.base })
+        var config = ClipSelector.Config()
+        config.startZoneEndEpoch = zoneStartEndEpoch
+        config.endZoneStartEpoch = zoneEndStartEpoch
+
+        let selected   = ClipSelector.select(moments: grouped, config: config)
+        let selectedIds = Set(selected.map { $0.momentId })
+        let momentById  = Dictionary(grouped.map { ($0.momentId, $0) }, uniquingKeysWith: { a, _ in a })
+
+        for i in selectRows.indices {
+            let row    = selectRows[i]
+            let moment = momentById[row.base.momentId]
+            selectRows[i].recommended    = selectedIds.contains(row.base.momentId)
+                                           && moment?.primary?.index == row.base.index
+            selectRows[i].manualOverride = nil
+        }
+
+        // Recompute neighbor set for the new recommended clips
+        let newRecIds = Set(selectRows.filter { $0.recommended }.map { $0.base.momentId })
+        let sortedMoments = moments.sorted { $0.momentId < $1.momentId }
+        var neighbors: Set<Int> = []
+        for (i, m) in sortedMoments.enumerated() where newRecIds.contains(m.momentId) {
+            if i > 0                       { neighbors.insert(sortedMoments[i - 1].momentId) }
+            if i < sortedMoments.count - 1 { neighbors.insert(sortedMoments[i + 1].momentId) }
+        }
+        neighbors.subtract(newRecIds)
+        neighborMomentIds = neighbors
     }
 }
 
