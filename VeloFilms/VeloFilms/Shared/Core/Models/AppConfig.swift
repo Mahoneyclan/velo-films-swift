@@ -62,7 +62,10 @@ enum AppConfig {
     // MARK: - Score normalisation denominators
     static let speedNormDivisor: Double = 60.0
     static let gradNormDivisor: Double = 8.0
-    static let bboxNormDivisor: Double = 400_000.0
+    /// Normalises bbox_area (frame fraction) to 1.0 at this threshold.
+    /// 0.15 = detections covering 15% of the frame → max score. A cyclist at 30m ≈ 0.03,
+    /// a group of three cyclists ≈ 0.08, a close-passing car ≈ 0.25 (capped at 1.0).
+    static let bboxNormDivisor: Double = 0.15
 
     // MARK: - Camera
     enum CameraName: String, CaseIterable, Codable {

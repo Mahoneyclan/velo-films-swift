@@ -77,10 +77,10 @@ final class YOLODetector {
             return Double(det.confidence * w)
         }.max() ?? 0.0
 
-        // bbox_area = sum of normalised box areas × image pixel area
-        let imgArea = Double(image.width * image.height)
+        // bbox_area = sum of detection areas as a fraction of the image (0–1).
+        // Keeping it resolution-independent so bboxNormDivisor is a simple area-fraction threshold.
         let bboxArea = detections.reduce(0.0) { sum, det in
-            sum + Double(det.boundingBox.width * det.boundingBox.height) * imgArea
+            sum + Double(det.boundingBox.width * det.boundingBox.height)
         }
 
         return (detections, detectScore, bboxArea)
