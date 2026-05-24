@@ -17,6 +17,8 @@ final class GlobalSettings {
     // MARK: - Pipeline timing
     var extractIntervalOverride: Double? = nil
     var highlightTargetMinutes: Double = AppConfig.highlightTargetDurationM
+    var clipOutLenS: Double = 3.5
+    var clipPreRollS: Double = 0.5
     var minGapBetweenClips: Double = AppConfig.minGapBetweenClips
     var gpxTimeOffsetS: Double = 0.0
 
@@ -91,6 +93,8 @@ final class GlobalSettings {
         extractIntervalOverride = UserDefaults.standard.object(forKey: "extractIntervalOverride") as? Double
         highlightTargetMinutes  = UserDefaults.standard.double(forKey: "highlightTargetMinutes").nonZero
                                     ?? AppConfig.highlightTargetDurationM
+        clipOutLenS             = UserDefaults.standard.double(forKey: "clipOutLenS").nonZero ?? 3.5
+        clipPreRollS            = UserDefaults.standard.double(forKey: "clipPreRollS").nonZero ?? 0.5
         minGapBetweenClips      = UserDefaults.standard.double(forKey: "minGapBetweenClips").nonZero
                                     ?? AppConfig.minGapBetweenClips
         gpxTimeOffsetS          = UserDefaults.standard.double(forKey: "gpxTimeOffsetS")
@@ -133,6 +137,8 @@ final class GlobalSettings {
     func save() {
         UserDefaults.standard.set(extractIntervalOverride, forKey: "extractIntervalOverride")
         UserDefaults.standard.set(highlightTargetMinutes,  forKey: "highlightTargetMinutes")
+        UserDefaults.standard.set(clipOutLenS,             forKey: "clipOutLenS")
+        UserDefaults.standard.set(clipPreRollS,            forKey: "clipPreRollS")
         UserDefaults.standard.set(minGapBetweenClips,      forKey: "minGapBetweenClips")
         UserDefaults.standard.set(gpxTimeOffsetS,          forKey: "gpxTimeOffsetS")
         UserDefaults.standard.set(fly12SportOffset,        forKey: "fly12SportOffset")

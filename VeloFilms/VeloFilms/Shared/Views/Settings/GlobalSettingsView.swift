@@ -9,323 +9,47 @@ struct GlobalSettingsView: View {
 
     var body: some View {
         @Bindable var settings = settings
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+        TabView {
+            SetupTab(settings: settings,
+                     chooseInputDir:     chooseInputDir,
+                     chooseProjectsRoot: chooseProjectsRoot,
+                     chooseFly12Source:  chooseFly12Source,
+                     chooseFly6Source:   chooseFly6Source)
+                .tabItem { Label("Setup",    systemImage: "folder") }
 
-                // MARK: Drive Roots
-                GroupBox("Drive Roots") {
-                    VStack(spacing: 12) {
-                        DirRow(label: "Input Videos",
-                               url: settings.inputBaseDir,
-                               onChoose: chooseInputDir)
-                        Divider()
-                        DirRow(label: "Projects Root",
-                               url: settings.projectsRoot,
-                               onChoose: chooseProjectsRoot)
+            CamerasTab(settings: settings)
+                .tabItem { Label("Cameras",  systemImage: "camera") }
 
-                    }
-                    .padding(8)
-                }
+            PipelineTab(settings: settings)
+                .tabItem { Label("Pipeline", systemImage: "film.stack") }
 
-                // MARK: Camera Setup
-                GroupBox("Cameras") {
-                    VStack(spacing: 12) {
-                        Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
-                            .disabled(!settings.hasFly6Pro)
-                            .onChange(of: settings.hasFly12Sport) { settings.save() }
-                        if settings.hasFly12Sport {
-                            DirRow(label: "Fly12 Sport source",
-                                   url: settings.fly12SourceURL,
-                                   onChoose: chooseFly12Source)
-                        }
-                        Divider()
-                        Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
-                            .disabled(!settings.hasFly12Sport)
-                            .onChange(of: settings.hasFly6Pro) { settings.save() }
-                        if settings.hasFly6Pro {
-                            DirRow(label: "Fly6 Pro source",
-                                   url: settings.fly6SourceURL,
-                                   onChoose: chooseFly6Source)
-                        }
-                    }
-                    .padding(8)
-                }
+            ScoringTab(settings: settings)
+                .tabItem { Label("AI Scoring", systemImage: "brain") }
 
-                // MARK: Camera Calibration
-                GroupBox("Camera Calibration") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Camera clock timezone — the timezone the camera's internal clock is set to, not your local timezone. Cycliq cameras that sync via GPS use UTC+0.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Divider()
-                        Toggle("Camera stores local time (Cycliq UTC bug)", isOn: $settings.cameraCreationTimeIsLocalWrongZ)
-                            .onChange(of: settings.cameraCreationTimeIsLocalWrongZ) { settings.save() }
-                        Text("On by default — Cycliq cameras record local clock time but label it as UTC. Disable only if your cameras are GPS-synced and store genuine UTC.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Divider()
-                        if settings.hasFly12Sport {
-                            NumRow(label: "Fly12Sport offset (s)", value: $settings.fly12SportOffset)
-                                .onChange(of: settings.fly12SportOffset) { settings.save() }
-                            Divider()
-                            StrRow(label: "Fly12Sport clock tz", value: $settings.fly12SportTimezone, hint: "UTC+0 or UTC+10")
-                                .onChange(of: settings.fly12SportTimezone) { settings.save() }
-                        }
-                        if settings.hasFly12Sport && settings.hasFly6Pro {
-                            Divider()
-                        }
-                        if settings.hasFly6Pro {
-                            NumRow(label: "Fly6Pro offset (s)", value: $settings.fly6ProOffset)
-                                .onChange(of: settings.fly6ProOffset) { settings.save() }
-                            Divider()
-                            StrRow(label: "Fly6Pro clock tz", value: $settings.fly6ProTimezone, hint: "UTC+0 or UTC+10")
-                                .onChange(of: settings.fly6ProTimezone) { settings.save() }
-                        }
-                    }
-                    .padding(8)
-                }
+            FiltersTab(settings: settings)
+                .tabItem { Label("Filters",  systemImage: "line.3.horizontal.decrease.circle") }
 
-                // MARK: Pipeline
-                GroupBox("Pipeline") {
-                    VStack(spacing: 12) {
-                        NumRow(label: "Highlight duration (min)",
-                               value: $settings.highlightTargetMinutes)
-                            .onChange(of: settings.highlightTargetMinutes) { settings.save() }
-                        Divider()
-                        NumRow(label: "Min gap between clips (s)",
-                               value: $settings.minGapBetweenClips)
-                            .onChange(of: settings.minGapBetweenClips) { settings.save() }
-                        Divider()
-                        FocusSliderRow(label: "Opening zone", icon: "play.circle",
-                                       value: $settings.startZonePct, range: 0.05...0.40,
-                                       unit: "%", multiplier: 100)
-                            .onChange(of: settings.startZonePct) { settings.save() }
-                        FocusSliderRow(label: "Closing zone", icon: "stop.circle",
-                                       value: $settings.endZonePct, range: 0.05...0.40,
-                                       unit: "%", multiplier: 100)
-                            .onChange(of: settings.endZonePct) { settings.save() }
-                        Divider()
-                        NumRow(label: "GPX time offset (s)",
-                               value: $settings.gpxTimeOffsetS)
-                            .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
-                        Divider()
-                        Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
-                            .onChange(of: settings.dynamicGauges) { settings.save() }
-                    }
-                    .padding(8)
-                }
-
-                // MARK: Focus Mode Defaults
-                GroupBox("Focus Mode Defaults") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Controls the filter chips in clip selection — view-only, no effect on AI scores.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
-                                       value: $settings.focusClimbGradientPct, range: 1...20,
-                                       unit: "%", prefix: "≥")
-                            .onChange(of: settings.focusClimbGradientPct) { settings.save() }
-                            .help("Show clips where gradient ≥ this value")
-
-                        // descentGradientPct stored as negative; show abs value to avoid user confusion
-                        let descentAbs = Binding<Double>(
-                            get: { abs(settings.focusDescentGradientPct) },
-                            set: { settings.focusDescentGradientPct = -abs($0); settings.save() }
-                        )
-                        FocusSliderRow(label: "Descent steepness", icon: "arrow.down.right",
-                                       value: descentAbs, range: 1...20,
-                                       unit: "%", prefix: "≥")
-                            .help("Show clips where gradient ≤ −this value")
-
-                        Divider()
-
-                        HStack {
-                            Label("Group min riders", systemImage: "person.3")
-                                .font(.caption)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Stepper(value: $settings.focusGroupMinDetections, in: 1...20) {
-                                Text("\(settings.focusGroupMinDetections) detected")
-                                    .font(.caption.bold().monospacedDigit())
-                            }
-                            .onChange(of: settings.focusGroupMinDetections) { settings.save() }
-                        }
-                        .help("Show clips with at least this many person + bicycle detections")
-                    }
-                    .padding(8)
-                }
-
-                // MARK: Detection & Scoring
-                GroupBox("Detection & Scoring") {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Changes take effect on the next Enrich / Select run.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        // YOLO confidence
-                        GroupBox {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Label("People & cyclists", systemImage: "figure.outdoor.cycle")
-                                        .font(.caption.bold())
-                                    Spacer()
-                                    Text(String(format: "%.2f", settings.yoloMinConfidence))
-                                        .font(.caption.bold().monospacedDigit())
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                                Slider(value: $settings.yoloMinConfidence, in: 0.05...0.95, step: 0.05)
-                                    .onChange(of: settings.yoloMinConfidence) { settings.save() }
-
-                                Divider()
-
-                                HStack {
-                                    Label("Vehicles & signs", systemImage: "car")
-                                        .font(.caption.bold())
-                                    Spacer()
-                                    Text(String(format: "%.2f", settings.yoloVehicleConfidence))
-                                        .font(.caption.bold().monospacedDigit())
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                                Slider(value: $settings.yoloVehicleConfidence, in: 0.05...0.95, step: 0.05)
-                                    .onChange(of: settings.yoloVehicleConfidence) { settings.save() }
-
-                                HStack {
-                                    Text("More detections")
-                                    Spacer()
-                                    Text("Fewer false positives")
-                                }
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            }
-                        }
-                        .help("People & cyclists default 0.10 · Vehicles & signs default 0.50")
-
-                        // Candidate pool
-                        GroupBox {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Label("Candidate pool", systemImage: "list.number")
-                                        .font(.caption.bold())
-                                    Spacer()
-                                    Text(String(format: "%.1f×", settings.candidateFraction))
-                                        .font(.caption.bold().monospacedDigit())
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                                Slider(value: $settings.candidateFraction, in: 1.0...5.0, step: 0.5)
-                                    .onChange(of: settings.candidateFraction) { settings.save() }
-                                let shown = Int((Double(AppConfig.targetClips) * settings.candidateFraction).rounded(.up))
-                                Text("Shows ~\(shown) clips in manual selection for \(AppConfig.targetClips)-clip target")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .help("How many candidate clips to display in manual selection. Higher = more choice, longer list.")
-
-                        // Score weights
-                        GroupBox {
-                            VStack(alignment: .leading, spacing: 10) {
-                                let sum = settings.scoreWeightDetect + settings.scoreWeightScene
-                                    + settings.scoreWeightSpeed + settings.scoreWeightGradient
-                                    + settings.scoreWeightBboxArea + settings.scoreWeightSegment
-                                    + settings.scoreWeightDualCamera
-                                let balanced = abs(sum - 1.0) < 0.01
-
-                                HStack {
-                                    Text("Score weights").font(.caption.bold())
-                                    Spacer()
-                                    Text("Sum: \(Int((sum * 100).rounded()))%")
-                                        .font(.caption.bold())
-                                        .padding(.horizontal, 8).padding(.vertical, 3)
-                                        .background(balanced ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
-                                        .foregroundStyle(balanced ? Color.green : Color.red)
-                                        .clipShape(Capsule())
-                                    Button("Reset") {
-                                        settings.scoreWeightDetect    = 0.30
-                                        settings.scoreWeightScene     = 0.10
-                                        settings.scoreWeightSpeed     = 0.20
-                                        settings.scoreWeightGradient  = 0.20
-                                        settings.scoreWeightBboxArea  = 0.05
-                                        settings.scoreWeightSegment   = 0.05
-                                        settings.scoreWeightDualCamera = 0.10
-                                        settings.save()
-                                    }
-                                    .font(.caption)
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
-
-                                // Proportion bar — colour segments show relative contribution
-                                ScoreProportionBar(weights: [
-                                    (.green,  settings.scoreWeightDetect),
-                                    (.purple, settings.scoreWeightScene),
-                                    (.blue,   settings.scoreWeightSpeed),
-                                    (.orange, settings.scoreWeightGradient),
-                                    (.yellow, settings.scoreWeightBboxArea),
-                                    (.teal,   settings.scoreWeightSegment),
-                                    (.pink,   settings.scoreWeightDualCamera),
-                                ])
-
-                                WeightSliderRow(label: "YOLO detections", icon: "eye",          color: .green,
-                                                value: $settings.scoreWeightDetect)    { settings.save() }
-                                    .help("Clips with more detected objects (people, cyclists, cars) score higher. Default: 30%")
-                                WeightSliderRow(label: "Scene change",    icon: "camera.aperture", color: .purple,
-                                                value: $settings.scoreWeightScene)     { settings.save() }
-                                    .help("Bonus for visually interesting moments — transitions, changing surroundings. Default: 10%")
-                                WeightSliderRow(label: "Speed",           icon: "speedometer",   color: .blue,
-                                                value: $settings.scoreWeightSpeed)     { settings.save() }
-                                    .help("Faster clips score higher. Normalised to 60 km/h. Default: 20%")
-                                WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",color: .orange,
-                                                value: $settings.scoreWeightGradient)  { settings.save() }
-                                    .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
-                                WeightSliderRow(label: "Object area",     icon: "viewfinder",    color: .yellow,
-                                                value: $settings.scoreWeightBboxArea)  { settings.save() }
-                                    .help("Objects filling more of the frame score higher. Default: 5%")
-                                WeightSliderRow(label: "Strava segment",  icon: "location",      color: .teal,
-                                                value: $settings.scoreWeightSegment)   { settings.save() }
-                                    .help("Bonus for clips during a Strava segment effort — higher for PRs. Default: 5%")
-                                WeightSliderRow(label: "Dual camera",     icon: "camera.on.rectangle", color: .pink,
-                                                value: $settings.scoreWeightDualCamera) { settings.save() }
-                                    .help("Bonus when both front and rear cameras captured this moment. Default: 10%")
-                            }
-                        }
-                    }
-                    .padding(8)
-                }
-
-                // MARK: Audio
-                GroupBox("Audio") {
-                    VStack(spacing: 12) {
-                        DirRow(label: "Music track",
-                               url: settings.musicURL,
-                               onChoose: chooseMusic)
-                        Divider()
-                        NumRow(label: "Music volume (0–1)",
-                               value: $settings.musicVolume)
-                            .onChange(of: settings.musicVolume) { settings.save() }
-                        Divider()
-                        NumRow(label: "Raw audio volume (0–1)",
-                               value: $settings.rawAudioVolume)
-                            .onChange(of: settings.rawAudioVolume) { settings.save() }
-                    }
-                    .padding(8)
-                }
-            }
-            .padding(20)
+            AudioTab(settings: settings, chooseMusic: chooseMusic)
+                .tabItem { Label("Audio",    systemImage: "music.note") }
         }
-        .frame(width: 480)
+        .frame(width: 520, height: 500)
         .fileImporter(isPresented: $showPicker,
                       allowedContentTypes: pickerTarget == .music
                           ? [.mp3, .mpeg4Audio, .wav, .aiff]
                           : [.folder]) { result in
             guard case .success(let url) = result else { return }
             _ = url.startAccessingSecurityScopedResource()
-            if pickerTarget == .input       { GlobalSettings.shared.inputBaseDir   = url }
-            else if pickerTarget == .projects    { GlobalSettings.shared.projectsRoot   = url }
-            else if pickerTarget == .fly12Source { GlobalSettings.shared.fly12SourceURL = url }
-            else if pickerTarget == .fly6Source  { GlobalSettings.shared.fly6SourceURL  = url }
-            else if pickerTarget == .music       { GlobalSettings.shared.musicURL        = url }
+            switch pickerTarget {
+            case .input:       GlobalSettings.shared.inputBaseDir   = url
+            case .projects:    GlobalSettings.shared.projectsRoot   = url
+            case .fly12Source: GlobalSettings.shared.fly12SourceURL = url
+            case .fly6Source:  GlobalSettings.shared.fly6SourceURL  = url
+            case .music:       GlobalSettings.shared.musicURL        = url
+            }
         }
     }
+
+    // MARK: - File choosers
 
     private func chooseInputDir() {
 #if os(macOS)
@@ -334,7 +58,6 @@ struct GlobalSettingsView: View {
         pickerTarget = .input; showPicker = true
 #endif
     }
-
     private func chooseProjectsRoot() {
 #if os(macOS)
         openPanel { GlobalSettings.shared.projectsRoot = $0 }
@@ -342,7 +65,6 @@ struct GlobalSettingsView: View {
         pickerTarget = .projects; showPicker = true
 #endif
     }
-
     private func chooseFly12Source() {
 #if os(macOS)
         openPanel { GlobalSettings.shared.fly12SourceURL = $0 }
@@ -350,7 +72,6 @@ struct GlobalSettingsView: View {
         pickerTarget = .fly12Source; showPicker = true
 #endif
     }
-
     private func chooseFly6Source() {
 #if os(macOS)
         openPanel { GlobalSettings.shared.fly6SourceURL = $0 }
@@ -358,7 +79,6 @@ struct GlobalSettingsView: View {
         pickerTarget = .fly6Source; showPicker = true
 #endif
     }
-
     private func chooseMusic() {
 #if os(macOS)
         let panel = NSOpenPanel()
@@ -387,12 +107,338 @@ struct GlobalSettingsView: View {
             apply(url)
         }
     }
-
-
 #endif
 }
 
-// MARK: - Sub-views
+// MARK: - Tab 1: Setup
+
+private struct SetupTab: View {
+    @Bindable var settings: GlobalSettings
+    let chooseInputDir:     () -> Void
+    let chooseProjectsRoot: () -> Void
+    let chooseFly12Source:  () -> Void
+    let chooseFly6Source:   () -> Void
+
+    var body: some View {
+        Form {
+            Section("Drive Roots") {
+                DirRow(label: "Input Videos",  url: settings.inputBaseDir,  onChoose: chooseInputDir)
+                DirRow(label: "Projects Root", url: settings.projectsRoot,  onChoose: chooseProjectsRoot)
+            }
+
+            Section("Cameras") {
+                Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
+                    .disabled(!settings.hasFly6Pro)
+                    .onChange(of: settings.hasFly12Sport) { settings.save() }
+                if settings.hasFly12Sport {
+                    DirRow(label: "Fly12 Sport source", url: settings.fly12SourceURL, onChoose: chooseFly12Source)
+                }
+
+                Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
+                    .disabled(!settings.hasFly12Sport)
+                    .onChange(of: settings.hasFly6Pro) { settings.save() }
+                if settings.hasFly6Pro {
+                    DirRow(label: "Fly6 Pro source", url: settings.fly6SourceURL, onChoose: chooseFly6Source)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding()
+    }
+}
+
+// MARK: - Tab 2: Cameras
+
+private struct CamerasTab: View {
+    @Bindable var settings: GlobalSettings
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Camera stores local time (Cycliq UTC bug)", isOn: $settings.cameraCreationTimeIsLocalWrongZ)
+                    .onChange(of: settings.cameraCreationTimeIsLocalWrongZ) { settings.save() }
+                Text("Cycliq cameras record local clock time but label it as UTC. Disable only if cameras are GPS-synced with genuine UTC.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Time Correction")
+            }
+
+            if settings.hasFly12Sport {
+                Section("Fly12 Sport") {
+                    NumRow(label: "Sync offset (s)", value: $settings.fly12SportOffset)
+                        .onChange(of: settings.fly12SportOffset) { settings.save() }
+                    StrRow(label: "Clock timezone", value: $settings.fly12SportTimezone, hint: "UTC+0 or UTC+10")
+                        .onChange(of: settings.fly12SportTimezone) { settings.save() }
+                }
+            }
+
+            if settings.hasFly6Pro {
+                Section("Fly6 Pro") {
+                    NumRow(label: "Sync offset (s)", value: $settings.fly6ProOffset)
+                        .onChange(of: settings.fly6ProOffset) { settings.save() }
+                    StrRow(label: "Clock timezone", value: $settings.fly6ProTimezone, hint: "UTC+0 or UTC+10")
+                        .onChange(of: settings.fly6ProTimezone) { settings.save() }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding()
+    }
+}
+
+// MARK: - Tab 3: Pipeline
+
+private struct PipelineTab: View {
+    @Bindable var settings: GlobalSettings
+
+    var body: some View {
+        Form {
+            Section("Highlight") {
+                NumRow(label: "Duration (min)", value: $settings.highlightTargetMinutes)
+                    .onChange(of: settings.highlightTargetMinutes) { settings.save() }
+                let clips = Int((settings.highlightTargetMinutes * 60 / settings.clipOutLenS).rounded())
+                Text("≈ \(clips) clips at current clip length")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Clip Timing") {
+                NumRow(label: "Clip length (s)", value: $settings.clipOutLenS)
+                    .onChange(of: settings.clipOutLenS) { settings.save() }
+                NumRow(label: "Pre-roll (s)", value: $settings.clipPreRollS)
+                    .onChange(of: settings.clipPreRollS) { settings.save() }
+                NumRow(label: "Min gap between clips (s)", value: $settings.minGapBetweenClips)
+                    .onChange(of: settings.minGapBetweenClips) { settings.save() }
+            }
+
+            Section("Zones") {
+                FocusSliderRow(label: "Opening zone", icon: "play.circle",
+                               value: $settings.startZonePct, range: 0.05...0.40,
+                               unit: "%", multiplier: 100)
+                    .onChange(of: settings.startZonePct) { settings.save() }
+                FocusSliderRow(label: "Closing zone", icon: "stop.circle",
+                               value: $settings.endZonePct, range: 0.05...0.40,
+                               unit: "%", multiplier: 100)
+                    .onChange(of: settings.endZonePct) { settings.save() }
+            }
+
+            Section("Advanced") {
+                NumRow(label: "GPX time offset (s)", value: $settings.gpxTimeOffsetS)
+                    .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
+                Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
+                    .onChange(of: settings.dynamicGauges) { settings.save() }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding()
+    }
+}
+
+// MARK: - Tab 4: AI Scoring
+
+private struct ScoringTab: View {
+    @Bindable var settings: GlobalSettings
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Changes take effect on the next Enrich / Select run.")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                // YOLO confidence
+                GroupBox("Detection Confidence") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("People & cyclists", systemImage: "figure.outdoor.cycle").font(.caption.bold())
+                            Spacer()
+                            Text(String(format: "%.2f", settings.yoloMinConfidence))
+                                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                        }
+                        Slider(value: $settings.yoloMinConfidence, in: 0.05...0.95, step: 0.05)
+                            .onChange(of: settings.yoloMinConfidence) { settings.save() }
+                        Divider()
+                        HStack {
+                            Label("Vehicles & signs", systemImage: "car").font(.caption.bold())
+                            Spacer()
+                            Text(String(format: "%.2f", settings.yoloVehicleConfidence))
+                                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                        }
+                        Slider(value: $settings.yoloVehicleConfidence, in: 0.05...0.95, step: 0.05)
+                            .onChange(of: settings.yoloVehicleConfidence) { settings.save() }
+                        HStack {
+                            Text("More detections"); Spacer(); Text("Fewer false positives")
+                        }
+                        .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                }
+
+                // Candidate pool
+                GroupBox("Candidate Pool") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Label("Pool size", systemImage: "list.number").font(.caption.bold())
+                            Spacer()
+                            Text(String(format: "%.1f×", settings.candidateFraction))
+                                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
+                        }
+                        Slider(value: $settings.candidateFraction, in: 1.0...5.0, step: 0.5)
+                            .onChange(of: settings.candidateFraction) { settings.save() }
+                        let shown = Int((Double(AppConfig.targetClips) * settings.candidateFraction).rounded(.up))
+                        Text("Shows ~\(shown) clips in manual selection for \(AppConfig.targetClips)-clip target")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                }
+
+                // Score weights
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        let sum = settings.scoreWeightDetect + settings.scoreWeightScene
+                            + settings.scoreWeightSpeed + settings.scoreWeightGradient
+                            + settings.scoreWeightBboxArea + settings.scoreWeightSegment
+                            + settings.scoreWeightDualCamera
+                        let balanced = abs(sum - 1.0) < 0.01
+                        HStack {
+                            Text("Score Weights").font(.caption.bold())
+                            Spacer()
+                            Text("Sum: \(Int((sum * 100).rounded()))%")
+                                .font(.caption.bold())
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(balanced ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                                .foregroundStyle(balanced ? .green : .red)
+                                .clipShape(Capsule())
+                            Button("Reset") {
+                                settings.scoreWeightDetect    = 0.30
+                                settings.scoreWeightScene     = 0.10
+                                settings.scoreWeightSpeed     = 0.20
+                                settings.scoreWeightGradient  = 0.20
+                                settings.scoreWeightBboxArea  = 0.05
+                                settings.scoreWeightSegment   = 0.05
+                                settings.scoreWeightDualCamera = 0.10
+                                settings.save()
+                            }
+                            .font(.caption).buttonStyle(.bordered).controlSize(.small)
+                        }
+
+                        ScoreProportionBar(weights: [
+                            (.green,  settings.scoreWeightDetect),
+                            (.purple, settings.scoreWeightScene),
+                            (.blue,   settings.scoreWeightSpeed),
+                            (.orange, settings.scoreWeightGradient),
+                            (.yellow, settings.scoreWeightBboxArea),
+                            (.teal,   settings.scoreWeightSegment),
+                            (.pink,   settings.scoreWeightDualCamera),
+                        ])
+
+                        WeightSliderRow(label: "YOLO detections", icon: "eye",               color: .green,
+                                        value: $settings.scoreWeightDetect)    { settings.save() }
+                            .help("Clips with cyclists/people detected score higher. Default: 30%")
+                        WeightSliderRow(label: "Scene change",    icon: "camera.aperture",   color: .purple,
+                                        value: $settings.scoreWeightScene)     { settings.save() }
+                            .help("Bonus for visually interesting transitions. Default: 10%")
+                        WeightSliderRow(label: "Speed",           icon: "speedometer",        color: .blue,
+                                        value: $settings.scoreWeightSpeed)     { settings.save() }
+                            .help("Faster clips score higher. Normalised to 60 km/h. Default: 20%")
+                        WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",     color: .orange,
+                                        value: $settings.scoreWeightGradient)  { settings.save() }
+                            .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
+                        WeightSliderRow(label: "Object area",     icon: "viewfinder",          color: .yellow,
+                                        value: $settings.scoreWeightBboxArea)  { settings.save() }
+                            .help("Cyclists filling more of the frame score higher. Default: 5%")
+                        WeightSliderRow(label: "Strava segment",  icon: "location",            color: .teal,
+                                        value: $settings.scoreWeightSegment)   { settings.save() }
+                            .help("Bonus during a Strava segment effort — higher for PRs. Default: 5%")
+                        WeightSliderRow(label: "Dual camera",     icon: "camera.on.rectangle", color: .pink,
+                                        value: $settings.scoreWeightDualCamera) { settings.save() }
+                            .help("Bonus when both cameras captured this moment. Default: 10%")
+                    }
+                    .padding(8)
+                }
+            }
+            .padding()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Tab 5: Focus Filters
+
+private struct FiltersTab: View {
+    @Bindable var settings: GlobalSettings
+
+    var body: some View {
+        Form {
+            Section {
+                Text("These thresholds control the filter chips in clip selection. They are view-only — they do not affect AI scores or the underlying pipeline.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Terrain") {
+                FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
+                               value: $settings.focusClimbGradientPct, range: 1...20,
+                               unit: "%", prefix: "≥")
+                    .onChange(of: settings.focusClimbGradientPct) { settings.save() }
+                    .help("Show clips where gradient ≥ this value")
+
+                let descentAbs = Binding<Double>(
+                    get: { abs(settings.focusDescentGradientPct) },
+                    set: { settings.focusDescentGradientPct = -abs($0); settings.save() }
+                )
+                FocusSliderRow(label: "Descent steepness", icon: "arrow.down.right",
+                               value: descentAbs, range: 1...20,
+                               unit: "%", prefix: "≥")
+                    .help("Show clips where gradient ≤ −this value")
+            }
+
+            Section("Group Riding") {
+                HStack {
+                    Label("Min riders detected", systemImage: "person.3")
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Stepper(value: $settings.focusGroupMinDetections, in: 1...20) {
+                        Text("\(settings.focusGroupMinDetections)")
+                            .font(.caption.bold().monospacedDigit())
+                    }
+                    .onChange(of: settings.focusGroupMinDetections) { settings.save() }
+                }
+                .help("Show clips with at least this many person + bicycle detections")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding()
+    }
+}
+
+// MARK: - Tab 6: Audio
+
+private struct AudioTab: View {
+    @Bindable var settings: GlobalSettings
+    let chooseMusic: () -> Void
+
+    var body: some View {
+        Form {
+            Section("Music Track") {
+                DirRow(label: "Music file", url: settings.musicURL, onChoose: chooseMusic)
+            }
+            Section("Volumes") {
+                NumRow(label: "Music volume (0–1)", value: $settings.musicVolume)
+                    .onChange(of: settings.musicVolume) { settings.save() }
+                NumRow(label: "Raw audio volume (0–1)", value: $settings.rawAudioVolume)
+                    .onChange(of: settings.rawAudioVolume) { settings.save() }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding()
+    }
+}
+
+// MARK: - Shared sub-views
 
 private struct DirRow: View {
     let label: String
@@ -405,9 +451,7 @@ private struct DirRow: View {
             Spacer()
             if let url {
                 Text(url.lastPathComponent)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             } else {
                 Text("Not set").foregroundStyle(.red)
             }
@@ -425,24 +469,6 @@ private struct NumRow: View {
             Text(label).frame(width: 220, alignment: .leading)
             Spacer()
             TextField("0.0", value: $value, format: .number)
-                .frame(width: 80)
-                .multilineTextAlignment(.trailing)
-#if os(macOS)
-                .textFieldStyle(.roundedBorder)
-#endif
-        }
-    }
-}
-
-private struct IntRow: View {
-    let label: String
-    @Binding var value: Int
-
-    var body: some View {
-        HStack {
-            Text(label).frame(width: 220, alignment: .leading)
-            Spacer()
-            TextField("0", value: $value, format: .number)
                 .frame(width: 80)
                 .multilineTextAlignment(.trailing)
 #if os(macOS)
@@ -471,7 +497,6 @@ private struct StrRow: View {
     }
 }
 
-/// Slider row for Focus Mode numeric thresholds (minutes, gradient %).
 private struct FocusSliderRow: View {
     let label: String
     let icon: String
@@ -479,27 +504,20 @@ private struct FocusSliderRow: View {
     let range: ClosedRange<Double>
     let unit: String
     var prefix: String = ""
-    var multiplier: Double = 1.0   // scales value for display only (e.g. 0.15 → "15%")
+    var multiplier: Double = 1.0
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(label)
-                .font(.caption)
-                .frame(width: 120, alignment: .leading)
+            Image(systemName: icon).font(.caption).foregroundStyle(.secondary).frame(width: 16)
+            Text(label).font(.caption).frame(width: 120, alignment: .leading)
             Slider(value: $value, in: range, step: multiplier > 1 ? 1 / multiplier : 1)
             Text("\(prefix)\(Int(value * multiplier))\(unit)")
-                .font(.caption.bold().monospacedDigit())
-                .foregroundStyle(Color.accentColor)
+                .font(.caption.bold().monospacedDigit()).foregroundStyle(.accentColor)
                 .frame(width: 44, alignment: .trailing)
         }
     }
 }
 
-/// Horizontal proportion bar showing relative weight contributions as coloured segments.
 private struct ScoreProportionBar: View {
     let weights: [(Color, Double)]
 
@@ -519,7 +537,6 @@ private struct ScoreProportionBar: View {
     }
 }
 
-/// Single weight slider row: icon · label · slider · percentage.
 private struct WeightSliderRow: View {
     let label: String
     let icon: String
@@ -529,19 +546,12 @@ private struct WeightSliderRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(color)
-                .frame(width: 16)
-            Text(label)
-                .font(.caption)
-                .frame(width: 120, alignment: .leading)
-            Slider(value: $value, in: 0...1, step: 0.05)
-                .tint(color)
+            Image(systemName: icon).font(.caption).foregroundStyle(color).frame(width: 16)
+            Text(label).font(.caption).frame(width: 120, alignment: .leading)
+            Slider(value: $value, in: 0...1, step: 0.05).tint(color)
                 .onChange(of: value) { onSave() }
             Text("\(Int((value * 100).rounded()))%")
-                .font(.caption.bold().monospacedDigit())
-                .foregroundStyle(color)
+                .font(.caption.bold().monospacedDigit()).foregroundStyle(color)
                 .frame(width: 32, alignment: .trailing)
         }
     }

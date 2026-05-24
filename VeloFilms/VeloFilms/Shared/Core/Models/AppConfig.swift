@@ -10,8 +10,8 @@ enum AppConfig {
 
     // MARK: - Sampling grid
     static let extractIntervalSeconds: Double = 5.0
-    static let clipPreRollS: Double = 0.5
-    static let clipOutLenS: Double = 3.5
+    static var clipPreRollS: Double { GlobalSettings.shared.clipPreRollS }
+    static var clipOutLenS: Double  { GlobalSettings.shared.clipOutLenS }
     static let minGapBetweenClips: Double = 10.0
     static let gpxGridExtensionM: Double = 5.0
 
