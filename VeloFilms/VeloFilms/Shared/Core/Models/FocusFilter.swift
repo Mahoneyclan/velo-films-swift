@@ -9,6 +9,7 @@ enum FocusFilter: Hashable {
     case climbs
     case descents
     case groupRiding
+    case stravaPR
     case lap(name: String)
 
     var label: String {
@@ -19,6 +20,7 @@ enum FocusFilter: Hashable {
         case .climbs:       return "Climbs"
         case .descents:     return "Descents"
         case .groupRiding:  return "Group Riding"
+        case .stravaPR:     return "Strava PRs"
         case .lap(let n):   return n
         }
     }
@@ -31,6 +33,7 @@ enum FocusFilter: Hashable {
         case .climbs:       return "arrow.up.right"
         case .descents:     return "arrow.down.right"
         case .groupRiding:  return "person.3"
+        case .stravaPR:     return "trophy"
         case .lap:          return "flag.checkered"
         }
     }
@@ -44,13 +47,15 @@ struct FocusFilterContext {
     let rideStartEpoch: Double
     let rideDurationS: Double
     let lapEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)]
-    /// Wall-clock epoch where the opening zone ends (startZonePct of ride elapsed).
+    /// Wall-clock epoch where the opening zone ends (from moving-time boundary in SelectStep).
     let startZoneEndEpoch: Double
-    /// Wall-clock epoch where the closing zone begins ((1−endZonePct) of ride elapsed).
+    /// Wall-clock epoch where the closing zone begins (from moving-time boundary in SelectStep).
     let endZoneStartEpoch: Double
     let climbGradientPct: Double
     let descentGradientPct: Double   // stored as negative (e.g. -4.0)
     let groupMinDetections: Int
+    /// momentIds of clips where SelectRow.stravaPR == true.
+    let stravaPRMomentIds: Set<Int>
 }
 
 // MARK: - Matching logic
@@ -79,6 +84,9 @@ extension FocusFilter {
 
         case .groupRiding:
             return Self.riderCount(for: moment) >= ctx.groupMinDetections
+
+        case .stravaPR:
+            return ctx.stravaPRMomentIds.contains(moment.momentId)
 
         case .lap(let name):
             return ctx.lapEpochRanges.contains {

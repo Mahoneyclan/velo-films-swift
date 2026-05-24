@@ -71,7 +71,7 @@ struct ClipSelector {
             let t = Double(moment.momentId)
             let sceneBoost = moment.primary?.sceneBoost ?? 0
             let effectiveGap = sceneBoost >= AppConfig.sceneHighThreshold
-                ? config.minGap * AppConfig.sceneHighGapMultiplier
+                ? config.minGap * AppConfig.sceneGapReductionFactor
                 : config.minGap
             if usedTimes.contains(where: { abs(t - $0) < effectiveGap }) { continue }
             selected.append(moment)
@@ -102,8 +102,10 @@ struct ClipSelector {
                 let t = Double(m.momentId)
                 return t > startZoneEnd && t < endZoneStart && !usedIds.contains(m.momentId)
             }
+            let zoneBoundaryTimes = (starts + ends).map { Double($0.momentId) }
             mids = applyGapFilter(Array(midCandidates.prefix(needed * 3)),
-                                  minGap: config.minGap, limit: needed)
+                                  minGap: config.minGap, limit: needed,
+                                  excludedTimes: zoneBoundaryTimes)
             selected = (starts + mids + ends).sorted { $0.momentId < $1.momentId }
         }
 
@@ -112,15 +114,19 @@ struct ClipSelector {
 
     // MARK: - Gap filter helper (standalone, for zone re-fill)
 
+    /// Same actual-time gap logic as the main gap filter.
+    /// [excludedTimes] pre-populates used times with zone boundary clip positions so
+    /// mid-ride clips respect the gap from the nearest start/end zone clip.
     private static func applyGapFilter(_ moments: [PartnerMatcher.Moment],
-                                       minGap: Double, limit: Int) -> [PartnerMatcher.Moment] {
+                                       minGap: Double, limit: Int,
+                                       excludedTimes: [Double] = []) -> [PartnerMatcher.Moment] {
         var result: [PartnerMatcher.Moment] = []
-        var usedWindows: Set<Int> = []
+        var usedTimes: [Double] = excludedTimes
         for m in moments.sorted(by: { $0.bestScore > $1.bestScore }) {
-            let w = Int(Double(m.momentId) / minGap)
-            guard !(w-1...w+1).contains(where: { usedWindows.contains($0) }) else { continue }
+            let t = Double(m.momentId)
+            if usedTimes.contains(where: { abs(t - $0) < minGap }) { continue }
             result.append(m)
-            usedWindows.insert(w)
+            usedTimes.append(t)
             if result.count >= limit { break }
         }
         return result

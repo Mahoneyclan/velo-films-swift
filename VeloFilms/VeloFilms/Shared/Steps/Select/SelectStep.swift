@@ -39,20 +39,30 @@ struct SelectStep: PipelineStep {
         let selectedIds = Set(selected.map { $0.momentId })
         let momentById  = Dictionary(moments.map { ($0.momentId, $0) }, uniquingKeysWith: { a, _ in a })
 
-        // Build select.jsonl rows — one row per EnrichRow, with recommended flag
+        // Load existing select.jsonl to preserve manual overrides across re-runs.
+        let existingRows: [SelectRow] = (try? jsonlReader.read(from: project.selectJSONL)) ?? []
+        let existingByIndex = Dictionary(existingRows.map { ($0.base.index, $0) },
+                                         uniquingKeysWith: { a, _ in a })
+
+        // Build select.jsonl rows — one row per EnrichRow, with recommended flag.
+        // Manual overrides (manualOverride != nil) take precedence over AI selection.
         var selectRows: [SelectRow] = []
         for row in enrichedRows {
-            let moment  = momentById[row.momentId]
-            let isRec   = selectedIds.contains(row.momentId) && moment?.primary?.index == row.index
+            let moment   = momentById[row.momentId]
+            let aiIsRec  = selectedIds.contains(row.momentId) && moment?.primary?.index == row.index
             let isPaired = moment?.secondary != nil
-            let isPR    = (row.segmentBoost >= AppConfig.StravaBoost.rank1)
+            let isPR     = (row.segmentBoost >= AppConfig.StravaBoost.rank1)
+            let existing = existingByIndex[row.index]
+            let override = existing?.manualOverride
+            let isRec    = override ?? aiIsRec   // manual wins if set
 
             selectRows.append(SelectRow(
                 base: row,
                 recommended: isRec,
                 stravaPR: isPR,
                 isSingleCamera: moment?.isSingleCamera ?? true,
-                paired: isPaired
+                paired: isPaired,
+                manualOverride: override
             ))
         }
 

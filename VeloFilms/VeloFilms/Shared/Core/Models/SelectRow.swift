@@ -16,6 +16,10 @@ struct SelectRow: Codable {
     var segmentName: String?
     var segmentDistance: Double?
     var segmentGrade: Double?
+    /// Set when the user manually overrides the AI recommendation in ManualSelectionView.
+    /// Non-nil means the user has explicitly chosen (true) or excluded (false) this clip.
+    /// SelectStep preserves this value on re-run so manual decisions survive re-scoring.
+    var manualOverride: Bool?
 
     init(base: EnrichRow,
          recommended: Bool,
@@ -24,7 +28,8 @@ struct SelectRow: Codable {
          paired: Bool,
          segmentName: String? = nil,
          segmentDistance: Double? = nil,
-         segmentGrade: Double? = nil) {
+         segmentGrade: Double? = nil,
+         manualOverride: Bool? = nil) {
         self.base = base
         self.recommended = recommended
         self.stravaPR = stravaPR
@@ -33,6 +38,7 @@ struct SelectRow: Codable {
         self.segmentName = segmentName
         self.segmentDistance = segmentDistance
         self.segmentGrade = segmentGrade
+        self.manualOverride = manualOverride
     }
 
     // MARK: - Flat Codable — JSONL file format is identical to the old struct
@@ -75,6 +81,7 @@ struct SelectRow: Codable {
         case segmentName      = "segment_name"
         case segmentDistance  = "segment_distance"
         case segmentGrade     = "segment_grade"
+        case manualOverride   = "manual_override"
     }
 
     init(from decoder: Decoder) throws {
@@ -120,6 +127,7 @@ struct SelectRow: Codable {
         segmentName     = try c.decodeIfPresent(String.self, forKey: .segmentName)
         segmentDistance = try c.decodeIfPresent(Double.self, forKey: .segmentDistance)
         segmentGrade    = try c.decodeIfPresent(Double.self, forKey: .segmentGrade)
+        manualOverride  = try c.decodeIfPresent(Bool.self,   forKey: .manualOverride)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -163,5 +171,6 @@ struct SelectRow: Codable {
         try c.encodeIfPresent(segmentName,     forKey: .segmentName)
         try c.encodeIfPresent(segmentDistance, forKey: .segmentDistance)
         try c.encodeIfPresent(segmentGrade,    forKey: .segmentGrade)
+        try c.encodeIfPresent(manualOverride,  forKey: .manualOverride)
     }
 }

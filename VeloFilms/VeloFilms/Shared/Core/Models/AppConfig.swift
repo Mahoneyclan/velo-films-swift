@@ -21,7 +21,9 @@ enum AppConfig {
 
     // MARK: - Scene detection
     static let sceneHighThreshold: Double = 0.50
-    static let sceneHighGapMultiplier: Double = 0.5
+    /// Multiplier applied to minGap for high-scene-change moments — < 1.0 reduces the gap,
+    /// making it easier to include an interesting scene transition even when nearby clips exist.
+    static let sceneGapReductionFactor: Double = 0.5
     static let sceneComparisonWindowS: Double = 15.0
 
     // MARK: - Selection

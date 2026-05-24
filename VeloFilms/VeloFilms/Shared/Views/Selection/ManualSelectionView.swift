@@ -53,9 +53,18 @@ struct ManualSelectionView: View {
     @State private var rideStartEpoch: Double = 0
     @State private var rideDurationS: Double = 0
     @State private var lapRanges: [(name: String, startEpoch: Double, endEpoch: Double)] = []
+    /// Moving-time zone boundaries from SelectStep (matches what the AI actually used).
+    @State private var zoneStartEndEpoch: Double = 0
+    @State private var zoneEndStartEpoch: Double = 0
+    /// momentIds immediately adjacent to AI-recommended clips — shown to aid comparison.
+    @State private var neighborMomentIds: Set<Int> = []
 
     var selectedCount: Int { selectRows.filter { $0.recommended }.count }
     var target: Int { AppConfig.targetClips }
+
+    private var stravaPRMomentIds: Set<Int> {
+        Set(selectRows.filter { $0.stravaPR }.map { $0.base.momentId })
+    }
 
     private var stats: DetectionStats { DetectionStats(rows: selectRows) }
 
@@ -72,11 +81,12 @@ struct ManualSelectionView: View {
                 rideStartEpoch:     rideStartEpoch,
                 rideDurationS:      rideDurationS,
                 lapEpochRanges:     lapRanges,
-                startZoneEndEpoch:  rideStartEpoch + rideDurationS * s.startZonePct,
-                endZoneStartEpoch:  rideStartEpoch + rideDurationS * (1.0 - s.endZonePct),
+                startZoneEndEpoch:  zoneStartEndEpoch,
+                endZoneStartEpoch:  zoneEndStartEpoch,
                 climbGradientPct:   s.focusClimbGradientPct,
                 descentGradientPct: s.focusDescentGradientPct,
-                groupMinDetections: s.focusGroupMinDetections
+                groupMinDetections: s.focusGroupMinDetections,
+                stravaPRMomentIds:  stravaPRMomentIds
             )
             result = result.filter { activeFocusFilter.matches($0, in: ctx) }
         }
@@ -108,7 +118,8 @@ struct ManualSelectionView: View {
                     rideDurationS:      rideDurationS,
                     climbGradientPct:   s.focusClimbGradientPct,
                     descentGradientPct: s.focusDescentGradientPct,
-                    groupMinDetections: s.focusGroupMinDetections
+                    groupMinDetections: s.focusGroupMinDetections,
+                    hasStravaPRs:       !stravaPRMomentIds.isEmpty
                 )
                 .padding(.vertical, 6)
 
@@ -145,7 +156,8 @@ struct ManualSelectionView: View {
                             ForEach(filteredMoments, id: \.momentId) { moment in
                                 MomentCard(moment: moment,
                                            framesDir: project.framesDir,
-                                           selectRows: $selectRows)
+                                           selectRows: $selectRows,
+                                           isNeighbor: neighborMomentIds.contains(moment.momentId))
                             }
                         }
                         .padding()
@@ -187,9 +199,11 @@ struct ManualSelectionView: View {
         case .groupRiding:
             return "No clips have \(s.focusGroupMinDetections)+ riders (person or bicycle) detected."
         case .openingZone:
-            return "No clips in the opening zone (\(Int(s.startZonePct * 100))% of ride)."
+            return "No clips in the opening zone (\(Int(s.startZonePct * 100))% of moving time)."
         case .closingZone:
-            return "No clips in the closing zone (\(Int(s.endZonePct * 100))% of ride)."
+            return "No clips in the closing zone (\(Int(s.endZonePct * 100))% of moving time)."
+        case .stravaPR:
+            return "No Strava segment PRs were matched to any clip."
         case .lap(let name):
             return "No clips were captured during lap '\(name)'."
         case .all:
@@ -239,6 +253,37 @@ struct ManualSelectionView: View {
             rideStartEpoch = Double(first.momentId)
             rideDurationS  = Double(last.momentId - first.momentId)
         }
+
+        // Moving-time zone boundaries — mirrors exactly what SelectStep computed, so Opening/Closing
+        // filter chips match the zones the AI used rather than a wall-clock approximation.
+        let s = GlobalSettings.shared
+        if let flattenRows = try? JSONLReader().read(from: project.flattenJSONL) as [FlattenRow],
+           !flattenRows.isEmpty {
+            let (zStart, zEnd) = SelectStep.movingTimeZoneBoundaries(
+                flatten: flattenRows,
+                startPct: s.startZonePct,
+                endPct: s.endZonePct
+            )
+            zoneStartEndEpoch = zStart
+            zoneEndStartEpoch = zEnd
+        } else {
+            zoneStartEndEpoch = rideStartEpoch + rideDurationS * s.startZonePct
+            zoneEndStartEpoch = rideStartEpoch + rideDurationS * (1.0 - s.endZonePct)
+        }
+
+        // Add ±1 temporal neighbors of every AI-recommended clip to the display pool.
+        // This lets the user compare the selected moment against the clips immediately
+        // before and after it in time, and swap in a better one if needed.
+        let recommendedIds = Set(rows.filter { $0.recommended }.map { $0.base.momentId })
+        let sortedAll = allMoments.sorted { $0.momentId < $1.momentId }
+        var neighbors: Set<Int> = []
+        for (i, m) in sortedAll.enumerated() where recommendedIds.contains(m.momentId) {
+            if i > 0                    { neighbors.insert(sortedAll[i - 1].momentId) }
+            if i < sortedAll.count - 1  { neighbors.insert(sortedAll[i + 1].momentId) }
+        }
+        neighbors.subtract(recommendedIds)
+        neighborMomentIds = neighbors
+        topMoments.formUnion(neighbors)
 
         // Parse laps for the timeline (raw true-UTC from Strava API).
         // abs_time_epoch uses local-time-as-UTC (Cycliq wrong-Z), so apply the timezone offset
@@ -300,6 +345,7 @@ private struct FocusModeBar: View {
     let climbGradientPct: Double
     let descentGradientPct: Double   // stored negative (e.g. -4.0)
     let groupMinDetections: Int
+    var hasStravaPRs: Bool = false
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -343,6 +389,14 @@ private struct FocusModeBar: View {
                     icon: "person.3",
                     isActive: activeFocusFilter == .groupRiding
                 ) { activeFocusFilter = activeFocusFilter == .groupRiding ? .all : .groupRiding }
+
+                if hasStravaPRs {
+                    FocusChip(
+                        label: "Strava PRs",
+                        icon: "trophy",
+                        isActive: activeFocusFilter == .stravaPR
+                    ) { activeFocusFilter = activeFocusFilter == .stravaPR ? .all : .stravaPR }
+                }
             }
             .padding(.horizontal, 12)
         }
@@ -618,6 +672,7 @@ private struct MomentCard: View {
     let moment: PartnerMatcher.Moment
     let framesDir: URL
     @Binding var selectRows: [SelectRow]
+    var isNeighbor: Bool = false
 
     private var fly12SelectRow: SelectRow? {
         guard let row = moment.fly12Row else { return nil }
@@ -641,11 +696,17 @@ private struct MomentCard: View {
 
                 Spacer()
 
+                if isNeighbor {
+                    BadgePill(text: "Nearby", color: .secondary, icon: "arrow.left.arrow.right")
+                }
                 if moment.isSingleCamera {
                     BadgePill(text: "Single Camera", color: .orange, icon: "camera")
                 }
                 if fly12SelectRow?.stravaPR == true || fly6SelectRow?.stravaPR == true {
                     BadgePill(text: "Strava PR", color: .orange, icon: "trophy")
+                }
+                if fly12SelectRow?.manualOverride != nil || fly6SelectRow?.manualOverride != nil {
+                    BadgePill(text: "Manual", color: .purple, icon: "hand.point.up")
                 }
                 if let seg = fly12SelectRow?.segmentName ?? fly6SelectRow?.segmentName {
                     BadgePill(text: seg, color: .blue, icon: "location")
@@ -682,10 +743,14 @@ private struct MomentCard: View {
     }
 
     private func toggle(_ row: EnrichRow) {
+        // When a user taps a clip, the tapped perspective is toggled and all sibling rows
+        // for the same moment are deselected. manualOverride is set on all affected rows
+        // so SelectStep preserves the decision across re-runs.
         for i in selectRows.indices where selectRows[i].base.momentId == row.momentId {
-            selectRows[i].recommended = (selectRows[i].base.index == row.index)
-                ? !selectRows[i].recommended
-                : false
+            let isTapped = selectRows[i].base.index == row.index
+            let newValue = isTapped ? !selectRows[i].recommended : false
+            selectRows[i].recommended    = newValue
+            selectRows[i].manualOverride = newValue
         }
     }
 }
