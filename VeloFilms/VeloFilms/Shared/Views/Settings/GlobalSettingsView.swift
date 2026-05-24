@@ -120,31 +120,40 @@ private struct SetupTab: View {
     let chooseFly6Source:   () -> Void
 
     var body: some View {
-        Form {
-            Section("Drive Roots") {
-                DirRow(label: "Input Videos",  url: settings.inputBaseDir,  onChoose: chooseInputDir)
-                DirRow(label: "Projects Root", url: settings.projectsRoot,  onChoose: chooseProjectsRoot)
-            }
-
-            Section("Cameras") {
-                Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
-                    .disabled(!settings.hasFly6Pro)
-                    .onChange(of: settings.hasFly12Sport) { settings.save() }
-                if settings.hasFly12Sport {
-                    DirRow(label: "Fly12 Sport source", url: settings.fly12SourceURL, onChoose: chooseFly12Source)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Drive Roots") {
+                    VStack(spacing: 12) {
+                        DirRow(label: "Input Videos",  url: settings.inputBaseDir,  onChoose: chooseInputDir)
+                        Divider()
+                        DirRow(label: "Projects Root", url: settings.projectsRoot,  onChoose: chooseProjectsRoot)
+                    }
+                    .padding(8)
                 }
 
-                Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
-                    .disabled(!settings.hasFly12Sport)
-                    .onChange(of: settings.hasFly6Pro) { settings.save() }
-                if settings.hasFly6Pro {
-                    DirRow(label: "Fly6 Pro source", url: settings.fly6SourceURL, onChoose: chooseFly6Source)
+                GroupBox("Cameras") {
+                    VStack(spacing: 12) {
+                        Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
+                            .disabled(!settings.hasFly6Pro)
+                            .onChange(of: settings.hasFly12Sport) { settings.save() }
+                        if settings.hasFly12Sport {
+                            Divider()
+                            DirRow(label: "Fly12 Sport source", url: settings.fly12SourceURL, onChoose: chooseFly12Source)
+                        }
+                        Divider()
+                        Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
+                            .disabled(!settings.hasFly12Sport)
+                            .onChange(of: settings.hasFly6Pro) { settings.save() }
+                        if settings.hasFly6Pro {
+                            Divider()
+                            DirRow(label: "Fly6 Pro source", url: settings.fly6SourceURL, onChoose: chooseFly6Source)
+                        }
+                    }
+                    .padding(8)
                 }
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .padding()
     }
 }
 
@@ -154,38 +163,46 @@ private struct CamerasTab: View {
     @Bindable var settings: GlobalSettings
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Camera stores local time (Cycliq UTC bug)", isOn: $settings.cameraCreationTimeIsLocalWrongZ)
-                    .onChange(of: settings.cameraCreationTimeIsLocalWrongZ) { settings.save() }
-                Text("Cycliq cameras record local clock time but label it as UTC. Disable only if cameras are GPS-synced with genuine UTC.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Time Correction")
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Time Correction") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Camera stores local time (Cycliq UTC bug)", isOn: $settings.cameraCreationTimeIsLocalWrongZ)
+                            .onChange(of: settings.cameraCreationTimeIsLocalWrongZ) { settings.save() }
+                        Text("Cycliq cameras record local clock time but label it as UTC. Disable only if cameras are GPS-synced with genuine UTC.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                }
 
-            if settings.hasFly12Sport {
-                Section("Fly12 Sport") {
-                    NumRow(label: "Sync offset (s)", value: $settings.fly12SportOffset)
-                        .onChange(of: settings.fly12SportOffset) { settings.save() }
-                    StrRow(label: "Clock timezone", value: $settings.fly12SportTimezone, hint: "UTC+0 or UTC+10")
-                        .onChange(of: settings.fly12SportTimezone) { settings.save() }
+                if settings.hasFly12Sport {
+                    GroupBox("Fly12 Sport") {
+                        VStack(spacing: 12) {
+                            NumRow(label: "Sync offset (s)", value: $settings.fly12SportOffset)
+                                .onChange(of: settings.fly12SportOffset) { settings.save() }
+                            Divider()
+                            StrRow(label: "Clock timezone", value: $settings.fly12SportTimezone, hint: "UTC+0 or UTC+10")
+                                .onChange(of: settings.fly12SportTimezone) { settings.save() }
+                        }
+                        .padding(8)
+                    }
+                }
+
+                if settings.hasFly6Pro {
+                    GroupBox("Fly6 Pro") {
+                        VStack(spacing: 12) {
+                            NumRow(label: "Sync offset (s)", value: $settings.fly6ProOffset)
+                                .onChange(of: settings.fly6ProOffset) { settings.save() }
+                            Divider()
+                            StrRow(label: "Clock timezone", value: $settings.fly6ProTimezone, hint: "UTC+0 or UTC+10")
+                                .onChange(of: settings.fly6ProTimezone) { settings.save() }
+                        }
+                        .padding(8)
+                    }
                 }
             }
-
-            if settings.hasFly6Pro {
-                Section("Fly6 Pro") {
-                    NumRow(label: "Sync offset (s)", value: $settings.fly6ProOffset)
-                        .onChange(of: settings.fly6ProOffset) { settings.save() }
-                    StrRow(label: "Clock timezone", value: $settings.fly6ProTimezone, hint: "UTC+0 or UTC+10")
-                        .onChange(of: settings.fly6ProTimezone) { settings.save() }
-                }
-            }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .padding()
     }
 }
 
@@ -195,45 +212,60 @@ private struct PipelineTab: View {
     @Bindable var settings: GlobalSettings
 
     var body: some View {
-        Form {
-            Section("Highlight") {
-                NumRow(label: "Duration (min)", value: $settings.highlightTargetMinutes)
-                    .onChange(of: settings.highlightTargetMinutes) { settings.save() }
-                let clips = Int((settings.highlightTargetMinutes * 60 / settings.clipOutLenS).rounded())
-                Text("≈ \(clips) clips at current clip length")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Highlight") {
+                    VStack(spacing: 12) {
+                        NumRow(label: "Duration (min)", value: $settings.highlightTargetMinutes)
+                            .onChange(of: settings.highlightTargetMinutes) { settings.save() }
+                        let clips = Int((settings.highlightTargetMinutes * 60 / settings.clipOutLenS).rounded())
+                        Text("≈ \(clips) clips at current clip length")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                }
 
-            Section("Clip Timing") {
-                NumRow(label: "Clip length (s)", value: $settings.clipOutLenS)
-                    .onChange(of: settings.clipOutLenS) { settings.save() }
-                NumRow(label: "Pre-roll (s)", value: $settings.clipPreRollS)
-                    .onChange(of: settings.clipPreRollS) { settings.save() }
-                NumRow(label: "Min gap between clips (s)", value: $settings.minGapBetweenClips)
-                    .onChange(of: settings.minGapBetweenClips) { settings.save() }
-            }
+                GroupBox("Clip Timing") {
+                    VStack(spacing: 12) {
+                        NumRow(label: "Clip length (s)", value: $settings.clipOutLenS)
+                            .onChange(of: settings.clipOutLenS) { settings.save() }
+                        Divider()
+                        NumRow(label: "Pre-roll (s)", value: $settings.clipPreRollS)
+                            .onChange(of: settings.clipPreRollS) { settings.save() }
+                        Divider()
+                        NumRow(label: "Min gap between clips (s)", value: $settings.minGapBetweenClips)
+                            .onChange(of: settings.minGapBetweenClips) { settings.save() }
+                    }
+                    .padding(8)
+                }
 
-            Section("Zones") {
-                FocusSliderRow(label: "Opening zone", icon: "play.circle",
-                               value: $settings.startZonePct, range: 0.05...0.40,
-                               unit: "%", multiplier: 100)
-                    .onChange(of: settings.startZonePct) { settings.save() }
-                FocusSliderRow(label: "Closing zone", icon: "stop.circle",
-                               value: $settings.endZonePct, range: 0.05...0.40,
-                               unit: "%", multiplier: 100)
-                    .onChange(of: settings.endZonePct) { settings.save() }
-            }
+                GroupBox("Zones") {
+                    VStack(spacing: 12) {
+                        FocusSliderRow(label: "Opening zone", icon: "play.circle",
+                                       value: $settings.startZonePct, range: 0.05...0.40,
+                                       unit: "%", multiplier: 100)
+                            .onChange(of: settings.startZonePct) { settings.save() }
+                        FocusSliderRow(label: "Closing zone", icon: "stop.circle",
+                                       value: $settings.endZonePct, range: 0.05...0.40,
+                                       unit: "%", multiplier: 100)
+                            .onChange(of: settings.endZonePct) { settings.save() }
+                    }
+                    .padding(8)
+                }
 
-            Section("Advanced") {
-                NumRow(label: "GPX time offset (s)", value: $settings.gpxTimeOffsetS)
-                    .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
-                Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
-                    .onChange(of: settings.dynamicGauges) { settings.save() }
+                GroupBox("Advanced") {
+                    VStack(spacing: 12) {
+                        NumRow(label: "GPX time offset (s)", value: $settings.gpxTimeOffsetS)
+                            .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
+                        Divider()
+                        Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
+                            .onChange(of: settings.dynamicGauges) { settings.save() }
+                    }
+                    .padding(8)
+                }
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .padding()
     }
 }
 
@@ -371,46 +403,48 @@ private struct FiltersTab: View {
     @Bindable var settings: GlobalSettings
 
     var body: some View {
-        Form {
-            Section {
-                Text("These thresholds control the filter chips in clip selection. They are view-only — they do not affect AI scores or the underlying pipeline.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("These thresholds control the filter chips in clip selection. View-only — no effect on AI scores or the pipeline.")
                     .font(.caption).foregroundStyle(.secondary)
-            }
 
-            Section("Terrain") {
-                FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
-                               value: $settings.focusClimbGradientPct, range: 1...20,
-                               unit: "%", prefix: "≥")
-                    .onChange(of: settings.focusClimbGradientPct) { settings.save() }
-                    .help("Show clips where gradient ≥ this value")
+                GroupBox("Terrain") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
+                                       value: $settings.focusClimbGradientPct, range: 1...20,
+                                       unit: "%", prefix: "≥")
+                            .onChange(of: settings.focusClimbGradientPct) { settings.save() }
+                            .help("Show clips where gradient ≥ this value")
 
-                let descentAbs = Binding<Double>(
-                    get: { abs(settings.focusDescentGradientPct) },
-                    set: { settings.focusDescentGradientPct = -abs($0); settings.save() }
-                )
-                FocusSliderRow(label: "Descent steepness", icon: "arrow.down.right",
-                               value: descentAbs, range: 1...20,
-                               unit: "%", prefix: "≥")
-                    .help("Show clips where gradient ≤ −this value")
-            }
-
-            Section("Group Riding") {
-                HStack {
-                    Label("Min riders detected", systemImage: "person.3")
-                        .font(.caption)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Stepper(value: $settings.focusGroupMinDetections, in: 1...20) {
-                        Text("\(settings.focusGroupMinDetections)")
-                            .font(.caption.bold().monospacedDigit())
+                        let descentAbs = Binding<Double>(
+                            get: { abs(settings.focusDescentGradientPct) },
+                            set: { settings.focusDescentGradientPct = -abs($0); settings.save() }
+                        )
+                        FocusSliderRow(label: "Descent steepness", icon: "arrow.down.right",
+                                       value: descentAbs, range: 1...20,
+                                       unit: "%", prefix: "≥")
+                            .help("Show clips where gradient ≤ −this value")
                     }
-                    .onChange(of: settings.focusGroupMinDetections) { settings.save() }
+                    .padding(8)
                 }
-                .help("Show clips with at least this many person + bicycle detections")
+
+                GroupBox("Group Riding") {
+                    HStack {
+                        Label("Min riders detected", systemImage: "person.3")
+                            .font(.caption)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Stepper(value: $settings.focusGroupMinDetections, in: 1...20) {
+                            Text("\(settings.focusGroupMinDetections)")
+                                .font(.caption.bold().monospacedDigit())
+                        }
+                        .onChange(of: settings.focusGroupMinDetections) { settings.save() }
+                    }
+                    .padding(8)
+                    .help("Show clips with at least this many person + bicycle detections")
+                }
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .padding()
     }
 }
 
@@ -421,20 +455,26 @@ private struct AudioTab: View {
     let chooseMusic: () -> Void
 
     var body: some View {
-        Form {
-            Section("Music Track") {
-                DirRow(label: "Music file", url: settings.musicURL, onChoose: chooseMusic)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Music Track") {
+                    DirRow(label: "Music file", url: settings.musicURL, onChoose: chooseMusic)
+                        .padding(8)
+                }
+
+                GroupBox("Volumes") {
+                    VStack(spacing: 12) {
+                        NumRow(label: "Music volume (0–1)", value: $settings.musicVolume)
+                            .onChange(of: settings.musicVolume) { settings.save() }
+                        Divider()
+                        NumRow(label: "Raw audio volume (0–1)", value: $settings.rawAudioVolume)
+                            .onChange(of: settings.rawAudioVolume) { settings.save() }
+                    }
+                    .padding(8)
+                }
             }
-            Section("Volumes") {
-                NumRow(label: "Music volume (0–1)", value: $settings.musicVolume)
-                    .onChange(of: settings.musicVolume) { settings.save() }
-                NumRow(label: "Raw audio volume (0–1)", value: $settings.rawAudioVolume)
-                    .onChange(of: settings.rawAudioVolume) { settings.save() }
-            }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .padding()
     }
 }
 
