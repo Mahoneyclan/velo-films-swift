@@ -112,13 +112,13 @@ struct ConcatStep: PipelineStep {
 
     private static let xfadeBatchSize = 30
 
+    // applyRawVolume: false for batch segment passes — rv is applied once in the join pass.
     private func xfadeConcat(parts: [URL], durations: [Double],
                               outputURL: URL, bridge: any FFmpegBridge,
-                              musicURL: URL?) async throws {
+                              musicURL: URL?, applyRawVolume: Bool = true) async throws {
         // Split large clip counts into batches to keep each FFmpeg invocation manageable.
         // 30+ clips in one filter_complex causes SIGKILL on Apple Silicon due to graph size.
         if parts.count > Self.xfadeBatchSize {
-            let X = AppConfig.concatXfadeDuration
             let tmpDir = outputURL.deletingLastPathComponent()
             var segURLs: [URL] = []
             var segDurs: [Double] = []
@@ -132,19 +132,22 @@ struct ConcatStep: PipelineStep {
                 let segURL    = tmpDir.appending(path: "_xseg_\(segIdx).mp4")
                 try? FileManager.default.removeItem(at: segURL)
                 print("[ConcatStep] batch \(segIdx): clips \(offset+1)–\(end) → \(segURL.lastPathComponent)")
+                // applyRawVolume: false — rv applied once in the join pass below
                 try await xfadeConcat(parts: bParts, durations: bDurs,
-                                      outputURL: segURL, bridge: bridge, musicURL: nil)
-                let asset   = AVURLAsset(url: segURL)
-                let dur     = try await asset.load(.duration)
+                                      outputURL: segURL, bridge: bridge,
+                                      musicURL: nil, applyRawVolume: false)
+                let asset = AVURLAsset(url: segURL)
+                let dur   = try await asset.load(.duration)
                 segURLs.append(segURL)
                 segDurs.append(CMTimeGetSeconds(dur))
                 offset  += stride
                 segIdx  += 1
             }
-            // Join segments with music
+            // Join segments with music — rv applied here for the first (and only) time
             print("[ConcatStep] joining \(segURLs.count) segments → \(outputURL.lastPathComponent)")
             try await xfadeConcat(parts: segURLs, durations: segDurs,
-                                  outputURL: outputURL, bridge: bridge, musicURL: musicURL)
+                                  outputURL: outputURL, bridge: bridge,
+                                  musicURL: musicURL, applyRawVolume: true)
             for seg in segURLs { try? FileManager.default.removeItem(at: seg) }
             return
         }
@@ -222,17 +225,17 @@ struct ConcatStep: PipelineStep {
             // Concat N explicit copies of the music track, trim to totalDur.
             // This avoids aloop's sample-count dependency and works for all formats.
             let concatInputs = (0..<musicLoopCount).map { "[\(N + $0):a]" }.joined()
+            let rawVol = applyRawVolume ? rv : 1.0
             filterParts.append(
-                "[achain]volume=\(rv)[rawA];" +
+                "[achain]volume=\(rawVol)[rawA];" +
                 "\(concatInputs)concat=n=\(musicLoopCount):v=0:a=1," +
                 "atrim=end=\(durStr),asetpts=PTS-STARTPTS," +
                 "volume=\(mv)[musicA];" +
                 "[rawA][musicA]amix=inputs=2:duration=longest:dropout_transition=0[aout]"
             )
         } else {
-            // No music — pass audio at unity so batch segments don't double-attenuate rv
-            // when the join pass later applies rv again during the music mix.
-            filterParts.append("[achain]anull[aout]")
+            let vol = applyRawVolume ? rv : 1.0
+            filterParts.append("[achain]volume=\(vol)[aout]")
         }
 
         let filter = filterParts.joined(separator: ";")
