@@ -236,8 +236,8 @@ struct ManualSelectionView: View {
         selectRows = rows
 
         let allMoments = PartnerMatcher.group(rows.map(\.base))
-        let recommendedIds = Set(rows.filter { $0.recommended }.map { $0.base.momentId })
-        let limit = max(AppConfig.targetClips * 2, recommendedIds.count + 20)
+        let aiRecommendedIds = Set(rows.filter { $0.recommended }.map { $0.base.momentId })
+        let limit = max(AppConfig.targetClips * 2, aiRecommendedIds.count + 20)
 
         // Top-N by score
         var topMoments = Set(
@@ -261,10 +261,6 @@ struct ManualSelectionView: View {
             }
         }
         for m in byClip.values { topMoments.insert(m.momentId) }
-
-        moments = allMoments
-            .filter { topMoments.contains($0.momentId) }
-            .sorted { $0.momentId < $1.momentId }
 
         // Ride time bounds — computed from allMoments (not filtered subset) for accurate time filters
         if let first = allMoments.first, let last = allMoments.last {
@@ -294,13 +290,18 @@ struct ManualSelectionView: View {
         // before and after it in time, and swap in a better one if needed.
         let sortedAll = allMoments.sorted { $0.momentId < $1.momentId }
         var neighbors: Set<Int> = []
-        for (i, m) in sortedAll.enumerated() where recommendedIds.contains(m.momentId) {
+        for (i, m) in sortedAll.enumerated() where aiRecommendedIds.contains(m.momentId) {
             if i > 0                    { neighbors.insert(sortedAll[i - 1].momentId) }
             if i < sortedAll.count - 1  { neighbors.insert(sortedAll[i + 1].momentId) }
         }
-        neighbors.subtract(recommendedIds)
+        neighbors.subtract(aiRecommendedIds)
         neighborMomentIds = neighbors
         topMoments.formUnion(neighbors)
+
+        // Assign moments after neighbors are merged into topMoments so neighbor clips appear.
+        moments = allMoments
+            .filter { topMoments.contains($0.momentId) }
+            .sorted { $0.momentId < $1.momentId }
 
         // Parse laps for the timeline (raw true-UTC from Strava API).
         // abs_time_epoch uses local-time-as-UTC (Cycliq wrong-Z), so apply the timezone offset
