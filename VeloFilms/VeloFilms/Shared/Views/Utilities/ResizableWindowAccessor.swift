@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Forces the hosting NSWindow into resizable mode.
 /// SwiftUI's Settings scene and sheet presentations ignore .windowResizability;
@@ -14,8 +17,6 @@ struct ResizableWindowAccessor: View {
 }
 
 #if os(macOS)
-import AppKit
-
 private struct _ResizableNSViewBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
