@@ -32,7 +32,7 @@ struct GlobalSettingsView: View {
             AudioTab(settings: settings, chooseMusic: chooseMusic)
                 .tabItem { Label("Audio",    systemImage: "music.note") }
         }
-        .frame(width: 520, height: 500)
+        .frame(minWidth: 500, idealWidth: 540, minHeight: 620)
         .fileImporter(isPresented: $showPicker,
                       allowedContentTypes: pickerTarget == .music
                           ? [.mp3, .mpeg4Audio, .wav, .aiff]
