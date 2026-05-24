@@ -119,7 +119,7 @@ final class GPXParser: NSObject, XMLParserDelegate {
             t += 1
         }
 
-        // Second pass: compute speed and gradient from adjacent points
+        // Second pass: speed from adjacent 1-second points
         for i in out.indices {
             if i == 0 { continue }
             let prev = out[i - 1]
@@ -127,8 +127,20 @@ final class GPXParser: NSObject, XMLParserDelegate {
             let dt = curr.epoch - prev.epoch
             guard dt > 0 else { continue }
             let dist = haversineM(prev.lat, prev.lon, curr.lat, curr.lon)
-            out[i].speedKmh    = (dist / dt) * 3.6
-            out[i].gradientPct = dist > 0 ? ((curr.elevation - prev.elevation) / dist) * 100 : 0
+            out[i].speedKmh = (dist / dt) * 3.6
+        }
+
+        // Third pass: gradient over a ±15 s window (30-second centered average).
+        // GPS elevation accuracy is ±5–15 m; a 1-second window over 5 m of travel
+        // amplifies noise to ±100%+. The wider window averages out noise while still
+        // resolving real gradient changes on sub-minute climbs and descents.
+        let hw = 15
+        for i in out.indices {
+            let lo = max(0, i - hw)
+            let hi = min(out.count - 1, i + hw)
+            let dist = haversineM(out[lo].lat, out[lo].lon, out[hi].lat, out[hi].lon)
+            // Require at least 5 m of travel to avoid division noise when nearly stopped
+            out[i].gradientPct = dist > 5 ? ((out[hi].elevation - out[lo].elevation) / dist) * 100 : 0
         }
         return out
     }
