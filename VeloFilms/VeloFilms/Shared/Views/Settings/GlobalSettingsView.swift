@@ -33,6 +33,7 @@ struct GlobalSettingsView: View {
                 .tabItem { Label("Audio",    systemImage: "music.note") }
         }
         .frame(minWidth: 500, idealWidth: 540, minHeight: 620)
+        .background(ResizableWindowAccessor())
         .fileImporter(isPresented: $showPicker,
                       allowedContentTypes: pickerTarget == .music
                           ? [.mp3, .mpeg4Audio, .wav, .aiff]
@@ -596,3 +597,23 @@ private struct WeightSliderRow: View {
         }
     }
 }
+
+// MARK: - Window resizability (macOS Settings scene ignores .windowResizability)
+
+#if os(macOS)
+private struct ResizableWindowAccessor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        // Defer until the view has been added to a window
+        DispatchQueue.main.async {
+            view.window?.styleMask.insert(.resizable)
+        }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+#else
+private struct ResizableWindowAccessor: View {
+    var body: some View { EmptyView() }
+}
+#endif
