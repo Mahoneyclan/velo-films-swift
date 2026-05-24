@@ -5,23 +5,33 @@ import Foundation
 struct ClipSelector {
 
     struct Config {
-        var targetClips: Int          = AppConfig.targetClips          // reads GlobalSettings
+        var targetClips: Int          = AppConfig.targetClips
         var candidateFraction: Double = AppConfig.candidateFraction
         var minGap: Double            = GlobalSettings.shared.minGapBetweenClips
-        var maxStartClips: Int  = AppConfig.maxStartZoneClips
-        var maxEndClips: Int    = AppConfig.maxEndZoneClips
-        var startZonePct: Double = AppConfig.startZonePct
-        var endZonePct: Double   = AppConfig.endZonePct
+        var maxStartClips: Int        = AppConfig.maxStartZoneClips
+        var maxEndClips: Int          = AppConfig.maxEndZoneClips
+        /// Pre-computed from moving time in SelectStep. Falls back to wall-clock % if 0.
+        var startZoneEndEpoch: Double = 0
+        var endZoneStartEpoch: Double = 0
     }
 
     static func select(moments: [PartnerMatcher.Moment], config: Config = Config()) -> [PartnerMatcher.Moment] {
         guard !moments.isEmpty else { return [] }
 
-        let rideStart  = Double(moments.first!.momentId)
-        let rideEnd    = Double(moments.last!.momentId)
-        let rideSpan   = rideEnd - rideStart
-        let startZoneEnd  = rideStart + rideSpan * config.startZonePct
-        let endZoneStart  = rideEnd   - rideSpan * config.endZonePct
+        let rideStart = Double(moments.first!.momentId)
+        let rideEnd   = Double(moments.last!.momentId)
+
+        // Use moving-time boundaries if provided by SelectStep; fall back to wall-clock %.
+        let startZoneEnd: Double
+        let endZoneStart: Double
+        if config.startZoneEndEpoch > 0 && config.endZoneStartEpoch > 0 {
+            startZoneEnd = config.startZoneEndEpoch
+            endZoneStart = config.endZoneStartEpoch
+        } else {
+            let span = rideEnd - rideStart
+            startZoneEnd = rideStart + span * AppConfig.startZonePct
+            endZoneStart = rideEnd   - span * AppConfig.endZonePct
+        }
 
         // 1. Candidate pool: top-K per clip, globally trimmed.
         // For dual-camera moments, use min(clipNum12, clipNum6) — matches Python's approach.

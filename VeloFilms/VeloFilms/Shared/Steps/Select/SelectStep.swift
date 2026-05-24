@@ -22,8 +22,20 @@ struct SelectStep: PipelineStep {
 
         await reporter.report(current: 1, total: 3, message: "Selecting best moments...")
 
-        let moments    = PartnerMatcher.group(enrichedRows)
-        let selected   = ClipSelector.select(moments: moments)
+        let moments = PartnerMatcher.group(enrichedRows)
+
+        // Compute zone boundaries from moving time so long stops don't skew the opening/closing zones.
+        let flattenRows: [FlattenRow] = (try? jsonlReader.read(from: project.flattenJSONL)) ?? []
+        let (startZoneEnd, endZoneStart) = Self.movingTimeZoneBoundaries(
+            flatten: flattenRows,
+            startPct: AppConfig.startZonePct,
+            endPct: AppConfig.endZonePct
+        )
+        var config = ClipSelector.Config()
+        config.startZoneEndEpoch = startZoneEnd
+        config.endZoneStartEpoch = endZoneStart
+
+        let selected = ClipSelector.select(moments: moments, config: config)
         let selectedIds = Set(selected.map { $0.momentId })
         let momentById  = Dictionary(moments.map { ($0.momentId, $0) }, uniquingKeysWith: { a, _ in a })
 
@@ -50,5 +62,48 @@ struct SelectStep: PipelineStep {
         let recCount = selectRows.filter { $0.recommended }.count
         await reporter.report(current: 3, total: 3,
                               message: "Selected \(recCount) clips (target: \(AppConfig.targetClips))")
+    }
+
+    // MARK: - Moving-time zone boundaries
+
+    /// Returns the wall-clock epoch values where [startPct] and (1−[endPct]) of total moving
+    /// time have elapsed. Rows with [speedKmh] < 3 km/h are treated as stopped and excluded
+    /// from the moving-time accumulation, so long stops don't push zone boundaries into the
+    /// dead middle of the ride.
+    static func movingTimeZoneBoundaries(
+        flatten: [FlattenRow],
+        startPct: Double,
+        endPct: Double
+    ) -> (startZoneEnd: Double, endZoneStart: Double) {
+        let movingThresholdKmh = 3.0
+        let sorted = flatten.sorted { $0.gpxEpoch < $1.gpxEpoch }
+        guard !sorted.isEmpty else { return (0, 0) }
+
+        // Accumulate 1 moving-second per row where speed ≥ threshold
+        var cumMoving = 0.0
+        var entries: [(epoch: Double, cumMoving: Double)] = []
+        entries.reserveCapacity(sorted.count)
+        for row in sorted {
+            if row.speedKmh >= movingThresholdKmh { cumMoving += 1.0 }
+            entries.append((row.gpxEpoch, cumMoving))
+        }
+
+        let totalMoving = cumMoving
+        guard totalMoving > 0 else { return (0, 0) }
+
+        let startTarget = totalMoving * startPct
+        let endTarget   = totalMoving * (1.0 - endPct)
+
+        // Find first epoch where cumulative moving time crosses each target
+        var startEpoch = entries.first!.epoch
+        var endEpoch   = entries.last!.epoch
+        for entry in entries {
+            if entry.cumMoving >= startTarget { startEpoch = entry.epoch; break }
+        }
+        for entry in entries.reversed() {
+            if entry.cumMoving <= endTarget { endEpoch = entry.epoch; break }
+        }
+
+        return (startEpoch, endEpoch)
     }
 }
