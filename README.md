@@ -111,27 +111,30 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 |---------|---------|-------------|
 | Highlight duration (min) | 5 | Target length for the finished reel |
 | Min gap between clips (s) | 10 | Prevents back-to-back clips from the same moment |
+| Opening zone | 15% | Fraction of ride duration classed as the opening; scales with ride length |
+| Closing zone | 15% | Fraction of ride duration classed as the closing; scales with ride length |
 | Show elevation strip | ✓ | Render elevation profile bar at bottom of frame |
 | Dynamic gauges (ProRes) | ✗ | Render gauges as a separate alpha layer |
 | Music volume (0–1) | 0.7 | Background music level |
 | Raw audio volume (0–1) | 0.3 | Original camera audio level |
 
-**Detection & Scoring** *(new)*
+**Detection & Scoring**
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| YOLO min confidence | 0.10 | Detections below this threshold are discarded |
+| People & cyclists confidence | 0.10 | YOLO detections for person/bicycle below this are discarded |
+| Vehicles & signs confidence | 0.50 | YOLO detections for car/truck/bus/motorcycle/traffic light/stop sign below this are discarded |
 | Candidate pool (×target) | 2.5× | How many candidates the AI evaluates before selecting |
 | Score weights | see Scoring table | All seven dimensions adjustable via sliders; live proportion bar |
 
-**Focus Mode Defaults** *(new)*
+**Focus Mode Defaults**
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| First N minutes | 20 min | Threshold for the "First Nm" filter chip |
-| Last N minutes | 20 min | Threshold for the "Last Nm" filter chip |
-| Climb steepness | ≥5% | Minimum gradient to show in Climbs filter |
-| Descent steepness | ≥7% | Minimum magnitude to show in Descents filter |
+| First N minutes | 10 min | Threshold for the "First Nm" filter chip in fine-tune |
+| Last N minutes | 10 min | Threshold for the "Last Nm" filter chip in fine-tune |
+| Climb steepness | ≥4% | Minimum gradient to show in Climbs filter |
+| Descent steepness | ≥4% | Minimum magnitude to show in Descents filter |
 | Group min riders | 5 | Minimum person+bicycle detections for Group filter |
 
 ## Focus Mode (Manual Clip Selection)
