@@ -57,6 +57,16 @@ final class GlobalSettings {
     var yoloMinConfidence: Double = 0.10          // person + bicycle
     var yoloVehicleConfidence: Double = 0.50      // car, motorcycle, bus, truck, traffic light, stop sign
 
+    // MARK: - Per-class YOLO enable + detectScore weight
+    var yoloEnablePerson: Bool       = true;  var yoloWeightPerson: Double       = 1.0
+    var yoloEnableBicycle: Bool      = true;  var yoloWeightBicycle: Double      = 1.0
+    var yoloEnableCar: Bool          = true;  var yoloWeightCar: Double          = 0.3
+    var yoloEnableMotorcycle: Bool   = true;  var yoloWeightMotorcycle: Double   = 0.6
+    var yoloEnableBus: Bool          = true;  var yoloWeightBus: Double          = 0.2
+    var yoloEnableTruck: Bool        = true;  var yoloWeightTruck: Double        = 0.2
+    var yoloEnableTrafficLight: Bool = true;  var yoloWeightTrafficLight: Double = 0.1
+    var yoloEnableStopSign: Bool     = true;  var yoloWeightStopSign: Double     = 0.1
+
     // MARK: - Score weights (should sum to 1.0)
     var scoreWeightDetect: Double    = 0.30
     var scoreWeightScene: Double     = 0.10
@@ -114,6 +124,22 @@ final class GlobalSettings {
         // Use object(forKey:) for weights/confidence so 0.0 is a valid stored value (not treated as "unset")
         yoloMinConfidence      = (UserDefaults.standard.object(forKey: "yoloMinConfidence")      as? Double) ?? yoloMinConfidence
         yoloVehicleConfidence  = (UserDefaults.standard.object(forKey: "yoloVehicleConfidence")  as? Double) ?? yoloVehicleConfidence
+        yoloEnablePerson       = (UserDefaults.standard.object(forKey: "yoloEnablePerson")       as? Bool)   ?? true
+        yoloWeightPerson       = (UserDefaults.standard.object(forKey: "yoloWeightPerson")       as? Double) ?? 1.0
+        yoloEnableBicycle      = (UserDefaults.standard.object(forKey: "yoloEnableBicycle")      as? Bool)   ?? true
+        yoloWeightBicycle      = (UserDefaults.standard.object(forKey: "yoloWeightBicycle")      as? Double) ?? 1.0
+        yoloEnableCar          = (UserDefaults.standard.object(forKey: "yoloEnableCar")          as? Bool)   ?? true
+        yoloWeightCar          = (UserDefaults.standard.object(forKey: "yoloWeightCar")          as? Double) ?? 0.3
+        yoloEnableMotorcycle   = (UserDefaults.standard.object(forKey: "yoloEnableMotorcycle")   as? Bool)   ?? true
+        yoloWeightMotorcycle   = (UserDefaults.standard.object(forKey: "yoloWeightMotorcycle")   as? Double) ?? 0.6
+        yoloEnableBus          = (UserDefaults.standard.object(forKey: "yoloEnableBus")          as? Bool)   ?? true
+        yoloWeightBus          = (UserDefaults.standard.object(forKey: "yoloWeightBus")          as? Double) ?? 0.2
+        yoloEnableTruck        = (UserDefaults.standard.object(forKey: "yoloEnableTruck")        as? Bool)   ?? true
+        yoloWeightTruck        = (UserDefaults.standard.object(forKey: "yoloWeightTruck")        as? Double) ?? 0.2
+        yoloEnableTrafficLight = (UserDefaults.standard.object(forKey: "yoloEnableTrafficLight") as? Bool)   ?? true
+        yoloWeightTrafficLight = (UserDefaults.standard.object(forKey: "yoloWeightTrafficLight") as? Double) ?? 0.1
+        yoloEnableStopSign     = (UserDefaults.standard.object(forKey: "yoloEnableStopSign")     as? Bool)   ?? true
+        yoloWeightStopSign     = (UserDefaults.standard.object(forKey: "yoloWeightStopSign")     as? Double) ?? 0.1
         scoreWeightDetect     = (UserDefaults.standard.object(forKey: "scoreWeightDetect")     as? Double) ?? scoreWeightDetect
         scoreWeightScene      = (UserDefaults.standard.object(forKey: "scoreWeightScene")      as? Double) ?? scoreWeightScene
         scoreWeightSpeed      = (UserDefaults.standard.object(forKey: "scoreWeightSpeed")      as? Double) ?? scoreWeightSpeed
@@ -151,6 +177,22 @@ final class GlobalSettings {
         UserDefaults.standard.set(dynamicGauges,            forKey: "dynamicGauges")
         UserDefaults.standard.set(yoloMinConfidence,        forKey: "yoloMinConfidence")
         UserDefaults.standard.set(yoloVehicleConfidence,   forKey: "yoloVehicleConfidence")
+        UserDefaults.standard.set(yoloEnablePerson,        forKey: "yoloEnablePerson")
+        UserDefaults.standard.set(yoloWeightPerson,        forKey: "yoloWeightPerson")
+        UserDefaults.standard.set(yoloEnableBicycle,       forKey: "yoloEnableBicycle")
+        UserDefaults.standard.set(yoloWeightBicycle,       forKey: "yoloWeightBicycle")
+        UserDefaults.standard.set(yoloEnableCar,           forKey: "yoloEnableCar")
+        UserDefaults.standard.set(yoloWeightCar,           forKey: "yoloWeightCar")
+        UserDefaults.standard.set(yoloEnableMotorcycle,    forKey: "yoloEnableMotorcycle")
+        UserDefaults.standard.set(yoloWeightMotorcycle,    forKey: "yoloWeightMotorcycle")
+        UserDefaults.standard.set(yoloEnableBus,           forKey: "yoloEnableBus")
+        UserDefaults.standard.set(yoloWeightBus,           forKey: "yoloWeightBus")
+        UserDefaults.standard.set(yoloEnableTruck,         forKey: "yoloEnableTruck")
+        UserDefaults.standard.set(yoloWeightTruck,         forKey: "yoloWeightTruck")
+        UserDefaults.standard.set(yoloEnableTrafficLight,  forKey: "yoloEnableTrafficLight")
+        UserDefaults.standard.set(yoloWeightTrafficLight,  forKey: "yoloWeightTrafficLight")
+        UserDefaults.standard.set(yoloEnableStopSign,      forKey: "yoloEnableStopSign")
+        UserDefaults.standard.set(yoloWeightStopSign,      forKey: "yoloWeightStopSign")
         UserDefaults.standard.set(scoreWeightDetect,        forKey: "scoreWeightDetect")
         UserDefaults.standard.set(scoreWeightScene,         forKey: "scoreWeightScene")
         UserDefaults.standard.set(scoreWeightSpeed,         forKey: "scoreWeightSpeed")

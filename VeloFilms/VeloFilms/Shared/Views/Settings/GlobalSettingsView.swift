@@ -281,6 +281,51 @@ private struct ScoringTab: View {
                 Text("Changes take effect on the next Enrich / Select run.")
                     .font(.caption).foregroundStyle(.secondary)
 
+                // YOLO class enable + per-class weights
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("YOLO Class Filters").font(.caption.bold())
+                            Spacer()
+                            Button("Reset") {
+                                settings.yoloEnablePerson = true;       settings.yoloWeightPerson = 1.0
+                                settings.yoloEnableBicycle = true;      settings.yoloWeightBicycle = 1.0
+                                settings.yoloEnableCar = true;          settings.yoloWeightCar = 0.3
+                                settings.yoloEnableMotorcycle = true;   settings.yoloWeightMotorcycle = 0.6
+                                settings.yoloEnableBus = true;          settings.yoloWeightBus = 0.2
+                                settings.yoloEnableTruck = true;        settings.yoloWeightTruck = 0.2
+                                settings.yoloEnableTrafficLight = true; settings.yoloWeightTrafficLight = 0.1
+                                settings.yoloEnableStopSign = true;     settings.yoloWeightStopSign = 0.1
+                                settings.save()
+                            }
+                            .font(.caption).buttonStyle(.bordered).controlSize(.small)
+                        }
+                        Text("Toggle each class on/off and set its influence on the highlight score. Object area score only counts enabled cyclists & pedestrians.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Divider()
+                        Text("Cyclists & Pedestrians").font(.caption2.bold()).foregroundStyle(.secondary)
+                        YOLOClassRow(label: "Person",   icon: "person",
+                                     enabled: $settings.yoloEnablePerson,   weight: $settings.yoloWeightPerson)   { settings.save() }
+                        YOLOClassRow(label: "Bicycle",  icon: "figure.outdoor.cycle",
+                                     enabled: $settings.yoloEnableBicycle,  weight: $settings.yoloWeightBicycle)  { settings.save() }
+                        Divider()
+                        Text("Vehicles & Signs").font(.caption2.bold()).foregroundStyle(.secondary)
+                        YOLOClassRow(label: "Car",          icon: "car",
+                                     enabled: $settings.yoloEnableCar,          weight: $settings.yoloWeightCar)          { settings.save() }
+                        YOLOClassRow(label: "Motorcycle",   icon: "motorcycle",
+                                     enabled: $settings.yoloEnableMotorcycle,   weight: $settings.yoloWeightMotorcycle)   { settings.save() }
+                        YOLOClassRow(label: "Bus",          icon: "bus",
+                                     enabled: $settings.yoloEnableBus,          weight: $settings.yoloWeightBus)          { settings.save() }
+                        YOLOClassRow(label: "Truck",        icon: "truck.box",
+                                     enabled: $settings.yoloEnableTruck,        weight: $settings.yoloWeightTruck)        { settings.save() }
+                        YOLOClassRow(label: "Traffic light",icon: "light.beacon.max",
+                                     enabled: $settings.yoloEnableTrafficLight, weight: $settings.yoloWeightTrafficLight) { settings.save() }
+                        YOLOClassRow(label: "Stop sign",    icon: "octagon.fill",
+                                     enabled: $settings.yoloEnableStopSign,     weight: $settings.yoloWeightStopSign)     { settings.save() }
+                    }
+                    .padding(8)
+                }
+
                 // YOLO confidence
                 GroupBox("Detection Confidence") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -575,6 +620,37 @@ private struct ScoreProportionBar: View {
             }
         }
         .frame(height: 10)
+    }
+}
+
+private struct YOLOClassRow: View {
+    let label: String
+    let icon: String
+    @Binding var enabled: Bool
+    @Binding var weight: Double
+    let onSave: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: $enabled).labelsHidden()
+                .onChange(of: enabled) { onSave() }
+            Image(systemName: icon).font(.caption)
+                .foregroundStyle(enabled ? .primary : .secondary).frame(width: 16)
+            Text(label).font(.caption)
+                .foregroundStyle(enabled ? .primary : .secondary)
+                .frame(width: 90, alignment: .leading)
+            if enabled {
+                Slider(value: $weight, in: 0...1, step: 0.05)
+                    .onChange(of: weight) { onSave() }
+                Text("\(Int((weight * 100).rounded()))%")
+                    .font(.caption.bold().monospacedDigit())
+                    .frame(width: 36, alignment: .trailing)
+            } else {
+                Spacer()
+                Text("off").font(.caption2).foregroundStyle(.tertiary)
+                    .frame(width: 36, alignment: .trailing)
+            }
+        }
     }
 }
 

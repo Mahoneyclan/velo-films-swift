@@ -19,22 +19,29 @@ final class YOLODetector {
     private let modelURL: URL
     private var outputName: String?
 
-    /// Class weights for detectScore — cyclists/pedestrians score full; vehicles are context only.
-    /// Cars/trucks passing close by have high confidence and large bbox but are not highlight signals.
-    private static let classWeights: [Int: Float] = [
-        0: 1.0,  // person    — full weight
-        1: 1.0,  // bicycle   — full weight
-        2: 0.3,  // car       — heavy penalty; a passing car is background
-        3: 0.6,  // motorcycle — partial; interesting but not as good as a cyclist
-        5: 0.2,  // bus       — very large; almost always background
-        7: 0.2,  // truck     — very large; almost always background
-        9: 0.1,  // traffic light — no highlight value
-        11: 0.1, // stop sign — no highlight value
-    ]
+    /// Class weights for detectScore — reads from GlobalSettings so user can tune per-class.
+    /// Disabled classes are omitted from the dict and filtered out at inference time.
+    private static var classWeights: [Int: Float] {
+        let s = GlobalSettings.shared
+        var w = [Int: Float]()
+        if s.yoloEnablePerson       { w[0]  = Float(s.yoloWeightPerson) }
+        if s.yoloEnableBicycle      { w[1]  = Float(s.yoloWeightBicycle) }
+        if s.yoloEnableCar          { w[2]  = Float(s.yoloWeightCar) }
+        if s.yoloEnableMotorcycle   { w[3]  = Float(s.yoloWeightMotorcycle) }
+        if s.yoloEnableBus          { w[5]  = Float(s.yoloWeightBus) }
+        if s.yoloEnableTruck        { w[7]  = Float(s.yoloWeightTruck) }
+        if s.yoloEnableTrafficLight { w[9]  = Float(s.yoloWeightTrafficLight) }
+        if s.yoloEnableStopSign     { w[11] = Float(s.yoloWeightStopSign) }
+        return w
+    }
 
-    /// Classes counted toward bboxArea — only cycling-relevant detections.
-    /// Excludes cars/trucks so a close-passing vehicle doesn't inflate the bboxArea score.
-    private static let bboxAreaClasses: Set<Int> = [0, 1]   // person, bicycle
+    /// bboxArea score — only cyclist/pedestrian classes that are currently enabled.
+    private static var bboxAreaClasses: Set<Int> {
+        var c = Set<Int>()
+        if GlobalSettings.shared.yoloEnablePerson  { c.insert(0) }
+        if GlobalSettings.shared.yoloEnableBicycle { c.insert(1) }
+        return c
+    }
 
     /// Classes that use the vehicle/sign confidence threshold instead of the global floor.
     private static let vehicleClasses: Set<Int> = [2, 3, 5, 7, 9, 11]
