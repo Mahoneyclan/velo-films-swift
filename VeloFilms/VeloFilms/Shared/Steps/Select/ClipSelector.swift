@@ -8,10 +8,10 @@ struct ClipSelector {
         var targetClips: Int          = AppConfig.targetClips          // reads GlobalSettings
         var candidateFraction: Double = AppConfig.candidateFraction
         var minGap: Double            = GlobalSettings.shared.minGapBetweenClips
-        var maxStartClips: Int        = AppConfig.maxStartZoneClips
-        var maxEndClips: Int          = AppConfig.maxEndZoneClips
-        var startZoneDuration: Double = AppConfig.startZoneDurationM * 60
-        var endZoneDuration: Double   = AppConfig.endZoneDurationM * 60
+        var maxStartClips: Int  = AppConfig.maxStartZoneClips
+        var maxEndClips: Int    = AppConfig.maxEndZoneClips
+        var startZonePct: Double = AppConfig.startZonePct
+        var endZonePct: Double   = AppConfig.endZonePct
     }
 
     static func select(moments: [PartnerMatcher.Moment], config: Config = Config()) -> [PartnerMatcher.Moment] {
@@ -19,8 +19,9 @@ struct ClipSelector {
 
         let rideStart  = Double(moments.first!.momentId)
         let rideEnd    = Double(moments.last!.momentId)
-        let startZoneEnd  = rideStart + config.startZoneDuration
-        let endZoneStart  = rideEnd   - config.endZoneDuration
+        let rideSpan   = rideEnd - rideStart
+        let startZoneEnd  = rideStart + rideSpan * config.startZonePct
+        let endZoneStart  = rideEnd   - rideSpan * config.endZonePct
 
         // 1. Candidate pool: top-K per clip, globally trimmed.
         // For dual-camera moments, use min(clipNum12, clipNum6) — matches Python's approach.

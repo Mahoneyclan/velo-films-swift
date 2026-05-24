@@ -26,10 +26,10 @@ enum AppConfig {
 
     // MARK: - Selection
     static let requireGpsForSelection: Bool = false
-    static let startZoneDurationM: Double = 20.0
-    static let endZoneDurationM: Double = 20.0
     static let maxStartZoneClips: Int = 4
     static let maxEndZoneClips: Int = 4
+    static var startZonePct: Double { GlobalSettings.shared.startZonePct }
+    static var endZonePct: Double   { GlobalSettings.shared.endZonePct }
 
     // MARK: - YOLO
     static let yoloImageSize: Int = 640

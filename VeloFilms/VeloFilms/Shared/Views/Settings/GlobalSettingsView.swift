@@ -96,6 +96,15 @@ struct GlobalSettingsView: View {
                                value: $settings.minGapBetweenClips)
                             .onChange(of: settings.minGapBetweenClips) { settings.save() }
                         Divider()
+                        FocusSliderRow(label: "Opening zone", icon: "play.circle",
+                                       value: $settings.startZonePct, range: 0.05...0.40,
+                                       unit: "%", multiplier: 100)
+                            .onChange(of: settings.startZonePct) { settings.save() }
+                        FocusSliderRow(label: "Closing zone", icon: "stop.circle",
+                                       value: $settings.endZonePct, range: 0.05...0.40,
+                                       unit: "%", multiplier: 100)
+                            .onChange(of: settings.endZonePct) { settings.save() }
+                        Divider()
                         NumRow(label: "GPX time offset (s)",
                                value: $settings.gpxTimeOffsetS)
                             .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
@@ -481,6 +490,7 @@ private struct FocusSliderRow: View {
     let range: ClosedRange<Double>
     let unit: String
     var prefix: String = ""
+    var multiplier: Double = 1.0   // scales value for display only (e.g. 0.15 → "15%")
 
     var body: some View {
         HStack(spacing: 10) {
@@ -491,8 +501,8 @@ private struct FocusSliderRow: View {
             Text(label)
                 .font(.caption)
                 .frame(width: 120, alignment: .leading)
-            Slider(value: $value, in: range, step: 1)
-            Text("\(prefix)\(Int(value))\(unit)")
+            Slider(value: $value, in: range, step: multiplier > 1 ? 1 / multiplier : 1)
+            Text("\(prefix)\(Int(value * multiplier))\(unit)")
                 .font(.caption.bold().monospacedDigit())
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 44, alignment: .trailing)

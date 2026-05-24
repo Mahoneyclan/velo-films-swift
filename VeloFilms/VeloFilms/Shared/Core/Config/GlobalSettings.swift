@@ -79,6 +79,12 @@ final class GlobalSettings {
     /// Minimum person+bicycle detection count for Group Riding filter. Default 5.
     var focusGroupMinDetections: Int = 5
 
+    // MARK: - Selection zone (percentage of ride span)
+    /// Fraction of ride duration that counts as the opening zone (default 15%).
+    var startZonePct: Double = 0.15
+    /// Fraction of ride duration that counts as the closing zone (default 15%).
+    var endZonePct: Double = 0.15
+
     private init() {
         inputBaseDir  = loadURL(pathKey: "inputBaseDirPath", bookmarkKey: "inputBaseDirBookmark")
         projectsRoot  = loadURL(pathKey: "projectsRootPath", bookmarkKey: "projectsRootBookmark")
@@ -126,6 +132,8 @@ final class GlobalSettings {
         focusDescentGradientPct = rawDescent == 0 ? focusDescentGradientPct : (rawDescent > 0 ? -rawDescent : rawDescent)
         let gmd = UserDefaults.standard.integer(forKey: "focusGroupMinDetections")
         focusGroupMinDetections = gmd > 0 ? gmd : 5
+        startZonePct = (UserDefaults.standard.object(forKey: "startZonePct") as? Double) ?? 0.15
+        endZonePct   = (UserDefaults.standard.object(forKey: "endZonePct")   as? Double) ?? 0.15
     }
 
     func save() {
@@ -158,6 +166,8 @@ final class GlobalSettings {
         UserDefaults.standard.set(focusClimbGradientPct,    forKey: "focusClimbGradientPct")
         UserDefaults.standard.set(focusDescentGradientPct,  forKey: "focusDescentGradientPct")
         UserDefaults.standard.set(focusGroupMinDetections,  forKey: "focusGroupMinDetections")
+        UserDefaults.standard.set(startZonePct,              forKey: "startZonePct")
+        UserDefaults.standard.set(endZonePct,                forKey: "endZonePct")
     }
 
     var isDualCamera: Bool { hasFly12Sport && hasFly6Pro }
