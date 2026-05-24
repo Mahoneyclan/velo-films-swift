@@ -193,6 +193,7 @@ struct ManualSelectionView: View {
             }
         }
         .frame(minWidth: 740, minHeight: 520)
+        .background(ResizableWindowAccessor())
         .task { await load() }
     }
 
