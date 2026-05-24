@@ -111,8 +111,8 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 |---------|---------|-------------|
 | Highlight duration (min) | 5 | Target length for the finished reel |
 | Min gap between clips (s) | 10 | Prevents back-to-back clips from the same moment |
-| Opening zone | 15% | Fraction of ride duration classed as the opening; scales with ride length |
-| Closing zone | 15% | Fraction of ride duration classed as the closing; scales with ride length |
+| Opening zone | 15% | Fraction of *moving* time classed as the opening; long stops don't distort the boundary |
+| Closing zone | 15% | Fraction of *moving* time classed as the closing; long stops don't distort the boundary |
 | Show elevation strip | ✓ | Render elevation profile bar at bottom of frame |
 | Dynamic gauges (ProRes) | ✗ | Render gauges as a separate alpha layer |
 | Music volume (0–1) | 0.7 | Background music level |
@@ -131,8 +131,6 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| First N minutes | 10 min | Threshold for the "First Nm" filter chip in fine-tune |
-| Last N minutes | 10 min | Threshold for the "Last Nm" filter chip in fine-tune |
 | Climb steepness | ≥4% | Minimum gradient to show in Climbs filter |
 | Descent steepness | ≥4% | Minimum magnitude to show in Descents filter |
 | Group min riders | 5 | Minimum person+bicycle detections for Group filter |
@@ -141,13 +139,13 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 
 After the AI selects clips, the manual selection screen lets you filter the visible list. Focus mode is view-only — it never alters AI scores, the underlying `select.jsonl`, or the build pipeline.
 
-**Terrain / time chips** (always visible):
+**Filter chips** (always visible):
 
 | Filter | What it shows | Configurable in |
 |--------|--------------|-----------------|
 | All Clips | Every AI-recommended candidate | — |
-| First N minutes | Clips from the opening N minutes of the ride | Settings → Focus Mode Defaults |
-| Last N minutes | Clips from the closing N minutes | Settings → Focus Mode Defaults |
+| Opening | Clips within the opening zone (startZonePct of ride) | Settings → Output |
+| Closing | Clips within the closing zone (endZonePct of ride) | Settings → Output |
 | Climbs ≥X% | Clips where `gradient_pct ≥ X` | Settings → Focus Mode Defaults |
 | Descents ≥X% | Clips where `gradient_pct ≤ −X` | Settings → Focus Mode Defaults |
 | Group N+ | Clips with N+ person/bicycle detections | Settings → Focus Mode Defaults |
@@ -205,6 +203,8 @@ The Settings screen shows a live proportion bar and a sum badge (green when weig
 6. **App Store decision** — Option A (AVFoundation on macOS too, App Store on both) vs Option B (FFmpeg on Mac, direct distribution)
 
 ## Pipeline architecture notes
+
+**Gradient smoothing:** `GPXParser` computes `gradient_pct` using a ±15 s centered window (30 s total) rather than adjacent 1-second points. GPS vertical accuracy is ±5–15 m; a 1-second window over 5 m of travel amplifies that to ±100%+ false gradient on flat terrain. The 30-second window reduces noise to < 3% on flat roads while still resolving real climbs and descents. Affects gradient scoring weight and the Climbs/Descents focus filter chips.
 
 **Two-pass Concat:** `ConcatStep` runs in two phases:
 1. `clip_NNNN.mp4` files are joined with xfade crossfades and backing music mixed in → `_middle.mp4`. Music is looped by adding N explicit `-i music.path` copies + `concat` audio filter + `atrim` (macOS), or `AVMutableCompositionTrack` segment copy loop (iOS). rawAudioVolume and musicVolume are applied here.
