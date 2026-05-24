@@ -230,7 +230,9 @@ struct ConcatStep: PipelineStep {
                 "[rawA][musicA]amix=inputs=2:duration=longest:dropout_transition=0[aout]"
             )
         } else {
-            filterParts.append("[achain]volume=\(rv)[aout]")
+            // No music — pass audio at unity so batch segments don't double-attenuate rv
+            // when the join pass later applies rv again during the music mix.
+            filterParts.append("[achain]anull[aout]")
         }
 
         let filter = filterParts.joined(separator: ";")
