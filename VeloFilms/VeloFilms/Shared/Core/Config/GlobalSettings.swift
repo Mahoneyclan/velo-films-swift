@@ -68,10 +68,6 @@ final class GlobalSettings {
     var candidateFraction: Double = 2.5
 
     // MARK: - Focus Mode Filter defaults
-    /// "First N minutes" filter window (minutes).
-    var focusFirstNMinutes: Double = 10.0
-    /// "Last N minutes" filter window (minutes).
-    var focusLastNMinutes: Double = 10.0
     /// Gradient threshold for Climbs filter (%). Moments with gradientPct ≥ this value match.
     var focusClimbGradientPct: Double = 4.0
     /// Gradient threshold for Descents filter (%). Moments with gradientPct ≤ −this value match.
@@ -123,8 +119,6 @@ final class GlobalSettings {
         scoreWeightDualCamera = (UserDefaults.standard.object(forKey: "scoreWeightDualCamera") as? Double) ?? scoreWeightDualCamera
         candidateFraction     = UserDefaults.standard.double(forKey: "candidateFraction").nonZero ?? candidateFraction
 
-        focusFirstNMinutes      = UserDefaults.standard.double(forKey: "focusFirstNMinutes").nonZero ?? 10.0
-        focusLastNMinutes       = UserDefaults.standard.double(forKey: "focusLastNMinutes").nonZero ?? 10.0
         focusClimbGradientPct   = UserDefaults.standard.double(forKey: "focusClimbGradientPct").nonZero ?? focusClimbGradientPct
         let rawDescent = UserDefaults.standard.double(forKey: "focusDescentGradientPct")
         // rawDescent == 0 → never stored (first launch) — keep property default.
@@ -161,8 +155,6 @@ final class GlobalSettings {
         UserDefaults.standard.set(candidateFraction,        forKey: "candidateFraction")
         UserDefaults.standard.set(hasFly12Sport,            forKey: "hasFly12Sport")
         UserDefaults.standard.set(hasFly6Pro,               forKey: "hasFly6Pro")
-        UserDefaults.standard.set(focusFirstNMinutes,       forKey: "focusFirstNMinutes")
-        UserDefaults.standard.set(focusLastNMinutes,        forKey: "focusLastNMinutes")
         UserDefaults.standard.set(focusClimbGradientPct,    forKey: "focusClimbGradientPct")
         UserDefaults.standard.set(focusDescentGradientPct,  forKey: "focusDescentGradientPct")
         UserDefaults.standard.set(focusGroupMinDetections,  forKey: "focusGroupMinDetections")

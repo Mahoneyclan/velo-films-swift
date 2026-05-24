@@ -67,15 +67,16 @@ struct ManualSelectionView: View {
         var result = moments
 
         if activeFocusFilter != .all {
+            let s = GlobalSettings.shared
             let ctx = FocusFilterContext(
                 rideStartEpoch:     rideStartEpoch,
                 rideDurationS:      rideDurationS,
                 lapEpochRanges:     lapRanges,
-                firstNMinutes:      GlobalSettings.shared.focusFirstNMinutes,
-                lastNMinutes:       GlobalSettings.shared.focusLastNMinutes,
-                climbGradientPct:   GlobalSettings.shared.focusClimbGradientPct,
-                descentGradientPct: GlobalSettings.shared.focusDescentGradientPct,
-                groupMinDetections: GlobalSettings.shared.focusGroupMinDetections
+                startZoneEndEpoch:  rideStartEpoch + rideDurationS * s.startZonePct,
+                endZoneStartEpoch:  rideStartEpoch + rideDurationS * (1.0 - s.endZonePct),
+                climbGradientPct:   s.focusClimbGradientPct,
+                descentGradientPct: s.focusDescentGradientPct,
+                groupMinDetections: s.focusGroupMinDetections
             )
             result = result.filter { activeFocusFilter.matches($0, in: ctx) }
         }
@@ -105,8 +106,6 @@ struct ManualSelectionView: View {
                 FocusModeBar(
                     activeFocusFilter:  $activeFocusFilter,
                     rideDurationS:      rideDurationS,
-                    firstNMinutes:      s.focusFirstNMinutes,
-                    lastNMinutes:       s.focusLastNMinutes,
                     climbGradientPct:   s.focusClimbGradientPct,
                     descentGradientPct: s.focusDescentGradientPct,
                     groupMinDetections: s.focusGroupMinDetections
@@ -187,10 +186,10 @@ struct ManualSelectionView: View {
             return "No clips have a gradient ≤\(Int(s.focusDescentGradientPct))%."
         case .groupRiding:
             return "No clips have \(s.focusGroupMinDetections)+ riders (person or bicycle) detected."
-        case .firstNMinutes:
-            return "No clips in the first \(Int(s.focusFirstNMinutes)) minutes of the ride."
-        case .lastNMinutes:
-            return "No clips in the last \(Int(s.focusLastNMinutes)) minutes of the ride."
+        case .openingZone:
+            return "No clips in the opening zone (\(Int(s.startZonePct * 100))% of ride)."
+        case .closingZone:
+            return "No clips in the closing zone (\(Int(s.endZonePct * 100))% of ride)."
         case .lap(let name):
             return "No clips were captured during lap '\(name)'."
         case .all:
@@ -298,9 +297,6 @@ struct ManualSelectionView: View {
 private struct FocusModeBar: View {
     @Binding var activeFocusFilter: FocusFilter
     let rideDurationS: Double
-    // Passed from parent body where @Observable tracking fires
-    let firstNMinutes: Double
-    let lastNMinutes: Double
     let climbGradientPct: Double
     let descentGradientPct: Double   // stored negative (e.g. -4.0)
     let groupMinDetections: Int
@@ -313,19 +309,19 @@ private struct FocusModeBar: View {
                     activeFocusFilter = .all
                 }
 
-                // Time-based (only shown when ride duration is known)
+                // Zone chips — only shown when ride duration is known
                 if rideDurationS > 0 {
                     FocusChip(
-                        label: "First \(Int(firstNMinutes))m",
-                        icon: "clock",
-                        isActive: activeFocusFilter == .firstNMinutes
-                    ) { activeFocusFilter = activeFocusFilter == .firstNMinutes ? .all : .firstNMinutes }
+                        label: "Opening",
+                        icon: "play.circle",
+                        isActive: activeFocusFilter == .openingZone
+                    ) { activeFocusFilter = activeFocusFilter == .openingZone ? .all : .openingZone }
 
                     FocusChip(
-                        label: "Last \(Int(lastNMinutes))m",
-                        icon: "clock.badge.checkmark",
-                        isActive: activeFocusFilter == .lastNMinutes
-                    ) { activeFocusFilter = activeFocusFilter == .lastNMinutes ? .all : .lastNMinutes }
+                        label: "Closing",
+                        icon: "stop.circle",
+                        isActive: activeFocusFilter == .closingZone
+                    ) { activeFocusFilter = activeFocusFilter == .closingZone ? .all : .closingZone }
                 }
 
                 // Terrain — descentGradientPct is negative; show abs for readability

@@ -4,8 +4,8 @@ import Foundation
 /// Filters the visible list of moments without modifying AI scores, selection, or any pipeline step.
 enum FocusFilter: Hashable {
     case all
-    case firstNMinutes
-    case lastNMinutes
+    case openingZone
+    case closingZone
     case climbs
     case descents
     case groupRiding
@@ -13,25 +13,25 @@ enum FocusFilter: Hashable {
 
     var label: String {
         switch self {
-        case .all:            return "All Clips"
-        case .firstNMinutes:  return "First N min"
-        case .lastNMinutes:   return "Last N min"
-        case .climbs:         return "Climbs"
-        case .descents:       return "Descents"
-        case .groupRiding:    return "Group Riding"
-        case .lap(let n):     return n
+        case .all:          return "All Clips"
+        case .openingZone:  return "Opening"
+        case .closingZone:  return "Closing"
+        case .climbs:       return "Climbs"
+        case .descents:     return "Descents"
+        case .groupRiding:  return "Group Riding"
+        case .lap(let n):   return n
         }
     }
 
     var icon: String {
         switch self {
-        case .all:            return "square.grid.2x2"
-        case .firstNMinutes:  return "clock"
-        case .lastNMinutes:   return "clock.badge.checkmark"
-        case .climbs:         return "arrow.up.right"
-        case .descents:       return "arrow.down.right"
-        case .groupRiding:    return "person.3"
-        case .lap:            return "flag.checkered"
+        case .all:          return "square.grid.2x2"
+        case .openingZone:  return "play.circle"
+        case .closingZone:  return "stop.circle"
+        case .climbs:       return "arrow.up.right"
+        case .descents:     return "arrow.down.right"
+        case .groupRiding:  return "person.3"
+        case .lap:          return "flag.checkered"
         }
     }
 }
@@ -44,8 +44,10 @@ struct FocusFilterContext {
     let rideStartEpoch: Double
     let rideDurationS: Double
     let lapEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)]
-    let firstNMinutes: Double
-    let lastNMinutes: Double
+    /// Wall-clock epoch where the opening zone ends (startZonePct of ride elapsed).
+    let startZoneEndEpoch: Double
+    /// Wall-clock epoch where the closing zone begins ((1−endZonePct) of ride elapsed).
+    let endZoneStartEpoch: Double
     let climbGradientPct: Double
     let descentGradientPct: Double   // stored as negative (e.g. -4.0)
     let groupMinDetections: Int
@@ -62,11 +64,11 @@ extension FocusFilter {
         case .all:
             return true
 
-        case .firstNMinutes:
-            return elapsed <= ctx.firstNMinutes * 60
+        case .openingZone:
+            return t <= ctx.startZoneEndEpoch
 
-        case .lastNMinutes:
-            return elapsed >= Swift.max(0.0, ctx.rideDurationS - ctx.lastNMinutes * 60)
+        case .closingZone:
+            return t >= ctx.endZoneStartEpoch
 
         case .climbs:
             return (moment.primary?.gradientPct ?? 0) >= ctx.climbGradientPct

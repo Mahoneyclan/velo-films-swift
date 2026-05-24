@@ -122,17 +122,6 @@ struct GlobalSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        FocusSliderRow(label: "First N minutes", icon: "clock",
-                                       value: $settings.focusFirstNMinutes, range: 1...60,
-                                       unit: "min")
-                            .onChange(of: settings.focusFirstNMinutes) { settings.save() }
-                        FocusSliderRow(label: "Last N minutes", icon: "clock.badge.checkmark",
-                                       value: $settings.focusLastNMinutes, range: 1...60,
-                                       unit: "min")
-                            .onChange(of: settings.focusLastNMinutes) { settings.save() }
-
-                        Divider()
-
                         FocusSliderRow(label: "Climb steepness", icon: "arrow.up.right",
                                        value: $settings.focusClimbGradientPct, range: 1...20,
                                        unit: "%", prefix: "≥")
