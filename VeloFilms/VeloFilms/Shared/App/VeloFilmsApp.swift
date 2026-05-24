@@ -18,8 +18,8 @@ struct VeloFilmsApp: App {
 #if os(macOS)
         Settings {
             GlobalSettingsView()
-                .frame(minWidth: 420, minHeight: 300)
         }
+        .windowResizability(.contentMinSize)
 #endif
     }
 }
