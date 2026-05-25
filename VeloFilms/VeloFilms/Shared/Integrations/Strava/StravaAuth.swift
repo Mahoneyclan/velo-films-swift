@@ -4,6 +4,8 @@ import os
 
 /// Handles Strava OAuth2 flow via ASWebAuthenticationSession.
 /// Mirrors strava_client.py OAuth handling.
+private let stravaTokenURL = URL(string: "https://www.strava.com/oauth/token")!
+
 @MainActor
 final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = StravaAuth()
@@ -43,7 +45,7 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
     }
 
     private func refreshAccessToken(_ refresh: String) async throws -> String {
-        var req = URLRequest(url: URL(string: "https://www.strava.com/oauth/token")!)
+        var req = URLRequest(url: stravaTokenURL)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode([
@@ -97,7 +99,7 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
     // MARK: - Token exchange
 
     private func exchangeCode(_ code: String) async throws -> String {
-        var req = URLRequest(url: URL(string: "https://www.strava.com/oauth/token")!)
+        var req = URLRequest(url: stravaTokenURL)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode([
