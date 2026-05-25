@@ -64,15 +64,12 @@ final class GlobalSettings {
     var yoloEnableMotorcycle: Bool   = true;  var yoloWeightMotorcycle: Double   = 0.6
     var yoloEnableBus: Bool          = true;  var yoloWeightBus: Double          = 0.2
     var yoloEnableTruck: Bool        = true;  var yoloWeightTruck: Double        = 0.2
-    var yoloEnableTrafficLight: Bool = true;  var yoloWeightTrafficLight: Double = 0.1
-    var yoloEnableStopSign: Bool     = true;  var yoloWeightStopSign: Double     = 0.1
 
     // MARK: - Score weights (should sum to 1.0)
     var scoreWeightDetect: Double    = 0.30
     var scoreWeightScene: Double     = 0.10
     var scoreWeightSpeed: Double     = 0.20
     var scoreWeightGradient: Double  = 0.20
-    var scoreWeightBboxArea: Double  = 0.05
     var scoreWeightSegment: Double   = 0.05
     var scoreWeightDualCamera: Double = 0.10
 
@@ -136,15 +133,10 @@ final class GlobalSettings {
         yoloWeightBus          = (UserDefaults.standard.object(forKey: "yoloWeightBus")          as? Double) ?? 0.2
         yoloEnableTruck        = (UserDefaults.standard.object(forKey: "yoloEnableTruck")        as? Bool)   ?? true
         yoloWeightTruck        = (UserDefaults.standard.object(forKey: "yoloWeightTruck")        as? Double) ?? 0.2
-        yoloEnableTrafficLight = (UserDefaults.standard.object(forKey: "yoloEnableTrafficLight") as? Bool)   ?? true
-        yoloWeightTrafficLight = (UserDefaults.standard.object(forKey: "yoloWeightTrafficLight") as? Double) ?? 0.1
-        yoloEnableStopSign     = (UserDefaults.standard.object(forKey: "yoloEnableStopSign")     as? Bool)   ?? true
-        yoloWeightStopSign     = (UserDefaults.standard.object(forKey: "yoloWeightStopSign")     as? Double) ?? 0.1
         scoreWeightDetect     = (UserDefaults.standard.object(forKey: "scoreWeightDetect")     as? Double) ?? scoreWeightDetect
         scoreWeightScene      = (UserDefaults.standard.object(forKey: "scoreWeightScene")      as? Double) ?? scoreWeightScene
         scoreWeightSpeed      = (UserDefaults.standard.object(forKey: "scoreWeightSpeed")      as? Double) ?? scoreWeightSpeed
         scoreWeightGradient   = (UserDefaults.standard.object(forKey: "scoreWeightGradient")   as? Double) ?? scoreWeightGradient
-        scoreWeightBboxArea   = (UserDefaults.standard.object(forKey: "scoreWeightBboxArea")   as? Double) ?? scoreWeightBboxArea
         scoreWeightSegment    = (UserDefaults.standard.object(forKey: "scoreWeightSegment")    as? Double) ?? scoreWeightSegment
         scoreWeightDualCamera = (UserDefaults.standard.object(forKey: "scoreWeightDualCamera") as? Double) ?? scoreWeightDualCamera
         candidateFraction     = UserDefaults.standard.double(forKey: "candidateFraction").nonZero ?? candidateFraction
@@ -189,15 +181,10 @@ final class GlobalSettings {
         UserDefaults.standard.set(yoloWeightBus,           forKey: "yoloWeightBus")
         UserDefaults.standard.set(yoloEnableTruck,         forKey: "yoloEnableTruck")
         UserDefaults.standard.set(yoloWeightTruck,         forKey: "yoloWeightTruck")
-        UserDefaults.standard.set(yoloEnableTrafficLight,  forKey: "yoloEnableTrafficLight")
-        UserDefaults.standard.set(yoloWeightTrafficLight,  forKey: "yoloWeightTrafficLight")
-        UserDefaults.standard.set(yoloEnableStopSign,      forKey: "yoloEnableStopSign")
-        UserDefaults.standard.set(yoloWeightStopSign,      forKey: "yoloWeightStopSign")
         UserDefaults.standard.set(scoreWeightDetect,        forKey: "scoreWeightDetect")
         UserDefaults.standard.set(scoreWeightScene,         forKey: "scoreWeightScene")
         UserDefaults.standard.set(scoreWeightSpeed,         forKey: "scoreWeightSpeed")
         UserDefaults.standard.set(scoreWeightGradient,      forKey: "scoreWeightGradient")
-        UserDefaults.standard.set(scoreWeightBboxArea,      forKey: "scoreWeightBboxArea")
         UserDefaults.standard.set(scoreWeightSegment,       forKey: "scoreWeightSegment")
         UserDefaults.standard.set(scoreWeightDualCamera,    forKey: "scoreWeightDualCamera")
         UserDefaults.standard.set(candidateFraction,        forKey: "candidateFraction")

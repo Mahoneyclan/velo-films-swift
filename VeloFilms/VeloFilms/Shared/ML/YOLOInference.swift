@@ -28,10 +28,8 @@ final class YOLODetector {
         if s.yoloEnableBicycle      { w[1]  = Float(s.yoloWeightBicycle) }
         if s.yoloEnableCar          { w[2]  = Float(s.yoloWeightCar) }
         if s.yoloEnableMotorcycle   { w[3]  = Float(s.yoloWeightMotorcycle) }
-        if s.yoloEnableBus          { w[5]  = Float(s.yoloWeightBus) }
-        if s.yoloEnableTruck        { w[7]  = Float(s.yoloWeightTruck) }
-        if s.yoloEnableTrafficLight { w[9]  = Float(s.yoloWeightTrafficLight) }
-        if s.yoloEnableStopSign     { w[11] = Float(s.yoloWeightStopSign) }
+        if s.yoloEnableBus   { w[5] = Float(s.yoloWeightBus) }
+        if s.yoloEnableTruck { w[7] = Float(s.yoloWeightTruck) }
         return w
     }
 
@@ -44,11 +42,11 @@ final class YOLODetector {
     }
 
     /// Classes that use the vehicle/sign confidence threshold instead of the global floor.
-    private static let vehicleClasses: Set<Int> = [2, 3, 5, 7, 9, 11]
+    private static let vehicleClasses: Set<Int> = [2, 3, 5, 7]
 
     private static let classNames: [Int: String] = [
         0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
-        5: "bus", 7: "truck", 9: "traffic light", 11: "stop sign",
+        5: "bus", 7: "truck",
     ]
 
     init(modelURL: URL) {

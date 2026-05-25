@@ -288,19 +288,17 @@ private struct ScoringTab: View {
                             Text("YOLO Class Filters").font(.caption.bold())
                             Spacer()
                             Button("Reset") {
-                                settings.yoloEnablePerson = true;       settings.yoloWeightPerson = 1.0
-                                settings.yoloEnableBicycle = true;      settings.yoloWeightBicycle = 1.0
-                                settings.yoloEnableCar = true;          settings.yoloWeightCar = 0.3
-                                settings.yoloEnableMotorcycle = true;   settings.yoloWeightMotorcycle = 0.6
-                                settings.yoloEnableBus = true;          settings.yoloWeightBus = 0.2
-                                settings.yoloEnableTruck = true;        settings.yoloWeightTruck = 0.2
-                                settings.yoloEnableTrafficLight = true; settings.yoloWeightTrafficLight = 0.1
-                                settings.yoloEnableStopSign = true;     settings.yoloWeightStopSign = 0.1
+                                settings.yoloEnablePerson = true;     settings.yoloWeightPerson = 1.0
+                                settings.yoloEnableBicycle = true;    settings.yoloWeightBicycle = 1.0
+                                settings.yoloEnableCar = true;        settings.yoloWeightCar = 0.3
+                                settings.yoloEnableMotorcycle = true; settings.yoloWeightMotorcycle = 0.6
+                                settings.yoloEnableBus = true;        settings.yoloWeightBus = 0.2
+                                settings.yoloEnableTruck = true;      settings.yoloWeightTruck = 0.2
                                 settings.save()
                             }
                             .font(.caption).buttonStyle(.bordered).controlSize(.small)
                         }
-                        Text("Toggle each class on/off and set its influence on the highlight score. Object area score only counts enabled cyclists & pedestrians.")
+                        Text("Toggle each class on/off and set its influence on the highlight score.")
                             .font(.caption2).foregroundStyle(.secondary)
                         Divider()
                         Text("Cyclists & Pedestrians").font(.caption2.bold()).foregroundStyle(.secondary)
@@ -318,10 +316,6 @@ private struct ScoringTab: View {
                                      enabled: $settings.yoloEnableBus,          weight: $settings.yoloWeightBus)          { settings.save() }
                         YOLOClassRow(label: "Truck",        icon: "truck.box",
                                      enabled: $settings.yoloEnableTruck,        weight: $settings.yoloWeightTruck)        { settings.save() }
-                        YOLOClassRow(label: "Traffic light",icon: "light.beacon.max",
-                                     enabled: $settings.yoloEnableTrafficLight, weight: $settings.yoloWeightTrafficLight) { settings.save() }
-                        YOLOClassRow(label: "Stop sign",    icon: "octagon.fill",
-                                     enabled: $settings.yoloEnableStopSign,     weight: $settings.yoloWeightStopSign)     { settings.save() }
                     }
                     .padding(8)
                 }
@@ -339,7 +333,7 @@ private struct ScoringTab: View {
                             .onChange(of: settings.yoloMinConfidence) { settings.save() }
                         Divider()
                         HStack {
-                            Label("Vehicles & signs", systemImage: "car").font(.caption.bold())
+                            Label("Vehicles", systemImage: "car").font(.caption.bold())
                             Spacer()
                             Text(String(format: "%.2f", settings.yoloVehicleConfidence))
                                 .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
@@ -377,8 +371,7 @@ private struct ScoringTab: View {
                     VStack(alignment: .leading, spacing: 10) {
                         let sum = settings.scoreWeightDetect + settings.scoreWeightScene
                             + settings.scoreWeightSpeed + settings.scoreWeightGradient
-                            + settings.scoreWeightBboxArea + settings.scoreWeightSegment
-                            + settings.scoreWeightDualCamera
+                            + settings.scoreWeightSegment + settings.scoreWeightDualCamera
                         let balanced = abs(sum - 1.0) < 0.01
                         HStack {
                             Text("Score Weights").font(.caption.bold())
@@ -390,11 +383,10 @@ private struct ScoringTab: View {
                                 .foregroundStyle(balanced ? .green : .red)
                                 .clipShape(Capsule())
                             Button("Reset") {
-                                settings.scoreWeightDetect    = 0.30
+                                settings.scoreWeightDetect    = 0.35
                                 settings.scoreWeightScene     = 0.10
                                 settings.scoreWeightSpeed     = 0.20
                                 settings.scoreWeightGradient  = 0.20
-                                settings.scoreWeightBboxArea  = 0.05
                                 settings.scoreWeightSegment   = 0.05
                                 settings.scoreWeightDualCamera = 0.10
                                 settings.save()
@@ -407,7 +399,6 @@ private struct ScoringTab: View {
                             (.purple, settings.scoreWeightScene),
                             (.blue,   settings.scoreWeightSpeed),
                             (.orange, settings.scoreWeightGradient),
-                            (.yellow, settings.scoreWeightBboxArea),
                             (.teal,   settings.scoreWeightSegment),
                             (.pink,   settings.scoreWeightDualCamera),
                         ])
@@ -424,9 +415,6 @@ private struct ScoringTab: View {
                         WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",     color: .orange,
                                         value: $settings.scoreWeightGradient)  { settings.save() }
                             .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
-                        WeightSliderRow(label: "Object area",     icon: "viewfinder",          color: .yellow,
-                                        value: $settings.scoreWeightBboxArea)  { settings.save() }
-                            .help("Cyclists filling more of the frame score higher. Default: 5%")
                         WeightSliderRow(label: "Strava segment",  icon: "location",            color: .teal,
                                         value: $settings.scoreWeightSegment)   { settings.save() }
                             .help("Bonus during a Strava segment effort — higher for PRs. Default: 5%")

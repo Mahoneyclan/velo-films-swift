@@ -38,11 +38,11 @@ enum AppConfig {
     static var yoloMinConfidence: Float { Float(GlobalSettings.shared.yoloMinConfidence) }
     static let yoloBatchSizeMac: Int = 8
     static let yoloBatchSizeiPad: Int = 4
-    static let yoloDetectClasses: Set<Int> = [0, 1, 2, 3, 5, 7, 9, 11]
+    static let yoloDetectClasses: Set<Int> = [0, 1, 2, 3, 5, 7]
 
     enum YOLOClass: Int, CaseIterable {
         case person = 0, bicycle = 1, car = 2, motorcycle = 3
-        case bus = 5, truck = 7, trafficLight = 9, stopSign = 11
+        case bus = 5, truck = 7
     }
 
     // MARK: - Scoring weights — reads from GlobalSettings so user can tune them
@@ -51,7 +51,6 @@ enum AppConfig {
         static var sceneBoost: Double   { GlobalSettings.shared.scoreWeightScene }
         static var speedKmh: Double     { GlobalSettings.shared.scoreWeightSpeed }
         static var gradient: Double     { GlobalSettings.shared.scoreWeightGradient }
-        static var bboxArea: Double     { GlobalSettings.shared.scoreWeightBboxArea }
         static var segmentBoost: Double { GlobalSettings.shared.scoreWeightSegment }
         static var dualCamera: Double   { GlobalSettings.shared.scoreWeightDualCamera }
     }
@@ -62,10 +61,6 @@ enum AppConfig {
     // MARK: - Score normalisation denominators
     static let speedNormDivisor: Double = 60.0
     static let gradNormDivisor: Double = 8.0
-    /// Normalises bbox_area (frame fraction) to 1.0 at this threshold.
-    /// 0.15 = detections covering 15% of the frame → max score. A cyclist at 30m ≈ 0.03,
-    /// a group of three cyclists ≈ 0.08, a close-passing car ≈ 0.25 (capped at 1.0).
-    static let bboxNormDivisor: Double = 0.15
 
     // MARK: - Camera
     enum CameraName: String, CaseIterable, Codable {
