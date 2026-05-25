@@ -23,7 +23,6 @@ extension Project {
     var framesDir: URL       { folderURL.appending(path: "frames") }
     var minimapsDir: URL     { folderURL.appending(path: "minimaps") }
     var elevationDir: URL    { folderURL.appending(path: "elevation") }
-    var trophiesDir: URL     { folderURL.appending(path: "trophies") }
     var splashAssetsDir: URL { folderURL.appending(path: "splash_assets") }
 
     var gpxFile: URL         { workingDir.appending(path: "ride.gpx") }

@@ -11,7 +11,6 @@ enum ProjectFileManager {
             project.framesDir,
             project.minimapsDir,
             project.elevationDir,
-            project.trophiesDir,
             project.splashAssetsDir,
         ]
         for dir in dirs {
