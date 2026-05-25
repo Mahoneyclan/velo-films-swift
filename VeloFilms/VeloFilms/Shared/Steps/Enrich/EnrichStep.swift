@@ -106,7 +106,6 @@ struct EnrichStep: PipelineStep {
                 sceneBoost: sceneBoost,
                 speedKmh: gps?.speedKmh ?? 0,
                 gradientPct: gps?.gradientPct ?? 0,
-                bboxArea: bboxArea,
                 segmentBoost: segBoost,
                 camera: camera
             ))

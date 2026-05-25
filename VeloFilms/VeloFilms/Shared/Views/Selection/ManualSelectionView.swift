@@ -1026,15 +1026,12 @@ private struct ScoreBar: View {
         let grad    = min(abs(row.gradientPct ?? 0) / AppConfig.gradNormDivisor, 1.0)
                                                           * AppConfig.ScoreWeights.gradient
         let scene   = min(row.sceneBoost, 1.0)           * AppConfig.ScoreWeights.sceneBoost
-        let bbox    = min(row.bboxArea / AppConfig.bboxNormDivisor, 1.0)
-                                                          * AppConfig.ScoreWeights.bboxArea
         let segment = min(row.segmentBoost, 1.0)         * AppConfig.ScoreWeights.segmentBoost
         return [
             Segment(label: "detect",  value: detect,  color: .green),
             Segment(label: "speed",   value: speed,   color: .blue),
             Segment(label: "grade",   value: grad,    color: .orange),
             Segment(label: "scene",   value: scene,   color: .purple),
-            Segment(label: "bbox",    value: bbox,    color: .yellow),
             Segment(label: "segment", value: segment, color: .teal),
         ]
     }

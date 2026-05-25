@@ -9,24 +9,20 @@ enum ScoreCalculator {
         var sceneBoost: Double
         var speedKmh: Double
         var gradientPct: Double
-        var bboxArea: Double
         var segmentBoost: Double
         var camera: AppConfig.CameraName
     }
 
     static func composite(_ input: Input) -> Double {
         let speedNorm = min(1.0, input.speedKmh / AppConfig.speedNormDivisor)
-        // Zero out gradient when stopped — gradient on a parked bike isn't a highlight signal
         let moving    = input.speedKmh >= 1.0
         let gradNorm  = moving ? min(1.0, abs(input.gradientPct) / AppConfig.gradNormDivisor) : 0.0
-        let bboxNorm  = min(1.0, input.bboxArea / AppConfig.bboxNormDivisor)
 
         let w = AppConfig.ScoreWeights.self
         return input.detectScore  * w.detectScore
              + input.sceneBoost   * w.sceneBoost
              + speedNorm          * w.speedKmh
              + gradNorm           * w.gradient
-             + bboxNorm           * w.bboxArea
              + input.segmentBoost * w.segmentBoost
     }
 
