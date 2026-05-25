@@ -52,6 +52,7 @@ struct ManualSelectionView: View {
 
     // MARK: Focus Mode state (view-level only — does not affect AI selection)
     @State private var activeFocusFilter: FocusFilter = .all
+    @State private var activeSegmentFilter: String? = nil
     @State private var rideStartEpoch: Double = 0
     @State private var rideDurationS: Double = 0
     @State private var lapRanges: [(name: String, startEpoch: Double, endEpoch: Double)] = []
@@ -66,6 +67,25 @@ struct ManualSelectionView: View {
 
     private var stravaPRMomentIds: Set<Int> {
         Set(selectRows.filter { $0.stravaPR }.map { $0.base.momentId })
+    }
+
+    /// Unique segment names from this ride's efforts, ordered by first appearance.
+    private var availableSegments: [String] {
+        var seen = Set<String>()
+        return selectRows
+            .sorted { $0.base.absTimeEpoch < $1.base.absTimeEpoch }
+            .compactMap { row -> String? in
+                guard let name = row.segmentName else { return nil }
+                return seen.insert(name).inserted ? name : nil
+            }
+    }
+
+    /// Maps momentId → segment name for fast lookup in filteredMoments.
+    private var segmentByMomentId: [Int: String] {
+        Dictionary(uniqueKeysWithValues: selectRows.compactMap { row in
+            guard let name = row.segmentName else { return nil }
+            return (row.base.momentId, name)
+        })
     }
 
     private var stats: DetectionStats { DetectionStats(rows: selectRows) }
@@ -93,6 +113,11 @@ struct ManualSelectionView: View {
             result = result.filter { activeFocusFilter.matches($0, in: ctx) }
         }
 
+        if let seg = activeSegmentFilter {
+            let lookup = segmentByMomentId
+            result = result.filter { lookup[$0.momentId] == seg }
+        }
+
         if let cls = classFilter {
             result = result.filter { moment in
                 [moment.fly12Row, moment.fly6Row].compactMap { $0 }.contains {
@@ -116,12 +141,14 @@ struct ManualSelectionView: View {
                 // Read settings here in body so @Observable tracking fires in this view
                 let s = GlobalSettings.shared
                 FocusModeBar(
-                    activeFocusFilter:  $activeFocusFilter,
-                    rideDurationS:      rideDurationS,
-                    climbGradientPct:   s.focusClimbGradientPct,
-                    descentGradientPct: s.focusDescentGradientPct,
-                    groupMinDetections: s.focusGroupMinDetections,
-                    hasStravaPRs:       !stravaPRMomentIds.isEmpty
+                    activeFocusFilter:   $activeFocusFilter,
+                    rideDurationS:       rideDurationS,
+                    climbGradientPct:    s.focusClimbGradientPct,
+                    descentGradientPct:  s.focusDescentGradientPct,
+                    groupMinDetections:  s.focusGroupMinDetections,
+                    hasStravaPRs:        !stravaPRMomentIds.isEmpty,
+                    segmentNames:        availableSegments,
+                    activeSegmentFilter: $activeSegmentFilter
                 )
                 .padding(.vertical, 6)
 
@@ -397,6 +424,8 @@ private struct FocusModeBar: View {
     let descentGradientPct: Double   // stored negative (e.g. -4.0)
     let groupMinDetections: Int
     var hasStravaPRs: Bool = false
+    var segmentNames: [String] = []
+    @Binding var activeSegmentFilter: String?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -447,6 +476,35 @@ private struct FocusModeBar: View {
                         icon: "trophy",
                         isActive: activeFocusFilter == .stravaPR
                     ) { activeFocusFilter = activeFocusFilter == .stravaPR ? .all : .stravaPR }
+                }
+
+                if !segmentNames.isEmpty {
+                    Menu {
+                        Button {
+                            activeSegmentFilter = nil
+                        } label: {
+                            Label("All segments", systemImage: activeSegmentFilter == nil ? "checkmark" : "")
+                        }
+                        Divider()
+                        ForEach(segmentNames, id: \.self) { name in
+                            Button {
+                                activeSegmentFilter = activeSegmentFilter == name ? nil : name
+                            } label: {
+                                Label(name, systemImage: activeSegmentFilter == name ? "checkmark" : "")
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "location").font(.caption2)
+                            Text(activeSegmentFilter ?? "Segment").font(.caption.bold())
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(activeSegmentFilter != nil ? Color.accentColor : Color.secondary.opacity(0.15))
+                        .foregroundStyle(activeSegmentFilter != nil ? Color.white : Color.primary)
+                        .clipShape(Capsule())
+                    }
                 }
             }
             .padding(.horizontal, 12)
