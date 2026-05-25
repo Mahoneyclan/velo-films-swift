@@ -1,5 +1,6 @@
 import Foundation
 import AuthenticationServices
+import os
 
 /// Handles Strava OAuth2 flow via ASWebAuthenticationSession.
 /// Mirrors strava_client.py OAuth handling.
@@ -121,7 +122,9 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         if let window = scenes.first?.windows.first { return window }
         if let scene = scenes.first { return UIWindow(windowScene: scene) }
-        fatalError("No connected UIWindowScene — cannot present Strava auth UI")
+        Logger(subsystem: "com.velofilms", category: "StravaAuth")
+            .error("No connected UIWindowScene — auth sheet may not present correctly")
+        return UIWindow()
     }
 #endif
 
