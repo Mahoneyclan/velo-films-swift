@@ -70,12 +70,26 @@ final class PipelineExecutor {
             } catch {
                 self.log.error("Step failed: \(error.localizedDescription)")
                 await MainActor.run {
+                    Self.appendToLog("Step failed (\(self.runningStep?.rawValue ?? "?")): \(error)")
                     self.failedStep = self.runningStep
                     self.lastError = error
                     self.runningStep = nil
                 }
             }
             await MainActor.run { self.isRunning = false }
+        }
+    }
+
+    private nonisolated static func appendToLog(_ message: String) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard let url = docs?.appending(path: "pipeline.log"),
+              let data = "[\(Date())] \(message)\n".data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url)
         }
     }
 
