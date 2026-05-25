@@ -372,7 +372,7 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 **Critical path: simulator build → physical device → real footage QA.**
 
 - [x] Get a clean simulator build — StravaAuth UIWindow fallback fixed; sheets use presentationDetents; builds pass on both targets
-- [ ] Guard "Open in Finder" button for macOS only — currently shown on iPad but calls a no-op `#if os(macOS)` function (`ProjectDetailView.swift:255`)
+- [x] Guard "Open in Finder" button for macOS only — currently shown on iPad but calls a no-op `#if os(macOS)` function (`ProjectDetailView.swift:255`)
 - [ ] Deploy to iPad via direct device build in Xcode (or TestFlight)
 - [ ] Run full pipeline end-to-end on a real ride with real Cycliq footage from external drive
 - [ ] Visual QA every rendered output: gauges, minimap, PiP composite, splash cards — output must match macOS FFmpeg quality
@@ -488,8 +488,8 @@ Literal URL force-unwraps (`StravaAuth.swift:7`, `GarminAuth.swift:241/336/379`)
 
 These use string interpolation and could fail if `baseURL` / `base` is ever malformed:
 
-- [ ] `StravaClient.swift:44, 53, 65` — `URL(string: "\(baseURL)/...")!`
-- [ ] `GarminClient.swift:49, 56` — `URL(string: "\(base)/...")!`
+- [x] `StravaClient.swift:44, 53, 65` — `URL(string: "\(baseURL)/...")!`
+- [x] `GarminClient.swift:49, 56` — `URL(string: "\(base)/...")!`
 
 Fix: `guard let url = URL(string: ...) else { throw URLError(.badURL) }`
 
@@ -499,10 +499,10 @@ Fix: `guard let url = URL(string: ...) else { throw URLError(.badURL) }`
 
 All seven instances below have a `guard !arr.isEmpty` or `guard arr.count >= 2` check immediately above them, so they won't crash given current code. But the guard + force-unwrap is fragile — if a future edit moves or removes the guard, these silently become crash sites.
 
-- [ ] `ExtractStep.swift:24–25` — `flattenRows.first!/last!`
-- [ ] `ClipSelector.swift:21–22` — `moments.first!/last!`
-- [ ] `GPXParser.swift:106–107` — `sorted.first!/last!`
-- [ ] `SelectStep.swift:121–122` — `entries.first!/last!`
+- [x] `ExtractStep.swift:24–25` — `flattenRows.first!/last!`
+- [x] `ClipSelector.swift:21–22` — `moments.first!/last!`
+- [x] `GPXParser.swift:106–107` — `sorted.first!/last!`
+- [x] `SelectStep.swift:121–122` — `entries.first!/last!`
 
 Fix: replace with `sorted.first!` → `sorted[0]` (within the guard block, where non-emptiness is proved), or use safe alternatives and propagate via throw.
 
@@ -512,8 +512,8 @@ Fix: replace with `sorted.first!` → `sorted[0]` (within the guard block, where
 
 `CGColorSpaceCreateDeviceRGB()` / `DeviceGray()` in hot paths:
 
-- [ ] `SceneDetector.swift:37` — allocated in `score()`, called per video frame
-- [ ] `YOLOInference.swift:124` — allocated in pixel buffer creation, called per video frame
+- [x] `SceneDetector.swift:37` — allocated in `score()`, called per video frame
+- [x] `YOLOInference.swift:124` — allocated in pixel buffer creation, called per video frame
 
 Fix: `private static let colorSpaceRGB = CGColorSpaceCreateDeviceRGB()` at struct/class scope.
 

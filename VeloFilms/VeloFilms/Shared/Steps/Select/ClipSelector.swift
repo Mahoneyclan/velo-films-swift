@@ -18,8 +18,8 @@ struct ClipSelector {
     static func select(moments: [PartnerMatcher.Moment], config: Config = Config()) -> [PartnerMatcher.Moment] {
         guard !moments.isEmpty else { return [] }
 
-        let rideStart = Double(moments.first!.momentId)
-        let rideEnd   = Double(moments.last!.momentId)
+        let rideStart = Double(moments[0].momentId)
+        let rideEnd   = Double(moments[moments.count - 1].momentId)
 
         // Use moving-time boundaries if provided by SelectStep; fall back to wall-clock %.
         let startZoneEnd: Double

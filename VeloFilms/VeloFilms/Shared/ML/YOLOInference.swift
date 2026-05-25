@@ -19,6 +19,7 @@ final class YOLODetector {
     private let modelURL: URL
     private var outputName: String?
     private let modelLock = NSLock()
+    private static let rgbSpace = CGColorSpaceCreateDeviceRGB()
 
     /// Class weights for detectScore — reads from GlobalSettings so user can tune per-class.
     /// Person (0) and bicycle (1) share the bicycle enable+weight (cyclist context).
@@ -121,7 +122,7 @@ final class YOLODetector {
             width: width, height: height,
             bitsPerComponent: 8,
             bytesPerRow: CVPixelBufferGetBytesPerRow(pb),
-            space: CGColorSpaceCreateDeviceRGB(),
+            space: Self.rgbSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
         )
         ctx?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))

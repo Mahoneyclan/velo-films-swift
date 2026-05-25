@@ -22,8 +22,8 @@ struct ExtractStep: PipelineStep {
             throw PipelineError.missingInput("flatten.jsonl is empty — run flatten step first")
         }
 
-        let gpxStart = flattenRows.first!.gpxEpoch
-        let gpxEnd   = flattenRows.last!.gpxEpoch
+        let gpxStart = flattenRows[0].gpxEpoch
+        let gpxEnd   = flattenRows[flattenRows.count - 1].gpxEpoch
         let extension_ = AppConfig.gpxGridExtensionM * 60
         let gridStart  = gpxStart - extension_
         let gridEnd    = gpxEnd   + extension_

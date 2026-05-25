@@ -42,7 +42,7 @@ struct StravaClient {
 
     func recentActivities(page: Int = 1, perPage: Int = 30) async throws -> [StravaActivity] {
         let token = try await auth.ensureValidToken()
-        let url = URL(string: "\(baseURL)/athlete/activities?page=\(page)&per_page=\(perPage)")!
+        guard let url = URL(string: "\(baseURL)/athlete/activities?page=\(page)&per_page=\(perPage)") else { throw URLError(.badURL) }
         let data = try await getData(url: url, token: token)
         return try JSONDecoder().decode([StravaActivity].self, from: data)
     }
@@ -51,7 +51,7 @@ struct StravaClient {
 
     func downloadGPX(activityID: Int, startDate: Date, activityName: String, to outputURL: URL) async throws {
         let token = try await auth.ensureValidToken()
-        let streamsURL = URL(string: "\(baseURL)/activities/\(activityID)/streams?keys=latlng,altitude,time,heartrate,cadence,grade_smooth&key_by_type=true")!
+        guard let streamsURL = URL(string: "\(baseURL)/activities/\(activityID)/streams?keys=latlng,altitude,time,heartrate,cadence,grade_smooth&key_by_type=true") else { throw URLError(.badURL) }
         let streamsData = try await getData(url: streamsURL, token: token)
         let streams = (try? JSONSerialization.jsonObject(with: streamsData) as? [String: Any]) ?? [:]
         let gpxString = buildGPX(from: streams, startDate: startDate, activityName: activityName)
@@ -63,7 +63,7 @@ struct StravaClient {
     func downloadActivityDetails(activityID: Int, segmentsTo: URL, lapsTo: URL,
                                  descriptionTo: URL) async throws {
         let token = try await auth.ensureValidToken()
-        let url = URL(string: "\(baseURL)/activities/\(activityID)?include_all_efforts=true")!
+        guard let url = URL(string: "\(baseURL)/activities/\(activityID)?include_all_efforts=true") else { throw URLError(.badURL) }
         let data = try await getData(url: url, token: token)
         guard let activity = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 

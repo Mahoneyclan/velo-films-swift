@@ -9,6 +9,7 @@ import Accelerate
 final class SceneDetector {
     private let windowSize: Int  // number of frames in comparison window
     private var cameras: [String: CameraBuffer] = [:]
+    private static let graySpace = CGColorSpaceCreateDeviceGray()
 
     init(windowSeconds: Double = AppConfig.sceneComparisonWindowS, fps: Double = 1.0) {
         windowSize = max(1, Int(windowSeconds / fps))
@@ -34,7 +35,7 @@ final class SceneDetector {
         let size = 64
         guard let ctx = CGContext(data: nil, width: size, height: size,
                                   bitsPerComponent: 8, bytesPerRow: size,
-                                  space: CGColorSpaceCreateDeviceGray(),
+                                  space: Self.graySpace,
                                   bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
             return Array(repeating: 0, count: size * size)
         }
