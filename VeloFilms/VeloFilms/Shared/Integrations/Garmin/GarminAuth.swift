@@ -343,9 +343,12 @@ final class GarminAuth {
     // MARK: - SSO HTTP helpers
 
     private func ssoGet(_ urlStr: String, params: [String: String], extraHeaders: [String: String] = [:]) async throws -> String {
-        var comps = URLComponents(string: urlStr)!
+        guard var comps = URLComponents(string: urlStr) else {
+            throw URLError(.badURL)
+        }
         if !params.isEmpty { comps.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) } }
-        var req = URLRequest(url: comps.url!)
+        guard let url = comps.url else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
         ssoPageHeaders.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
         extraHeaders.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
         let (data, _) = try await ssoSession.data(for: req)
@@ -354,9 +357,12 @@ final class GarminAuth {
 
     private func ssoPostJSON(_ urlStr: String, params: [String: String], body: [String: Any],
                              extraHeaders: [String: String] = [:]) async throws -> Data {
-        var comps = URLComponents(string: urlStr)!
+        guard var comps = URLComponents(string: urlStr) else {
+            throw URLError(.badURL)
+        }
         comps.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
-        var req = URLRequest(url: comps.url!)
+        guard let url = comps.url else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
         ssoPageHeaders.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
         extraHeaders.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
