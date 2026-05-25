@@ -1,11 +1,14 @@
 import Foundation
 import AVFoundation
+import os
 
 /// Phase 1: Joins clip_0001…N into _middle.mp4 with crossfade transitions and backing music.
 /// Phase 2: Joins _intro + _middle + _outro into {rideName}.mp4 (audio passthrough — each part
 ///           has its own music already baked: intro.mp3, backing music, outro.mp3).
 /// macOS: FFmpeg xfade/acrossfade filter chain with timebase normalisation + amix (phase 1 only).
 /// iOS:   AVMutableComposition A/B opacity + audio volume ramps + music track (phase 1 only).
+private let log = Logger(subsystem: "com.velofilms", category: "ConcatStep")
+
 struct ConcatStep: PipelineStep {
     let name = "concat"
 
@@ -131,7 +134,7 @@ struct ConcatStep: PipelineStep {
                 let bDurs     = Array(durations[offset..<end])
                 let segURL    = tmpDir.appending(path: "_xseg_\(segIdx).mp4")
                 try? FileManager.default.removeItem(at: segURL)
-                print("[ConcatStep] batch \(segIdx): clips \(offset+1)–\(end) → \(segURL.lastPathComponent)")
+                log.info("batch \(segIdx): clips \(offset+1)–\(end) → \(segURL.lastPathComponent)")
                 // applyRawVolume: false — rv applied once in the join pass below
                 try await xfadeConcat(parts: bParts, durations: bDurs,
                                       outputURL: segURL, bridge: bridge,
@@ -144,7 +147,7 @@ struct ConcatStep: PipelineStep {
                 segIdx  += 1
             }
             // Join segments with music — rv applied here for the first (and only) time
-            print("[ConcatStep] joining \(segURLs.count) segments → \(outputURL.lastPathComponent)")
+            log.info("joining \(segURLs.count) segments → \(outputURL.lastPathComponent)")
             try await xfadeConcat(parts: segURLs, durations: segDurs,
                                   outputURL: outputURL, bridge: bridge,
                                   musicURL: musicURL, applyRawVolume: true)
@@ -239,7 +242,7 @@ struct ConcatStep: PipelineStep {
         }
 
         let filter = filterParts.joined(separator: ";")
-        print("[ConcatStep] xfade middle: \(parts.count) clips, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
+        log.info("xfade middle: \(parts.count) clips, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
@@ -306,7 +309,7 @@ struct ConcatStep: PipelineStep {
         filterParts.append("[achain]anull[aout]")
 
         let filter = filterParts.joined(separator: ";")
-        print("[ConcatStep] xfade join: \(parts.count) parts → \(outputURL.lastPathComponent)")
+        log.info("xfade join: \(parts.count) parts → \(outputURL.lastPathComponent)")
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
@@ -446,7 +449,7 @@ struct ConcatStep: PipelineStep {
         let audioMix = AVMutableAudioMix()
         audioMix.inputParameters = inputParams
 
-        print("[ConcatStep] crossfade join (AVF): \(parts.count) parts, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
+        log.info("crossfade join (AVF): \(parts.count) parts, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
         try await VideoEncoder.export(composition: composition,
                                        videoComposition: videoComp,
                                        audioMix: audioMix,

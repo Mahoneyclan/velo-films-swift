@@ -94,13 +94,21 @@ extension FocusFilter {
         }
     }
 
-    /// Counts person + bicycle detections for group-riding determination.
+    /// Counts riders in a moment — defined as max(person detections, bicycle detections)
+    /// per camera row, then max across rows.
+    ///
+    /// Using max(persons, bicycles) rather than summing both avoids double-counting:
+    /// a cyclist detected as both "person" and "bicycle" is one rider, not two.
+    /// Taking the per-row max (not sum) avoids double-counting the same group
+    /// viewed from two camera angles.
     static func riderCount(for moment: PartnerMatcher.Moment) -> Int {
-        guard let row = moment.primary ?? moment.rows.first else { return 0 }
-        let riderClasses: Set<String> = ["person", "bicycle"]
-        return row.detectedClasses
-            .split(separator: ",")
-            .filter { riderClasses.contains(String($0).trimmingCharacters(in: CharacterSet.whitespaces).lowercased()) }
-            .count
+        return moment.rows.map { row in
+            let classes = row.detectedClasses
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            let persons  = classes.filter { $0 == "person" }.count
+            let bicycles = classes.filter { $0 == "bicycle" }.count
+            return max(persons, bicycles)
+        }.max() ?? 0
     }
 }

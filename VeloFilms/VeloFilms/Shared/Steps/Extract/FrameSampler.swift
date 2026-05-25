@@ -103,12 +103,13 @@ enum FrameSampler {
 
     // MARK: - Frame extraction
 
-    static func makeGenerator(for videoURL: URL) -> AVAssetImageGenerator {
+    static func makeGenerator(for videoURL: URL, maximumSize: CGSize? = nil) -> AVAssetImageGenerator {
         let asset = AVURLAsset(url: videoURL)
         let gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
         gen.requestedTimeToleranceAfter  = CMTime(seconds: 0.5, preferredTimescale: 600)
+        if let sz = maximumSize { gen.maximumSize = sz }
         return gen
     }
 

@@ -53,13 +53,16 @@ final class GlobalSettings {
     // MARK: - Display
     var dynamicGauges: Bool = true
 
-    // MARK: - Detection
-    var yoloMinConfidence: Double = 0.10          // person + bicycle
-    var yoloVehicleConfidence: Double = 0.50      // car, motorcycle, bus, truck, traffic light, stop sign
+    // MARK: - Detection confidence thresholds
+    var yoloBicycleConfidence: Double    = 0.10   // bicycle class
+    var yoloPedestrianConfidence: Double = 0.25   // person class (no bicycle in frame)
+    var yoloVehicleConfidence: Double    = 0.50   // car, motorcycle, bus, truck
 
     // MARK: - Per-class YOLO enable + detectScore weight
-    var yoloEnablePerson: Bool       = true;  var yoloWeightPerson: Double       = 1.0
+    /// Cyclist — applied to both person and bicycle detections when bicycle is present in the frame.
     var yoloEnableBicycle: Bool      = true;  var yoloWeightBicycle: Double      = 1.0
+    /// Pedestrian — person detected without a bicycle. Enable/disable score contribution independently.
+    var yoloEnablePedestrian: Bool   = true;  var yoloWeightPedestrian: Double   = 0.3
     var yoloEnableCar: Bool          = true;  var yoloWeightCar: Double          = 0.3
     var yoloEnableMotorcycle: Bool   = true;  var yoloWeightMotorcycle: Double   = 0.6
     var yoloEnableBus: Bool          = true;  var yoloWeightBus: Double          = 0.2
@@ -119,11 +122,11 @@ final class GlobalSettings {
         dynamicGauges           = (UserDefaults.standard.object(forKey: "dynamicGauges") as? Bool) ?? true
 
         // Use object(forKey:) for weights/confidence so 0.0 is a valid stored value (not treated as "unset")
-        yoloMinConfidence      = (UserDefaults.standard.object(forKey: "yoloMinConfidence")      as? Double) ?? yoloMinConfidence
-        yoloVehicleConfidence  = (UserDefaults.standard.object(forKey: "yoloVehicleConfidence")  as? Double) ?? yoloVehicleConfidence
-        yoloEnablePerson       = (UserDefaults.standard.object(forKey: "yoloEnablePerson")       as? Bool)   ?? true
-        yoloWeightPerson       = (UserDefaults.standard.object(forKey: "yoloWeightPerson")       as? Double) ?? 1.0
+        yoloBicycleConfidence    = (UserDefaults.standard.object(forKey: "yoloBicycleConfidence")    as? Double) ?? 0.10
+        yoloPedestrianConfidence = (UserDefaults.standard.object(forKey: "yoloPedestrianConfidence") as? Double) ?? 0.25
+        yoloVehicleConfidence    = (UserDefaults.standard.object(forKey: "yoloVehicleConfidence")    as? Double) ?? 0.50
         yoloEnableBicycle      = (UserDefaults.standard.object(forKey: "yoloEnableBicycle")      as? Bool)   ?? true
+        yoloEnablePedestrian   = (UserDefaults.standard.object(forKey: "yoloEnablePedestrian")   as? Bool)   ?? true
         yoloWeightBicycle      = (UserDefaults.standard.object(forKey: "yoloWeightBicycle")      as? Double) ?? 1.0
         yoloEnableCar          = (UserDefaults.standard.object(forKey: "yoloEnableCar")          as? Bool)   ?? true
         yoloWeightCar          = (UserDefaults.standard.object(forKey: "yoloWeightCar")          as? Double) ?? 0.3
@@ -167,11 +170,12 @@ final class GlobalSettings {
         UserDefaults.standard.set(musicVolume,             forKey: "musicVolume")
         UserDefaults.standard.set(rawAudioVolume,          forKey: "rawAudioVolume")
         UserDefaults.standard.set(dynamicGauges,            forKey: "dynamicGauges")
-        UserDefaults.standard.set(yoloMinConfidence,        forKey: "yoloMinConfidence")
+        UserDefaults.standard.set(yoloBicycleConfidence,    forKey: "yoloBicycleConfidence")
+        UserDefaults.standard.set(yoloPedestrianConfidence, forKey: "yoloPedestrianConfidence")
         UserDefaults.standard.set(yoloVehicleConfidence,   forKey: "yoloVehicleConfidence")
-        UserDefaults.standard.set(yoloEnablePerson,        forKey: "yoloEnablePerson")
-        UserDefaults.standard.set(yoloWeightPerson,        forKey: "yoloWeightPerson")
         UserDefaults.standard.set(yoloEnableBicycle,       forKey: "yoloEnableBicycle")
+        UserDefaults.standard.set(yoloEnablePedestrian,    forKey: "yoloEnablePedestrian")
+        UserDefaults.standard.set(yoloWeightPedestrian,    forKey: "yoloWeightPedestrian")
         UserDefaults.standard.set(yoloWeightBicycle,       forKey: "yoloWeightBicycle")
         UserDefaults.standard.set(yoloEnableCar,           forKey: "yoloEnableCar")
         UserDefaults.standard.set(yoloWeightCar,           forKey: "yoloWeightCar")

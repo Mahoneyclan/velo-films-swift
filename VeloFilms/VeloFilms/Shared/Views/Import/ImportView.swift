@@ -45,7 +45,12 @@ struct ImportView: View {
             }
 #endif
         }
+        #if os(macOS)
         .frame(minWidth: 360, minHeight: 220)
+        #else
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #endif
         .alert("Failed to Create Project", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }

@@ -84,7 +84,12 @@ struct CopyVideosView: View {
                 }
             }
         }
+        #if os(macOS)
         .frame(minWidth: 520, minHeight: 440)
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
         .alert("Copy Complete", isPresented: Binding(
             get: { copyDoneMessage != nil },
             set: { if !$0 { copyDoneMessage = nil } }

@@ -3,6 +3,7 @@ import AVFoundation
 import CoreGraphics
 import MapKit
 import CoreLocation
+import os
 #if os(macOS)
 import AppKit
 #else
@@ -11,6 +12,8 @@ import UIKit
 
 /// Builds _intro.mp4: logo → map+banner → collage crossfade chain, with music.
 /// Mirrors intro_builder.py. All rendering via AVFoundation + Core Graphics.
+private let introLog = Logger(subsystem: "com.velofilms", category: "IntroBuilder")
+
 enum IntroBuilder {
 
     static func build(project: Project,
@@ -23,7 +26,7 @@ enum IntroBuilder {
         try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
 
         let stats       = computeRideStats(flattenRows: flattenRows)
-        let frames      = collectFrames(from: project.framesDir, selectRows: selectRows, max: 24)
+        let frames      = collectFrames(from: project.framesDir, selectRows: selectRows, max: 60)
         let description = loadFilteredDescription(from: project.descriptionTXT)
 
         let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
@@ -234,7 +237,7 @@ enum IntroBuilder {
                 }
             }
         }
-        print("[IntroBuilder] findResourceImage: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
+        introLog.warning("findResourceImage: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
         return nil
     }
 
@@ -248,7 +251,7 @@ enum IntroBuilder {
                 }
             }
         }
-        print("[IntroBuilder] findResourceAudio: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
+        introLog.warning("findResourceAudio: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
         return nil
     }
 
@@ -274,10 +277,12 @@ enum IntroBuilder {
         let recommended = Set(selectRows.filter { $0.recommended }.map { $0.base.index })
         let all = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
-        let jpgs = all.filter { $0.pathExtension.lowercased() == "jpg" }
+        let jpgs = all
+            .filter { $0.pathExtension.lowercased() == "jpg" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        // Exact stem match against the full index string (e.g. "Fly12Sport_001_000042")
         let filtered = jpgs.filter { url in
-            recommended.contains(where: { url.lastPathComponent.contains(String($0)) })
+            recommended.contains(url.deletingPathExtension().lastPathComponent)
         }
         return Array((filtered.isEmpty ? jpgs : filtered).prefix(max))
     }

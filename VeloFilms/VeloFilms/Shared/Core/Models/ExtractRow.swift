@@ -1,6 +1,6 @@
 import Foundation
 
-/// One row in extract.csv — a sampled frame at a GPX-grid point.
+/// One row in extract.jsonl — a sampled frame at a GPX-grid point.
 /// Mirrors extract.py output schema exactly.
 struct ExtractRow: Codable {
     var index: String           // "{camera}_{clipId}_{sec:06d}"

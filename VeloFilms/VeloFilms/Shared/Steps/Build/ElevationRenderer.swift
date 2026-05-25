@@ -8,7 +8,7 @@ import UIKit
 
 /// Renders the 948×75px elevation strip for a single clip.
 /// Mirrors elevation_prerenderer.py + matplotlib output:
-///   - Distance-based x-axis (cumulative haversine km from flatten.csv start)
+///   - Distance-based x-axis (cumulative haversine km from flatten.jsonl start)
 ///   - Filled green area under line
 ///   - Yellow position marker dot
 ///   - Semi-transparent dark background

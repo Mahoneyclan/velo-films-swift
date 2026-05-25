@@ -157,6 +157,11 @@ struct ProjectDetailView: View {
                         Text("Analysis complete")
                         Spacer()
                         Button("Re-run") {
+                            // Delete Enrich + Select artifacts so the dependency chain
+                            // re-runs both — otherwise it would skip Enrich (already complete)
+                            // and only re-run Select, missing any YOLO setting changes.
+                            try? FileManager.default.removeItem(at: project.enrichedJSONL)
+                            try? FileManager.default.removeItem(at: project.selectJSONL)
                             pendingReviewPrompt = true
                             reviewedFlag = false
                             UserDefaults.standard.set(false, forKey: reviewedKey)
@@ -425,6 +430,11 @@ private struct GPXPickerView: View {
                 GarminImportView(onComplete: { onGPXSaved(); dismiss() }, targetProject: project)
             }
         }
+        #if os(macOS)
         .frame(minWidth: 380, minHeight: 260)
+        #else
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #endif
     }
 }

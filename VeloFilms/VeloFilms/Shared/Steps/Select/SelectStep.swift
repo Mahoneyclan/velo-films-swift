@@ -44,17 +44,27 @@ struct SelectStep: PipelineStep {
         let existingByIndex = Dictionary(existingRows.map { ($0.base.index, $0) },
                                          uniquingKeysWith: { a, _ in a })
 
+        // SegmentMatcher — re-query with timezone offset so segment names and PR flags
+        // are correct even when abs_time_epoch is local-time-as-UTC (Cycliq wrong-Z).
+        let segMatcher = SegmentMatcher(segmentsURL: project.segmentsJSON)
+        let rideStartEpoch = enrichedRows.map(\.absTimeEpoch).min() ?? 0
+        let stravaOffset = segMatcher.stravaOffset(rideStartEpoch: rideStartEpoch)
+
         // Build select.jsonl rows — one row per EnrichRow, with recommended flag.
         // Manual overrides (manualOverride != nil) take precedence over AI selection.
         var selectRows: [SelectRow] = []
         for row in enrichedRows {
-            let moment   = momentById[row.momentId]
-            let aiIsRec  = selectedIds.contains(row.momentId) && moment?.primary?.index == row.index
-            let isPaired = moment?.secondary != nil
-            let isPR     = (row.segmentBoost >= AppConfig.StravaBoost.rank1)
-            let existing = existingByIndex[row.index]
-            let override = existing?.manualOverride
-            let isRec    = override ?? aiIsRec   // manual wins if set
+            let moment      = momentById[row.momentId]
+            let aiIsRec     = selectedIds.contains(row.momentId) && moment?.primary?.index == row.index
+            let isPaired    = moment?.secondary != nil
+            let existing    = existingByIndex[row.index]
+            let override    = existing?.manualOverride
+            let isRec       = override ?? aiIsRec   // manual wins if set
+
+            // Use offset-corrected epoch so Strava UTC aligns with abs_time_epoch.
+            let adjustedEpoch = row.absTimeEpoch - stravaOffset
+            let segEffort     = segMatcher.effort(epoch: adjustedEpoch)
+            let isPR          = segEffort?.prRank == 1 || row.segmentBoost >= AppConfig.StravaBoost.rank1
 
             selectRows.append(SelectRow(
                 base: row,
@@ -62,6 +72,9 @@ struct SelectStep: PipelineStep {
                 stravaPR: isPR,
                 isSingleCamera: moment?.isSingleCamera ?? true,
                 paired: isPaired,
+                segmentName: segEffort?.name,
+                segmentDistance: segEffort?.distance,
+                segmentGrade: segEffort?.averageGrade,
                 manualOverride: override
             ))
         }

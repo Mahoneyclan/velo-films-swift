@@ -39,11 +39,11 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 print(f"Loading {YOLO_PT} ...")
 model = YOLO(str(YOLO_PT))
 
-print("Exporting to Core ML (int8, nms=True, imgsz=640) ...")
+print("Exporting to Core ML (int8, nms=False, imgsz=640) ...")
 exported = model.export(
     format="coreml",
     imgsz=640,
-    nms=True,
+    nms=False,
     int8=True,
 )
 

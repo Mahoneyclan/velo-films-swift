@@ -58,4 +58,20 @@ struct SegmentMatcher {
             .map { $0.boost }
             .max() ?? 0.0
     }
+
+    /// Returns the highest-boost effort whose window contains [epoch], or nil.
+    func effort(epoch: Double) -> SegmentEffort? {
+        efforts
+            .filter { epoch >= $0.startEpoch && epoch <= $0.endEpoch }
+            .max(by: { $0.boost < $1.boost })
+            .map(\.effort)
+    }
+
+    /// Whole-hour offset to add to Strava epochs (true UTC) so they align with
+    /// abs_time_epoch (Cycliq local-time-as-UTC). Returns 0 if no efforts loaded.
+    func stravaOffset(rideStartEpoch: Double) -> Double {
+        guard rideStartEpoch > 0,
+              let earliest = efforts.map(\.startEpoch).min() else { return 0 }
+        return ((rideStartEpoch - earliest) / 3600).rounded() * 3600
+    }
 }

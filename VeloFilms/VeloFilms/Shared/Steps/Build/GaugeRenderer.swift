@@ -295,20 +295,4 @@ struct GaugeRenderer {
         CTLineDraw(line, ctx)
     }
 
-    private static func saveContext(_ ctx: CGContext, to url: URL) throws {
-        guard let cgImage = ctx.makeImage() else {
-            throw PipelineError.missingInput("GaugeRenderer: failed to make CGImage")
-        }
-#if os(macOS)
-        let rep = NSBitmapImageRep(cgImage: cgImage)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
-            throw PipelineError.missingInput("GaugeRenderer: PNG encoding failed")
-        }
-#else
-        guard let data = UIImage(cgImage: cgImage).pngData() else {
-            throw PipelineError.missingInput("GaugeRenderer: PNG encoding failed")
-        }
-#endif
-        try data.write(to: url, options: .atomic)
-    }
 }

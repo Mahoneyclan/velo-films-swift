@@ -36,7 +36,12 @@ struct StravaImportView: View {
                 }
             }
         }
+        #if os(macOS)
         .frame(minWidth: 440, minHeight: 400)
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
     }
 
     private var signInPrompt: some View {

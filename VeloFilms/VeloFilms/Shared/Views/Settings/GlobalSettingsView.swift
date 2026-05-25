@@ -18,7 +18,7 @@ struct GlobalSettingsView: View {
                 .tabItem { Label("Setup",    systemImage: "folder") }
 
             CamerasTab(settings: settings)
-                .tabItem { Label("Cameras",  systemImage: "camera") }
+                .tabItem { Label("Time Sync", systemImage: "clock") }
 
             PipelineTab(settings: settings)
                 .tabItem { Label("Pipeline", systemImage: "film.stack") }
@@ -32,8 +32,13 @@ struct GlobalSettingsView: View {
             AudioTab(settings: settings, chooseMusic: chooseMusic)
                 .tabItem { Label("Audio",    systemImage: "music.note") }
         }
+        #if os(macOS)
         .frame(minWidth: 500, idealWidth: 540, minHeight: 620)
         .background(ResizableWindowAccessor())
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
         .fileImporter(isPresented: $showPicker,
                       allowedContentTypes: pickerTarget == .music
                           ? [.mp3, .mpeg4Audio, .wav, .aiff]
@@ -263,6 +268,16 @@ private struct CamerasTab: View {
                         .padding(8)
                     }
                 }
+
+                GroupBox("GPS Track") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        NumRow(label: "GPX time offset (s)", value: $settings.gpxTimeOffsetS)
+                            .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
+                        Text("Shift the GPX track forward or backward relative to video timestamps. Use when GPS and camera clocks are out of sync.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                }
             }
             .padding(20)
         }
@@ -316,15 +331,10 @@ private struct PipelineTab: View {
                     .padding(8)
                 }
 
-                GroupBox("Advanced") {
-                    VStack(spacing: 12) {
-                        NumRow(label: "GPX time offset (s)", value: $settings.gpxTimeOffsetS)
-                            .onChange(of: settings.gpxTimeOffsetS) { settings.save() }
-                        Divider()
-                        Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
-                            .onChange(of: settings.dynamicGauges) { settings.save() }
-                    }
-                    .padding(8)
+                GroupBox("Output") {
+                    Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
+                        .onChange(of: settings.dynamicGauges) { settings.save() }
+                        .padding(8)
                 }
             }
             .padding(20)
@@ -336,12 +346,11 @@ private struct PipelineTab: View {
 
 private struct ScoringTab: View {
     @Bindable var settings: GlobalSettings
+    @State private var showScoreWeights = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Changes take effect on the next Enrich / Select run.")
-                    .font(.caption).foregroundStyle(.secondary)
 
                 // YOLO class enable + per-class weights
                 GroupBox {
@@ -349,9 +358,10 @@ private struct ScoringTab: View {
                         HStack {
                             Text("YOLO Class Filters").font(.caption.bold())
                             Spacer()
+                            RunTag(step: "Enrich")
                             Button("Reset") {
-                                settings.yoloEnablePerson = true;     settings.yoloWeightPerson = 1.0
-                                settings.yoloEnableBicycle = true;    settings.yoloWeightBicycle = 1.0
+                                settings.yoloEnableBicycle = true;      settings.yoloWeightBicycle = 1.0
+                                settings.yoloEnablePedestrian = true;   settings.yoloWeightPedestrian = 0.3
                                 settings.yoloEnableCar = true;        settings.yoloWeightCar = 0.3
                                 settings.yoloEnableMotorcycle = true; settings.yoloWeightMotorcycle = 0.6
                                 settings.yoloEnableBus = true;        settings.yoloWeightBus = 0.2
@@ -360,16 +370,18 @@ private struct ScoringTab: View {
                             }
                             .font(.caption).buttonStyle(.bordered).controlSize(.small)
                         }
-                        Text("Toggle each class on/off and set its influence on the highlight score.")
+                        Text("Toggle a class off to ignore it entirely. Weight sets how much a detection boosts the clip's score.")
                             .font(.caption2).foregroundStyle(.secondary)
                         Divider()
                         Text("Cyclists & Pedestrians").font(.caption2.bold()).foregroundStyle(.secondary)
-                        YOLOClassRow(label: "Person",   icon: "person",
-                                     enabled: $settings.yoloEnablePerson,   weight: $settings.yoloWeightPerson)   { settings.save() }
-                        YOLOClassRow(label: "Bicycle",  icon: "figure.outdoor.cycle",
-                                     enabled: $settings.yoloEnableBicycle,  weight: $settings.yoloWeightBicycle)  { settings.save() }
+                        YOLOClassRow(label: "Cyclist",      icon: "figure.outdoor.cycle",
+                                     enabled: $settings.yoloEnableBicycle,    weight: $settings.yoloWeightBicycle)    { settings.save() }
+                            .help("Person + bicycle detected together. Disable to ignore cyclists in scoring.")
+                        YOLOClassRow(label: "Pedestrian",   icon: "figure.walk",
+                                     enabled: $settings.yoloEnablePedestrian, weight: $settings.yoloWeightPedestrian) { settings.save() }
+                            .help("Person detected without a bicycle in the same frame. Disable to ignore pedestrians in scoring.")
                         Divider()
-                        Text("Vehicles & Signs").font(.caption2.bold()).foregroundStyle(.secondary)
+                        Text("Vehicles").font(.caption2.bold()).foregroundStyle(.secondary)
                         YOLOClassRow(label: "Car",          icon: "car",
                                      enabled: $settings.yoloEnableCar,          weight: $settings.yoloWeightCar)          { settings.save() }
                         YOLOClassRow(label: "Motorcycle",   icon: "motorcycle",
@@ -383,25 +395,18 @@ private struct ScoringTab: View {
                 }
 
                 // YOLO confidence
-                GroupBox("Detection Confidence") {
+                GroupBox {
+                    HStack { Text("Detection Confidence").font(.caption.bold()); Spacer(); RunTag(step: "Enrich") }
+                        .padding(.bottom, 4)
                     VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Label("People & cyclists", systemImage: "figure.outdoor.cycle").font(.caption.bold())
-                            Spacer()
-                            Text(String(format: "%.2f", settings.yoloMinConfidence))
-                                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
-                        }
-                        Slider(value: $settings.yoloMinConfidence, in: 0.05...0.95, step: 0.05)
-                            .onChange(of: settings.yoloMinConfidence) { settings.save() }
+                        ConfidenceRow(label: "Cyclists",    icon: "figure.outdoor.cycle",
+                                      value: $settings.yoloBicycleConfidence)    { settings.save() }
                         Divider()
-                        HStack {
-                            Label("Vehicles", systemImage: "car").font(.caption.bold())
-                            Spacer()
-                            Text(String(format: "%.2f", settings.yoloVehicleConfidence))
-                                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
-                        }
-                        Slider(value: $settings.yoloVehicleConfidence, in: 0.05...0.95, step: 0.05)
-                            .onChange(of: settings.yoloVehicleConfidence) { settings.save() }
+                        ConfidenceRow(label: "Pedestrians", icon: "figure.walk",
+                                      value: $settings.yoloPedestrianConfidence) { settings.save() }
+                        Divider()
+                        ConfidenceRow(label: "Vehicles",    icon: "car",
+                                      value: $settings.yoloVehicleConfidence)    { settings.save() }
                         HStack {
                             Text("More detections"); Spacer(); Text("Fewer false positives")
                         }
@@ -411,10 +416,15 @@ private struct ScoringTab: View {
                 }
 
                 // Candidate pool
-                GroupBox("Candidate Pool") {
+                GroupBox {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Label("Pool size", systemImage: "list.number").font(.caption.bold())
+                            Label("Candidate Pool", systemImage: "list.number").font(.caption.bold())
+                            Spacer()
+                            RunTag(step: "Select")
+                        }
+                        HStack {
+                            Text("Pool size").font(.caption)
                             Spacer()
                             Text(String(format: "%.1f×", settings.candidateFraction))
                                 .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
@@ -428,61 +438,66 @@ private struct ScoringTab: View {
                     .padding(8)
                 }
 
-                // Score weights
+                // Score weights — collapsed by default (advanced)
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
                         let sum = settings.scoreWeightDetect + settings.scoreWeightScene
                             + settings.scoreWeightSpeed + settings.scoreWeightGradient
                             + settings.scoreWeightSegment + settings.scoreWeightDualCamera
                         let balanced = abs(sum - 1.0) < 0.01
-                        HStack {
-                            Text("Score Weights").font(.caption.bold())
-                            Spacer()
-                            Text("Sum: \(Int((sum * 100).rounded()))%")
-                                .font(.caption.bold())
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(balanced ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
-                                .foregroundStyle(balanced ? .green : .red)
-                                .clipShape(Capsule())
-                            Button("Reset") {
-                                settings.scoreWeightDetect    = 0.35
-                                settings.scoreWeightScene     = 0.10
-                                settings.scoreWeightSpeed     = 0.20
-                                settings.scoreWeightGradient  = 0.20
-                                settings.scoreWeightSegment   = 0.05
-                                settings.scoreWeightDualCamera = 0.10
-                                settings.save()
+                        DisclosureGroup(isExpanded: $showScoreWeights) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ScoreProportionBar(weights: [
+                                    (.green,  settings.scoreWeightDetect),
+                                    (.purple, settings.scoreWeightScene),
+                                    (.blue,   settings.scoreWeightSpeed),
+                                    (.orange, settings.scoreWeightGradient),
+                                    (.teal,   settings.scoreWeightSegment),
+                                    (.pink,   settings.scoreWeightDualCamera),
+                                ])
+                                WeightSliderRow(label: "YOLO detections", icon: "eye",               color: .green,
+                                                value: $settings.scoreWeightDetect)    { settings.save() }
+                                    .help("Clips with cyclists/people detected score higher. Default: 35%")
+                                WeightSliderRow(label: "Scene change",    icon: "camera.aperture",   color: .purple,
+                                                value: $settings.scoreWeightScene)     { settings.save() }
+                                    .help("Bonus for visually interesting transitions. Default: 10%")
+                                WeightSliderRow(label: "Speed",           icon: "speedometer",       color: .blue,
+                                                value: $settings.scoreWeightSpeed)     { settings.save() }
+                                    .help("Faster clips score higher. Normalised to 60 km/h. Default: 20%")
+                                WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",    color: .orange,
+                                                value: $settings.scoreWeightGradient)  { settings.save() }
+                                    .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
+                                WeightSliderRow(label: "Strava segment",  icon: "location",          color: .teal,
+                                                value: $settings.scoreWeightSegment)   { settings.save() }
+                                    .help("Bonus during a Strava segment effort — higher for PRs. Default: 5%")
+                                WeightSliderRow(label: "Dual camera",     icon: "camera.on.rectangle", color: .pink,
+                                                value: $settings.scoreWeightDualCamera) { settings.save() }
+                                    .help("Bonus when both cameras captured this moment. Default: 10%")
+                                Button("Reset to defaults") {
+                                    settings.scoreWeightDetect    = 0.35
+                                    settings.scoreWeightScene     = 0.10
+                                    settings.scoreWeightSpeed     = 0.20
+                                    settings.scoreWeightGradient  = 0.20
+                                    settings.scoreWeightSegment   = 0.05
+                                    settings.scoreWeightDualCamera = 0.10
+                                    settings.save()
+                                }
+                                .font(.caption).buttonStyle(.bordered).controlSize(.small)
                             }
-                            .font(.caption).buttonStyle(.bordered).controlSize(.small)
+                            .padding(.top, 8)
+                        } label: {
+                            HStack {
+                                Text("Score Weights").font(.caption.bold())
+                                Spacer()
+                                RunTag(step: "Select")
+                                Text("Sum: \(Int((sum * 100).rounded()))%")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background(balanced ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                                    .foregroundStyle(balanced ? .green : .red)
+                                    .clipShape(Capsule())
+                            }
                         }
-
-                        ScoreProportionBar(weights: [
-                            (.green,  settings.scoreWeightDetect),
-                            (.purple, settings.scoreWeightScene),
-                            (.blue,   settings.scoreWeightSpeed),
-                            (.orange, settings.scoreWeightGradient),
-                            (.teal,   settings.scoreWeightSegment),
-                            (.pink,   settings.scoreWeightDualCamera),
-                        ])
-
-                        WeightSliderRow(label: "YOLO detections", icon: "eye",               color: .green,
-                                        value: $settings.scoreWeightDetect)    { settings.save() }
-                            .help("Clips with cyclists/people detected score higher. Default: 30%")
-                        WeightSliderRow(label: "Scene change",    icon: "camera.aperture",   color: .purple,
-                                        value: $settings.scoreWeightScene)     { settings.save() }
-                            .help("Bonus for visually interesting transitions. Default: 10%")
-                        WeightSliderRow(label: "Speed",           icon: "speedometer",        color: .blue,
-                                        value: $settings.scoreWeightSpeed)     { settings.save() }
-                            .help("Faster clips score higher. Normalised to 60 km/h. Default: 20%")
-                        WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",     color: .orange,
-                                        value: $settings.scoreWeightGradient)  { settings.save() }
-                            .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
-                        WeightSliderRow(label: "Strava segment",  icon: "location",            color: .teal,
-                                        value: $settings.scoreWeightSegment)   { settings.save() }
-                            .help("Bonus during a Strava segment effort — higher for PRs. Default: 5%")
-                        WeightSliderRow(label: "Dual camera",     icon: "camera.on.rectangle", color: .pink,
-                                        value: $settings.scoreWeightDualCamera) { settings.save() }
-                            .help("Bonus when both cameras captured this moment. Default: 10%")
                     }
                     .padding(8)
                 }
@@ -670,6 +685,40 @@ private struct ScoreProportionBar: View {
             }
         }
         .frame(height: 10)
+    }
+}
+
+/// Small pill tag indicating which pipeline step must be re-run for a setting change to take effect.
+private struct RunTag: View {
+    let step: String   // "Enrich" or "Select"
+    private var color: Color { step == "Enrich" ? .purple : .blue }
+
+    var body: some View {
+        Text("Re-run: \(step)")
+            .font(.system(size: 9, weight: .semibold))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(color.opacity(0.12))
+            .foregroundStyle(color)
+            .clipShape(Capsule())
+            .help("This setting takes effect on the next \(step) step.")
+    }
+}
+
+private struct ConfidenceRow: View {
+    let label: String
+    let icon: String
+    @Binding var value: Double
+    let onSave: () -> Void
+
+    var body: some View {
+        HStack {
+            Label(label, systemImage: icon).font(.caption.bold())
+            Spacer()
+            Text(String(format: "%.2f", value))
+                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
+        }
+        Slider(value: $value, in: 0.05...0.95, step: 0.05)
+            .onChange(of: value) { onSave() }
     }
 }
 

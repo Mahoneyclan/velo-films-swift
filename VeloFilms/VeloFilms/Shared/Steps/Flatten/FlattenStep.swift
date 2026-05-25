@@ -1,7 +1,7 @@
 import Foundation
 
 /// Parses the GPX file and writes flatten.jsonl.
-/// Mirrors flatten.py: locate GPX → parse → resample to 1Hz → write CSV.
+/// Mirrors flatten.py: locate GPX → parse → resample to 1Hz → write JSONL.
 struct FlattenStep: PipelineStep {
     let name = "flatten"
     let jsonlWriter: JSONLWriter
