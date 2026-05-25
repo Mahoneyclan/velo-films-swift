@@ -123,38 +123,100 @@ private struct SetupTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+
                 GroupBox("Drive Roots") {
-                    VStack(spacing: 12) {
-                        DirRow(label: "Input Videos",  url: settings.inputBaseDir,  onChoose: chooseInputDir)
+                    VStack(spacing: 0) {
+                        SetupFolderRow(icon: "film", label: "Input Videos",
+                                       url: settings.inputBaseDir, onChoose: chooseInputDir)
                         Divider()
-                        DirRow(label: "Projects Root", url: settings.projectsRoot,  onChoose: chooseProjectsRoot)
+                        SetupFolderRow(icon: "folder.badge.gearshape", label: "Projects Root",
+                                       url: settings.projectsRoot, onChoose: chooseProjectsRoot)
                     }
-                    .padding(8)
+                    .padding(4)
                 }
 
                 GroupBox("Cameras") {
-                    VStack(spacing: 12) {
-                        Toggle("Fly12 Sport (front)", isOn: $settings.hasFly12Sport)
-                            .disabled(!settings.hasFly6Pro)
+                    VStack(spacing: 0) {
+                        SetupCameraRow(icon: "camera", label: "Fly12 Sport", subtitle: "Front camera",
+                                       isOn: $settings.hasFly12Sport, disabled: !settings.hasFly6Pro)
                             .onChange(of: settings.hasFly12Sport) { settings.save() }
                         if settings.hasFly12Sport {
-                            Divider()
-                            DirRow(label: "Fly12 Sport source", url: settings.fly12SourceURL, onChoose: chooseFly12Source)
+                            SetupFolderRow(icon: "sdcard", label: "Source folder",
+                                           url: settings.fly12SourceURL, onChoose: chooseFly12Source,
+                                           indented: true)
                         }
                         Divider()
-                        Toggle("Fly6 Pro (rear)", isOn: $settings.hasFly6Pro)
-                            .disabled(!settings.hasFly12Sport)
+                        SetupCameraRow(icon: "camera.rotate", label: "Fly6 Pro", subtitle: "Rear camera",
+                                       isOn: $settings.hasFly6Pro, disabled: !settings.hasFly12Sport)
                             .onChange(of: settings.hasFly6Pro) { settings.save() }
                         if settings.hasFly6Pro {
-                            Divider()
-                            DirRow(label: "Fly6 Pro source", url: settings.fly6SourceURL, onChoose: chooseFly6Source)
+                            SetupFolderRow(icon: "sdcard", label: "Source folder",
+                                           url: settings.fly6SourceURL, onChoose: chooseFly6Source,
+                                           indented: true)
                         }
                     }
-                    .padding(8)
+                    .padding(4)
                 }
             }
             .padding(20)
         }
+    }
+}
+
+private struct SetupCameraRow: View {
+    let icon: String
+    let label: String
+    let subtitle: String
+    @Binding var isOn: Bool
+    let disabled: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(isOn ? Color.accentColor : .secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label).font(.callout.weight(.medium))
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: $isOn).labelsHidden().disabled(disabled)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 8)
+        .opacity(disabled ? 0.5 : 1)
+    }
+}
+
+private struct SetupFolderRow: View {
+    let icon: String
+    let label: String
+    let url: URL?
+    let onChoose: () -> Void
+    var indented: Bool = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if indented { Spacer().frame(width: 32) }
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(indented ? .secondary : .primary)
+            Spacer()
+            if let url {
+                Text(url.lastPathComponent)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            } else {
+                Text("Not set").font(.caption).foregroundStyle(.red)
+            }
+            Button("Choose…", action: onChoose).controlSize(.small)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(indented ? Color.secondary.opacity(0.06) : Color.clear)
     }
 }
 
