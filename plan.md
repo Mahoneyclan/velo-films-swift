@@ -374,6 +374,7 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 - [x] Get a clean simulator build — StravaAuth UIWindow fallback fixed; sheets use presentationDetents; builds pass on both targets
 - [x] Guard "Open in Finder" button for macOS only — currently shown on iPad but calls a no-op `#if os(macOS)` function (`ProjectDetailView.swift:255`)
 - [ ] Deploy to iPad via direct device build in Xcode (or TestFlight)
+- [x] Fix iOS build step: `AVAssetExportSession` runs via `mediaserverd` (out-of-process) and cannot access security-scoped external drive URLs; FIGSANDBOX err=-17508 blocks Metal compositor. Fix: `VideoEncoder.exportInProcess()` uses `AVAssetReader` + `AVAssetWriter` in-process on iOS — bypasses all mediaserverd restrictions. (`VideoEncoder.swift`, `ClipCompositor.swift`)
 - [ ] Run full pipeline end-to-end on a real ride with real Cycliq footage from external drive
 - [ ] Visual QA every rendered output: gauges, minimap, PiP composite, splash cards — output must match macOS FFmpeg quality
 - [ ] Memory pressure testing with 10GB+ footage across multiple clips
@@ -388,9 +389,9 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 Switch `BuildStep` from `GaugeRenderer.writeFramesToDisk()` to `GaugeRenderer.renderFrames()` returning `[CGImage]` in memory — eliminates the temp PNG encode/decode round-trip and reduces disk I/O on every clip.
 
 **3. AVAssetWriter for clip export**
-`AVAssetExportSession` locks to H.264 preset bitrates. Switch to `AVAssetWriter` + `AVAssetReaderVideoCompositionOutput`:
+iOS already uses `AVAssetWriter` + `AVAssetReaderVideoCompositionOutput` (`exportInProcess()`). macOS still uses `AVAssetExportSession` (fine since no sandbox restriction). Next steps for iPad quality/perf:
 - HEVC H.265 at ~5 Mbps vs 8 Mbps H.264 for equivalent quality (matters for iPad storage)
-- Full bitrate control
+- Full bitrate control (already has it via `AVVideoAverageBitRateKey`)
 - Enables concurrent clip exports on M2 media engine
 
 ---

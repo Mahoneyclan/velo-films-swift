@@ -143,10 +143,10 @@ struct ClipCompositor: Sendable {
         compCfg.customVideoCompositorClass = ClipVideoCompositor.self
         let videoComp = AVVideoComposition(configuration: compCfg)
 
-        try await VideoEncoder.export(composition: composition,
-                                       videoComposition: videoComp,
-                                       audioMix: audioMix,
-                                       to: outputURL)
+        try await VideoEncoder.exportInProcess(composition: composition,
+                                              videoComposition: videoComp,
+                                              audioMix: audioMix,
+                                              to: outputURL)
 #endif
         return outputURL
     }
