@@ -30,40 +30,46 @@ private struct _ResizableNSViewBridge: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // SwiftUI re-sizes the hosting window on every state change (stats strip recalculates,
-        // layout re-runs, window is reset to content's preferred size). If the user has
-        // manually dragged the window to a different size, restore their frame.
-        guard let window = nsView.window,
-              window.styleMask.contains(.resizable),
-              !window.inLiveResize,
-              let userFrame = context.coordinator.userFrame else { return }
-        DispatchQueue.main.async {
-            guard let w = nsView.window, !w.inLiveResize,
-                  w.frame != userFrame else { return }
-            w.setFrame(userFrame, display: false, animate: false)
-        }
-    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 
-    // Records the frame only after the user finishes a live resize drag.
-    // SwiftUI-driven resizes don't fire didEndLiveResizeNotification, so they
-    // don't pollute userFrame.
+    // Observes three notifications on the hosting window:
+    // - willStartLiveResize: user started dragging → set isUserResizing
+    // - didEndLiveResize:    user released → clear flag, record new userFrame
+    // - didResize:           any resize → if NOT user-initiated and frame differs
+    //                        from userFrame, restore immediately (counters SwiftUI
+    //                        resetting the window on every state-change render)
     final class Coordinator: NSObject {
         var userFrame: NSRect?
-        private var observer: NSObjectProtocol?
+        private var isUserResizing = false
+        private var observers: [NSObjectProtocol] = []
 
         func startObserving(window: NSWindow) {
-            observer = NotificationCenter.default.addObserver(
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.willStartLiveResizeNotification,
+                object: window, queue: .main
+            ) { [weak self] _ in self?.isUserResizing = true })
+
+            observers.append(NotificationCenter.default.addObserver(
                 forName: NSWindow.didEndLiveResizeNotification,
                 object: window, queue: .main
             ) { [weak self, weak window] _ in
+                self?.isUserResizing = false
                 self?.userFrame = window?.frame
-            }
+            })
+
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification,
+                object: window, queue: .main
+            ) { [weak self, weak window] _ in
+                guard let self, let window,
+                      !self.isUserResizing,
+                      let target = self.userFrame,
+                      window.frame != target else { return }
+                window.setFrame(target, display: false, animate: false)
+            })
         }
 
-        deinit {
-            if let o = observer { NotificationCenter.default.removeObserver(o) }
-        }
+        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
     }
 }
 #endif
