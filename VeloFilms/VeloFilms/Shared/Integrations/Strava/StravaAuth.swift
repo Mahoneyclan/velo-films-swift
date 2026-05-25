@@ -126,7 +126,7 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
         if let scene = scenes.first { return UIWindow(windowScene: scene) }
         Logger(subsystem: "com.velofilms", category: "StravaAuth")
             .error("No connected UIWindowScene — auth sheet may not present correctly")
-        return UIWindow()
+        return UIWindow(frame: .zero)
     }
 #endif
 
