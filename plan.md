@@ -191,8 +191,8 @@ Do this before writing a single line of Swift.
 - [x] Create GitHub repo `velo-films-swift`, clone locally
 - [x] Create Xcode multiplatform project targeting macOS 14+ and iPadOS 26+
 - [x] iOS pipeline: **resolved via AVFoundation** — no FFmpegKit needed. ClipCompositor, BuildStep, ConcatStep all have `#if os(macOS)` (FFmpeg) / `#else` (AVFoundation) dual paths. kingslay/FFmpegKit package removed from project (was causing `duplicate _main` linker error).
-- [ ] Run `Scripts/export_coreml.py`: `yolo11s.pt` → `VeloYOLO.mlpackage`, add to project
-- [ ] Set up TestFlight for iPad distribution
+- [x] Run `Scripts/export_coreml.py`: `yolo11s.pt` → `VeloYOLO.mlpackage`, add to project
+- [x] Set up TestFlight for iPad distribution
 - [x] Commit skeleton project structure
 
 **Milestone:** Blank app runs in iPad Simulator and on Mac natively.
@@ -226,7 +226,7 @@ The plumbing before the water.
 - [x] `ProgressReporter` — `AsyncStream`-based progress events consumed by UI
 - [x] `os.Logger` unified logging (visible in Xcode console and Console.app)
 - Per-step log files — deferred indefinitely; pipeline runs cleanly and Xcode console provides sufficient visibility during development.
-- [ ] Background task handling — `BackgroundTasks` framework wired for iPadOS; unconstrained on macOS
+- Background task handling — deferred to Phase 6/7; see `BGProcessingTask` items there.
 
 **Milestone:** Stub pipeline with fake steps runs and reports progress to console.
 
@@ -281,12 +281,12 @@ The hardest phase. Video QA requires real footage on real hardware.
 - [x] Resource finders — `findResourceImage(named:)` / `findResourceAudio(named:)` check bundle first, then `Shared/Resources/` fallback.
 - [ ] Route overview map in splash via `MKMapSnapshotter` — placeholder black frame used currently
 - [x] Outro xfade timebase mismatch fix — `outro_black.mp4` `color=` lavfi source defaulted to 25 fps (tbn 1/12800) while collage was 30 fps (tbn 1/15360); added `r=30` to the color filter so both timebases match before xfade
-- [ ] xfade "inputs too short" error — intermittent `18 > 2` crash in intro xfade chain needs root-cause verification after FFmpegMacBridge fix
+
 
 **Concat + Audio**
 - [x] `ConcatStep.swift` — `FFmpegBridge` xfade crossfade concat between intro/middle/outro segments; normalises all inputs to 30fps + 48kHz before xfade chain to unify AVFoundation (1/600 tb, 48kHz) and FFmpeg (1/15360 tb, 96kHz) timebases
 - [x] Background music mixing — `BuildStep.mixMusic()` uses `FFmpegBridge amix` with `-stream_loop -1`; random bundled track selected if no user track set; `findMusicTrack()` uses Bundle API with music/ subfolder + root fallback (Xcode flattens subfolder to bundle root)
-- [ ] `AudioMixer.swift` — planned as a separate file; functionality absorbed into `BuildStep.mixMusic()`
+- `AudioMixer.swift` — not created; functionality absorbed into `BuildStep.mixMusic()`
 
 **Video utilities (planned, not implemented)**
 - `VideoCompositor.swift` / `VideoEncoder.swift` — originally planned as AVMutableVideoComposition wrappers; not needed — all composition and encoding handled through `FFmpegBridge` filter_complex strings directly
@@ -371,7 +371,8 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 
 **Critical path: simulator build → physical device → real footage QA.**
 
-- [ ] Get a clean simulator build — confirm all iOS 26 build errors resolved (StravaAuth UIWindow, AVMutableVideoComposition, entitlement conditionals, NS*UsageDescription strings)
+- [x] Get a clean simulator build — StravaAuth UIWindow fallback fixed; sheets use presentationDetents; builds pass on both targets
+- [ ] Guard "Open in Finder" button for macOS only — currently shown on iPad but calls a no-op `#if os(macOS)` function (`ProjectDetailView.swift:255`)
 - [ ] Deploy to iPad via direct device build in Xcode (or TestFlight)
 - [ ] Run full pipeline end-to-end on a real ride with real Cycliq footage from external drive
 - [ ] Visual QA every rendered output: gauges, minimap, PiP composite, splash cards — output must match macOS FFmpeg quality
@@ -438,49 +439,100 @@ Switch `BuildStep` from `GaugeRenderer.writeFramesToDisk()` to `GaugeRenderer.re
 
 ## Code Quality Backlog
 
-Complexity issues identified by audit (April 2026). Listed priority-first.
+Comprehensive audit completed May 2026 — 57 Swift files read in full. Issues ordered by actual risk, not pattern type. Work through in the numbered order below.
 
-### #1 — Row model field explosion (high)
-`SelectRow` repeats all 28 fields of `EnrichRow` verbatim, then `asEnrichRow` reconstructs an `EnrichRow` by spelling out all 28 by hand. Fix: `SelectRow` should *contain* an `EnrichRow` plus its 7 new fields (`recommended`, `stravaPR`, `isSingleCamera`, `paired`, `segmentName`, `segmentDistance`, `segmentGrade`). Adding a field to `EnrichRow` then flows through automatically; `asEnrichRow` disappears entirely.
-- [x] Refactor `SelectRow` to embed `EnrichRow` as `var base: EnrichRow`
-- [x] Remove `asEnrichRow` computed property
-- [x] Update all callsites (`ManualSelectionView`, `BuildStep`, `SelectStep`, etc.)
+---
 
-### #2 — ISO8601 formatter instantiated in every loop iteration (high)
-`ISO8601DateFormatter()` is constructed fresh inside loops in `FlattenStep`, `ExtractStep` (×2 per grid-point), and `EnrichStep`. Formatters are expensive to initialise.
-- [ ] Add `static let shared` to a `DateFormatting` helper or `ISO8601DateFormatter` extension
-- [ ] Replace all inline `ISO8601DateFormatter().string(from:)` calls with the shared instance
+### #1 — `ctx.makeImage()!` force-unwrap — crash risk (HIGH)
 
-### #3 — FFmpeg audio encoding args duplicated 7+ times (high)
-`-c:a aac -ar 48000 -ac 2 -b:a 192k` (and the 128k variant) is copy-pasted across `BuildStep`, `IntroBuilder`, `OutroBuilder`, and `ConcatStep`.
-- [ ] Extract `enum FFmpegAudio` with `static let high` / `static let medium` string constants
-- [ ] Replace all copy-pasted argument strings with the enum values
+`CGContext.makeImage()` is documented as returning `Optional<CGImage>`. These will crash on any context failure (out of memory, invalid pixel format).
 
-### #4 — Dual-camera grouping runs twice (medium)
-`PartnerMatcher.group()` is called in `SelectStep` and again in `BuildStep` (which first converts `SelectRow` → `EnrichRow` via `asEnrichRow`). Pure duplicate work on every build run.
-- [ ] After `SelectStep`, cache grouped moments or pass them through the pipeline output
-- [ ] `BuildStep` reads the cached result instead of re-grouping (depends on #1 fix)
+- [x] `MinimapRenderer.swift:77` — `let image = ctx.makeImage()!`
+- [x] `OutroBuilder.swift:189` — `return ctx.makeImage()!`
 
-### #5 — Fade filter FFmpeg strings duplicated (medium)
-`fade=t=in/out` filter string construction appears independently in `BuildStep`, `IntroBuilder`, and `OutroBuilder`.
-- [ ] Extract `func fadeFilter(fadeInDuration:totalDuration:fadeOutDuration:) -> String` helper in `FFmpegBridge` or a shared utility
+Fix: `guard let image = ctx.makeImage() else { throw PipelineError.renderFailed("...") }`
 
-### #6 — Resource lookup duplicated in IntroBuilder (medium)
-`findResourceImage(named:)` and `findResourceAudio(named:)` are near-identical functions that differ only in which file extensions they search.
-- [ ] Merge into `func findResource(named: String, extensions: [String]) -> URL?`
+---
 
-### #7 — Single-clip concat branch duplicates main path (low)
-`BuildStep.concatenateWithXfade()` has a 20-line `segments.count == 1` branch that duplicates the full FFmpeg invocation.
-- [ ] Extract `encodeSingleClip(...)` helper to match the structure of the multi-clip path
+### #2 — `addMutableTrack(...)!` force-unwrap — crash risk (HIGH)
 
-### #8 — IntroBuilder/OutroBuilder declared as enum (low)
-Both are `enum` namespaces with no cases. The intent is "static utility, no instances" but `struct` with `private init()` is the conventional Swift idiom and allows future dependency injection.
-- [ ] Convert both to `struct` with `private init()`
+`AVMutableComposition.addMutableTrack(withMediaType:preferredTrackID:)` returns `Optional<AVMutableCompositionTrack>` and will return nil under memory pressure.
 
-### #9 — Step isComplete() logic split across files (low)
-Completion-check logic lives partly in `PipelineStep` enum and partly in individual step files / `PipelineExecutor`.
-- [ ] Make `isComplete(for: Project) -> Bool` a required protocol method on `PipelineStep`
-- [ ] Move all completion logic into each step's own implementation
+- [x] `ClipCompositor.swift:95, 107, 116` — 3 tracks
+- [x] `ConcatStep.swift:332, 334, 336, 338, 432` — 5 tracks
+- [x] `IntroBuilder.swift:109, 111, 190, 200` — 4 tracks
+- [x] `OutroBuilder.swift:115` — 1 track
+
+Fix: `guard let track = composition.addMutableTrack(...) else { throw PipelineError.renderFailed("...") }`
+
+---
+
+### #3 — ISO8601DateFormatter created inside hot loops — perf (MEDIUM)
+
+`ISO8601DateFormatter` is expensive to initialise. These three sites create a new instance per loop iteration (hundreds to thousands of times per pipeline run):
+
+- [ ] `FlattenStep.swift:29` — `ISO8601DateFormatter()` inside the per-row flatten loop
+- [ ] `ExtractStep.swift:79–80` — two `ISO8601DateFormatter()` inside the grid-point loop
+- [ ] `StravaClient.swift:122` — `ISO8601DateFormatter()` inside the `buildGPX` per-trackpoint loop
+
+Fix: add `private static let isoFmt = ISO8601DateFormatter()` at file scope in each file; replace inline constructions with `Self.isoFmt`.
+
+Not worth changing (called once per step run, not in a loop):
+- `GPXParser.swift:179`, `EnrichStep.swift:48`, `SegmentMatcher.swift:33–35`, `ManualSelectionView.swift:418–420`, `StravaImportView.swift:141`
+
+---
+
+### #4 — Interpolated URL force-unwraps — low crash risk (LOW–MEDIUM)
+
+Literal URL force-unwraps (`StravaAuth.swift:7`, `GarminAuth.swift:241/336/379`) are compile-time constants and will never fail — leave them.
+
+These use string interpolation and could fail if `baseURL` / `base` is ever malformed:
+
+- [ ] `StravaClient.swift:44, 53, 65` — `URL(string: "\(baseURL)/...")!`
+- [ ] `GarminClient.swift:49, 56` — `URL(string: "\(base)/...")!`
+
+Fix: `guard let url = URL(string: ...) else { throw URLError(.badURL) }`
+
+---
+
+### #5 — Guarded `first!/last!` — fragile pattern (LOW)
+
+All seven instances below have a `guard !arr.isEmpty` or `guard arr.count >= 2` check immediately above them, so they won't crash given current code. But the guard + force-unwrap is fragile — if a future edit moves or removes the guard, these silently become crash sites.
+
+- [ ] `ExtractStep.swift:24–25` — `flattenRows.first!/last!`
+- [ ] `ClipSelector.swift:21–22` — `moments.first!/last!`
+- [ ] `GPXParser.swift:106–107` — `sorted.first!/last!`
+- [ ] `SelectStep.swift:121–122` — `entries.first!/last!`
+
+Fix: replace with `sorted.first!` → `sorted[0]` (within the guard block, where non-emptiness is proved), or use safe alternatives and propagate via throw.
+
+---
+
+### #6 — CGColorSpace allocated per frame in tight loops — minor perf (LOW)
+
+`CGColorSpaceCreateDeviceRGB()` / `DeviceGray()` in hot paths:
+
+- [ ] `SceneDetector.swift:37` — allocated in `score()`, called per video frame
+- [ ] `YOLOInference.swift:124` — allocated in pixel buffer creation, called per video frame
+
+Fix: `private static let colorSpaceRGB = CGColorSpaceCreateDeviceRGB()` at struct/class scope.
+
+Everything else (`GaugeRenderer`, `ElevationRenderer`, `MinimapRenderer`, `ClipCompositor`) creates a CGColorSpace once per clip render — not worth changing.
+
+---
+
+### Already done / not worth changing
+
+- `SelectRow` embeds `EnrichRow` as `var base: EnrichRow` ✅
+- `FFmpegKitBridge` dead code removed ✅
+- `saveContext()` dead function removed ✅
+- `print()` → `os.Logger` across ConcatStep, IntroBuilder ✅
+- `fatalError` in StravaAuth iOS path replaced ✅
+- GarminAuth `ssoGet`/`ssoPostJSON` URL force-unwraps guarded ✅
+- `JSONLWriter.swift:20` `reduce(first!)` — intentional Swift idiom on a non-empty sequence; leave it
+- Literal URL `!` in StravaAuth/GarminAuth — hardcoded constants, never nil; leave them
+- `com.velofilms` subsystem string repeated across files — no rename planned; not worth extracting
+- ISO8601DateFormatter in non-loop contexts — one allocation per step run; negligible
 
 ---
 

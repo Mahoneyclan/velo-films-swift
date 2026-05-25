@@ -329,14 +329,16 @@ struct ConcatStep: PipelineStep {
         let xCM = CMTimeMakeWithSeconds(X, preferredTimescale: ts)
 
         let composition = AVMutableComposition()
-        let vidA = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
-        let vidB = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
-        let audA = composition.addMutableTrack(
-            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
-        let audB = composition.addMutableTrack(
-            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let vidA = composition.addMutableTrack(
+                  withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let vidB = composition.addMutableTrack(
+                  withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let audA = composition.addMutableTrack(
+                  withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let audB = composition.addMutableTrack(
+                  withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw PipelineError.renderFailed("ConcatStep: failed to create composition tracks")
+        }
 
         var insertTime = CMTime.zero
         var clipStarts: [CMTime] = []
@@ -428,9 +430,9 @@ struct ConcatStep: PipelineStep {
         if let musicURL = musicURL {
             let musicAsset = AVURLAsset(url: musicURL)
             let musicDur   = try await musicAsset.load(.duration)
-            if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
-                let mTrack = composition.addMutableTrack(
-                    withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first,
+               let mTrack = composition.addMutableTrack(
+                   withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
                 var remaining = totalDurCM
                 var destTime  = CMTime.zero
                 while remaining > .zero {
