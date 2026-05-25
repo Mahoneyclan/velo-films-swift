@@ -5,6 +5,7 @@ import Foundation
 struct FlattenStep: PipelineStep {
     let name = "flatten"
     let jsonlWriter: JSONLWriter
+    private static let isoFmt = ISO8601DateFormatter()
 
     init(jsonlWriter: JSONLWriter = JSONLWriter()) {
         self.jsonlWriter = jsonlWriter
@@ -26,7 +27,7 @@ struct FlattenStep: PipelineStep {
         await reporter.report(current: 2, total: 3, message: "Writing flatten.jsonl (\(points.count) rows)...")
         let rows = points.map { pt -> FlattenRow in
             let dt = Date(timeIntervalSince1970: pt.epoch)
-            let iso = ISO8601DateFormatter().string(from: dt)
+            let iso = Self.isoFmt.string(from: dt)
             return FlattenRow(
                 gpxEpoch: pt.epoch,
                 gpxTimeUtc: iso,
