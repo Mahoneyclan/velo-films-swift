@@ -41,7 +41,12 @@ struct GarminImportView: View {
                 }
             }
         }
+        #if os(macOS)
         .frame(minWidth: 440, minHeight: 400)
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
         .task { await auth.checkSession() }
     }
 

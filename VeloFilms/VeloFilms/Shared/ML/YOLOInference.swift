@@ -18,31 +18,29 @@ final class YOLODetector {
     private var mlModel: MLModel?
     private let modelURL: URL
     private var outputName: String?
+    private let modelLock = NSLock()
 
     /// Class weights for detectScore — reads from GlobalSettings so user can tune per-class.
-    /// Disabled classes are omitted from the dict and filtered out at inference time.
+    /// Person (0) and bicycle (1) share the bicycle enable+weight (cyclist context).
+    /// The pedestrian override is applied post-NMS in detect() when no bicycle is in the frame.
     private static var classWeights: [Int: Float] {
         let s = GlobalSettings.shared
         var w = [Int: Float]()
-        if s.yoloEnablePerson       { w[0]  = Float(s.yoloWeightPerson) }
-        if s.yoloEnableBicycle      { w[1]  = Float(s.yoloWeightBicycle) }
+        if s.yoloEnableBicycle {
+            w[0] = Float(s.yoloWeightBicycle)   // person in cyclist context
+            w[1] = Float(s.yoloWeightBicycle)   // bicycle
+        }
         if s.yoloEnableCar          { w[2]  = Float(s.yoloWeightCar) }
         if s.yoloEnableMotorcycle   { w[3]  = Float(s.yoloWeightMotorcycle) }
-        if s.yoloEnableBus   { w[5] = Float(s.yoloWeightBus) }
-        if s.yoloEnableTruck { w[7] = Float(s.yoloWeightTruck) }
+        if s.yoloEnableBus          { w[5]  = Float(s.yoloWeightBus) }
+        if s.yoloEnableTruck        { w[7]  = Float(s.yoloWeightTruck) }
         return w
     }
 
-    /// bboxArea score — only cyclist/pedestrian classes that are currently enabled.
+    /// bboxArea score — person + bicycle when bicycle class is enabled.
     private static var bboxAreaClasses: Set<Int> {
-        var c = Set<Int>()
-        if GlobalSettings.shared.yoloEnablePerson  { c.insert(0) }
-        if GlobalSettings.shared.yoloEnableBicycle { c.insert(1) }
-        return c
+        GlobalSettings.shared.yoloEnableBicycle ? [0, 1] : []
     }
-
-    /// Classes that use the vehicle/sign confidence threshold instead of the global floor.
-    private static let vehicleClasses: Set<Int> = [2, 3, 5, 7]
 
     private static let classNames: [Int: String] = [
         0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
@@ -54,6 +52,8 @@ final class YOLODetector {
     }
 
     private func loadModel() throws -> MLModel {
+        modelLock.lock()
+        defer { modelLock.unlock() }
         if let m = mlModel { return m }
         let model = try MLModel(contentsOf: modelURL)
         outputName = model.modelDescription.outputDescriptionsByName.keys.first
@@ -81,16 +81,23 @@ final class YOLODetector {
 
         let detections = decodeYOLO(raw)
 
-        // detect_score = max(confidence × class_weight) across all boxes
+        // detect_score = max(confidence × class_weight) across all boxes.
+        // Person without bicycle = pedestrian — apply pedestrian enable + weight.
+        let s2 = GlobalSettings.shared
+        let postWeights = Self.classWeights
+        let bboxClasses = Self.bboxAreaClasses
+        let hasBicycle = detections.contains { $0.classIndex == 1 }
+        let pedestrianW: Float = s2.yoloEnablePedestrian ? Float(s2.yoloWeightPedestrian) : 0.0
         let detectScore = detections.map { det -> Double in
-            let w = Self.classWeights[det.classIndex] ?? 1.0
+            var w = postWeights[det.classIndex] ?? 1.0
+            if det.classIndex == 0 && !hasBicycle { w = pedestrianW }
             return Double(det.confidence * w)
         }.max() ?? 0.0
 
         // bbox_area = sum of person+bicycle detection areas as a frame fraction (0–1).
         // Restricted to cycling-relevant classes so a large passing car doesn't inflate the score.
         let bboxArea = detections.reduce(0.0) { sum, det in
-            Self.bboxAreaClasses.contains(det.classIndex)
+            bboxClasses.contains(det.classIndex)
                 ? sum + Double(det.boundingBox.width * det.boundingBox.height)
                 : sum
         }
@@ -142,8 +149,10 @@ final class YOLODetector {
         let s1 = raw.strides[1].intValue
         let s2 = raw.strides[2].intValue
         let s = GlobalSettings.shared
-        let peopleThreshold  = Float(s.yoloMinConfidence)
-        let vehicleThreshold = Float(s.yoloVehicleConfidence)
+        let bicycleThreshold     = Float(s.yoloBicycleConfidence)
+        let pedestrianThreshold  = Float(s.yoloPedestrianConfidence)
+        let vehicleThreshold     = Float(s.yoloVehicleConfidence)
+        let weights              = Self.classWeights  // snapshot once — static var would rebuild dict 672k× per frame
 
         var cands: [Cand] = []
         cands.reserveCapacity(512)
@@ -156,12 +165,12 @@ final class YOLODetector {
                 var bestCls  = -1
                 for v in 4..<nVals {
                     let cls = v - 4
-                    guard Self.classWeights[cls] != nil else { continue }
+                    guard weights[cls] != nil else { continue }
                     let val = ptr[s1 * v + s2 * a]
                     if val > bestConf { bestConf = val; bestCls = cls }
                 }
                 guard bestCls >= 0 else { continue }
-                let threshold = Self.vehicleClasses.contains(bestCls) ? vehicleThreshold : peopleThreshold
+                let threshold: Float = bestCls == 0 ? pedestrianThreshold : (bestCls == 1 ? bicycleThreshold : vehicleThreshold)
                 guard bestConf >= threshold else { continue }
                 cands.append(Cand(
                     cls: bestCls, conf: bestConf,
@@ -178,12 +187,12 @@ final class YOLODetector {
                 var bestCls  = -1
                 for v in 4..<nVals {
                     let cls = v - 4
-                    guard Self.classWeights[cls] != nil else { continue }
+                    guard weights[cls] != nil else { continue }
                     let val = Float(truncating: raw[[0, v, a] as [NSNumber]])
                     if val > bestConf { bestConf = val; bestCls = cls }
                 }
                 guard bestCls >= 0 else { continue }
-                let threshold = Self.vehicleClasses.contains(bestCls) ? vehicleThreshold : peopleThreshold
+                let threshold: Float = bestCls == 0 ? pedestrianThreshold : (bestCls == 1 ? bicycleThreshold : vehicleThreshold)
                 guard bestConf >= threshold else { continue }
                 cands.append(Cand(
                     cls: bestCls, conf: bestConf,

@@ -1,6 +1,6 @@
 import Foundation
 
-/// One row in flatten.csv — 1-second telemetry sample.
+/// One row in flatten.jsonl — 1-second telemetry sample.
 /// Mirrors flatten.py output schema exactly.
 struct FlattenRow: Codable {
     var gpxEpoch: Double        // Unix timestamp (seconds)

@@ -49,6 +49,7 @@ struct ManualSelectionView: View {
     @State private var isLoaded = false
 
     @State private var showResetConfirm = false
+    @AppStorage("fineTuneOnboardingSeen") private var onboardingSeen = false
 
     // MARK: Focus Mode state (view-level only — does not affect AI selection)
     @State private var activeFocusFilter: FocusFilter = .all
@@ -69,10 +70,14 @@ struct ManualSelectionView: View {
         Set(selectRows.filter { $0.stravaPR }.map { $0.base.momentId })
     }
 
-    /// Unique segment names from this ride's efforts, ordered by first appearance.
+    /// Unique segment names from efforts that have at least one moment in the display pool,
+    /// ordered by first appearance in the ride. Excludes segments whose clips all scored
+    /// below the display cutoff so the dropdown never produces an empty result.
     private var availableSegments: [String] {
+        let displayedMomentIds = Set(moments.map { $0.momentId })
         var seen = Set<String>()
         return selectRows
+            .filter { displayedMomentIds.contains($0.base.momentId) }
             .sorted { $0.base.absTimeEpoch < $1.base.absTimeEpoch }
             .compactMap { row -> String? in
                 guard let name = row.segmentName else { return nil }
@@ -82,15 +87,30 @@ struct ManualSelectionView: View {
 
     /// Maps momentId → segment name for fast lookup in filteredMoments.
     private var segmentByMomentId: [Int: String] {
-        Dictionary(uniqueKeysWithValues: selectRows.compactMap { row in
-            guard let name = row.segmentName else { return nil }
-            return (row.base.momentId, name)
-        })
+        Dictionary(
+            selectRows.compactMap { row -> (Int, String)? in
+                guard let name = row.segmentName else { return nil }
+                return (row.base.momentId, name)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private var stats: DetectionStats { DetectionStats(rows: selectRows) }
 
-    private var availableClasses: [String] { stats.classCounts.map(\.name) }
+    private static let hiddenClasses: Set<String> = ["traffic light", "stop sign"]
+    private var availableClasses: [String] {
+        stats.classCounts
+            .map(\.name)
+            .filter { !Self.hiddenClasses.contains($0.lowercased()) }
+            .map {
+                switch $0.lowercased() {
+                case "person":  return "pedestrian"
+                case "bicycle": return "cyclist"
+                default:        return $0
+                }
+            }
+    }
 
     /// Applies focus filter first, then the existing YOLO class filter.
     /// Neither filter modifies AI scores or the underlying select.jsonl data.
@@ -120,9 +140,18 @@ struct ManualSelectionView: View {
 
         if let cls = classFilter {
             result = result.filter { moment in
-                [moment.fly12Row, moment.fly6Row].compactMap { $0 }.contains {
-                    $0.detectedClasses.localizedCaseInsensitiveContains(cls)
+                let rows = [moment.fly12Row, moment.fly6Row].compactMap { $0 }
+                if cls == "cyclist" {
+                    return rows.contains { $0.detectedClasses.localizedCaseInsensitiveContains("bicycle") }
                 }
+                if cls == "pedestrian" {
+                    // person detected in a row that has no bicycle — excludes cyclists
+                    return rows.contains {
+                        $0.detectedClasses.localizedCaseInsensitiveContains("person") &&
+                        !$0.detectedClasses.localizedCaseInsensitiveContains("bicycle")
+                    }
+                }
+                return rows.contains { $0.detectedClasses.localizedCaseInsensitiveContains(cls) }
             }
         }
 
@@ -135,6 +164,23 @@ struct ManualSelectionView: View {
                 StatsStrip(stats: stats, selected: selectedCount, target: target)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
+
+                // First-open hint — dismissed permanently via AppStorage
+                if !onboardingSeen {
+                    Divider()
+                    HStack(spacing: 10) {
+                        Image(systemName: "hand.tap").foregroundStyle(.blue)
+                        Text("Tap a frame to include or exclude it from the highlight. Blue border = AI recommended.")
+                            .font(.caption)
+                        Spacer()
+                        Button { onboardingSeen = true } label: {
+                            Image(systemName: "xmark").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(Color.blue.opacity(0.07))
+                }
 
                 // Focus Mode filter bar — always visible
                 Divider()
@@ -165,7 +211,16 @@ struct ManualSelectionView: View {
                 if !availableClasses.isEmpty {
                     Divider()
                     ClassFilterBar(classes: availableClasses,
-                                   classCounts: Dictionary(uniqueKeysWithValues: stats.classCounts),
+                                   classCounts: Dictionary(
+                                       stats.classCounts.map { entry -> (String, Int) in
+                                           switch entry.name.lowercased() {
+                                           case "person":  return ("pedestrian", entry.count)
+                                           case "bicycle": return ("cyclist",    entry.count)
+                                           default:        return (entry.name.lowercased(), entry.count)
+                                           }
+                                       },
+                                       uniquingKeysWith: { first, _ in first }
+                                   ),
                                    activeFilter: $classFilter)
                         .padding(.vertical, 6)
                 }
@@ -219,8 +274,13 @@ struct ManualSelectionView: View {
                 Text("All manual clip choices will be discarded and the AI's original picks restored.")
             }
         }
+        #if os(macOS)
         .frame(minWidth: 740, minHeight: 520)
         .background(ResizableWindowAccessor())
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
         .task { await load() }
     }
 
@@ -483,14 +543,22 @@ private struct FocusModeBar: View {
                         Button {
                             activeSegmentFilter = nil
                         } label: {
-                            Label("All segments", systemImage: activeSegmentFilter == nil ? "checkmark" : "")
+                            Label {
+                                Text("All segments")
+                            } icon: {
+                                if activeSegmentFilter == nil { Image(systemName: "checkmark") }
+                            }
                         }
                         Divider()
                         ForEach(segmentNames, id: \.self) { name in
                             Button {
                                 activeSegmentFilter = activeSegmentFilter == name ? nil : name
                             } label: {
-                                Label(name, systemImage: activeSegmentFilter == name ? "checkmark" : "")
+                                Label {
+                                    Text(name)
+                                } icon: {
+                                    if activeSegmentFilter == name { Image(systemName: "checkmark") }
+                                }
                             }
                         }
                     } label: {
@@ -763,8 +831,8 @@ private struct ClassChip: View {
 
 private func classIcon(for name: String) -> String {
     switch name.lowercased() {
-    case "person":        return "figure.walk"
-    case "bicycle":       return "bicycle"
+    case "person", "pedestrian":    return "figure.walk"
+    case "bicycle", "cyclist":      return "figure.outdoor.cycle"
     case "car":           return "car"
     case "motorcycle":    return "motorcycle"
     case "bus":           return "bus"

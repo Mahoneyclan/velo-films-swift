@@ -1,6 +1,6 @@
 import Foundation
 
-/// One row in enriched.csv — extract row + YOLO detections + GPS + scores.
+/// One row in enriched.jsonl — extract row + YOLO detections + GPS + scores.
 /// Mirrors enrich.py output schema exactly.
 struct EnrichRow: Codable {
     // From ExtractRow

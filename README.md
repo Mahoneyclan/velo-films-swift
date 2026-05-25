@@ -56,7 +56,7 @@ Shared/
     Main/                 ContentView, ProjectListView, ProjectDetailView
     Import/               CopyVideosView, StravaImportView, GarminImportView, ImportView
     Pipeline/             PipelineView (live progress log)
-    Selection/            ManualSelectionView (thumbnail grid with toggle)
+    Selection/            ManualSelectionView (thumbnail grid with toggle + focus filters)
     Settings/             GlobalSettingsView, OnboardingView, ProjectPreferencesView
 macOS/                    FFmpegMac (native binary wrapper)
 iPadOS/                   FFmpegiOS, FilePickerBridge
@@ -93,7 +93,7 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 
 ## Settings
 
-**Camera Calibration**
+**Time Sync** (cameras + GPS alignment)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -103,7 +103,7 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 | Fly12Sport timezone | — | e.g. `UTC+10` |
 | Fly6Pro offset (s) | 0 | Additional time offset correction |
 | Fly6Pro timezone | — | e.g. `UTC+10` |
-| GPX time offset (s) | 0 | Shift GPX track relative to video timestamps |
+| GPX time offset (s) | 0 | Shift GPX track forward/backward relative to video timestamps |
 
 **Output**
 
@@ -118,14 +118,47 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 | Music volume (0–1) | 0.7 | Background music level |
 | Raw audio volume (0–1) | 0.3 | Original camera audio level |
 
-**Detection & Scoring**
+**AI Scoring**
+
+Each GroupBox in the AI Scoring tab carries a "Re-run: Enrich" or "Re-run: Select" tag indicating which pipeline step must re-run for the change to take effect.
+
+*YOLO Class Filters* — requires **Enrich**
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| People & cyclists confidence | 0.10 | YOLO detections for person/bicycle below this are discarded |
-| Vehicles & signs confidence | 0.50 | YOLO detections for car/truck/bus/motorcycle/traffic light/stop sign below this are discarded |
-| Candidate pool (×target) | 2.5× | How many candidates the AI evaluates before selecting |
-| Score weights | see Scoring table | All seven dimensions adjustable via sliders; live proportion bar |
+| Cyclist (enable + weight) | ✓ 100% | Person + bicycle detected together |
+| Pedestrian (enable + weight) | ✓ 30% | Person detected without a bicycle in the same frame |
+| Car (enable + weight) | ✓ 30% | |
+| Motorcycle (enable + weight) | ✓ 60% | |
+| Bus (enable + weight) | ✓ 20% | |
+| Truck (enable + weight) | ✓ 20% | |
+
+*Detection Confidence* — requires **Enrich**
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Cyclists | 0.10 | Minimum YOLO confidence for cyclist (person + bicycle) detections |
+| Pedestrians | 0.25 | Minimum YOLO confidence for person (no bicycle) |
+| Vehicles | 0.50 | Minimum YOLO confidence for car/motorcycle/bus/truck |
+
+*Candidate Pool* — requires **Select**
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Pool size | 2.5× | How many candidates the AI evaluates before selecting the final clips |
+
+*Score Weights* (collapsed by default) — requires **Select**
+
+| Dimension | Default | Description |
+|-----------|---------|-------------|
+| YOLO detections | 35% | Cyclist/pedestrian/vehicle detection score |
+| Speed | 20% | Normalised to 60 km/h |
+| Gradient | 20% | Normalised to 8% |
+| Dual-camera bonus | 10% | Both cameras captured this moment |
+| Scene change | 10% | Visually interesting transitions |
+| Strava segment | 5% | Bonus during a segment effort; higher for PRs |
+
+Weights should sum to 100% — a live proportion bar and sum badge (green/red) are shown when the section is expanded.
 
 **Focus Mode Defaults**
 
@@ -133,53 +166,49 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 |---------|---------|-------------|
 | Climb steepness | ≥4% | Minimum gradient to show in Climbs filter |
 | Descent steepness | ≥4% | Minimum magnitude to show in Descents filter |
-| Group min riders | 5 | Minimum person+bicycle detections for Group filter |
+| Group min riders | 5 | Minimum riders for Group filter — counted as max(persons, bicycles) per camera to avoid double-counting cyclists |
 
 ## Focus Mode (Manual Clip Selection)
 
-After the AI selects clips, the manual selection screen lets you filter the visible list. Focus mode is view-only — it never alters AI scores, the underlying `select.jsonl`, or the build pipeline.
+After the AI selects clips, the manual selection screen lets you filter the visible list. A first-open banner explains the basics (dismissed permanently). Focus mode is view-only — it never alters AI scores, the underlying `select.jsonl`, or the build pipeline.
 
-**Filter chips** (always visible):
+**Filter chips:**
 
-| Filter | What it shows | Configurable in |
-|--------|--------------|-----------------|
-| All Clips | Every AI-recommended candidate | — |
-| Opening | Clips within the opening zone (startZonePct of ride) | Settings → Output |
-| Closing | Clips within the closing zone (endZonePct of ride) | Settings → Output |
-| Climbs ≥X% | Clips where `gradient_pct ≥ X` | Settings → Focus Mode Defaults |
-| Descents ≥X% | Clips where `gradient_pct ≤ −X` | Settings → Focus Mode Defaults |
-| Group N+ | Clips with N+ person/bicycle detections | Settings → Focus Mode Defaults |
+| Filter | What it shows |
+|--------|--------------|
+| All Clips | Every clip in the candidate pool |
+| Opening | Clips within the opening zone |
+| Closing | Clips within the closing zone |
+| Climbs ≥X% | gradient_pct ≥ X |
+| Descents ≥X% | gradient_pct ≤ −X |
+| Group N+ | N+ person/bicycle detections (max across cameras) |
+| Strava PRs | Clips during a segment effort ranked PR (#1) |
+| Segment ▾ | Dropdown — clips during a specific Strava segment effort (only segments with clips in the candidate pool are listed) |
 
-**Lap timeline** (shown when Strava data is present):
+**Lap timeline** — proportional timeline of Strava laps. Tap a block to filter to that lap.
 
-A proportional timeline shows one block per Strava lap, sized and positioned relative to its duration within the ride. Only laps that contain at least one AI-selected clip are shown.
-
-- Tap a lap block to filter clips to that lap
-- Tapping the active block returns to All Clips
-- Block labels appear when the block is wide enough; `.help()` tooltip shows the full name on hover
+**YOLO class filter bar** — chips for each detected class (Cyclist, Pedestrian, Car, Truck, Bus, Motorcycle). "Cyclist" shows clips where person + bicycle were detected together; "Pedestrian" shows clips where person was detected *without* a bicycle in the same frame.
 
 **Behaviour:**
-- Only one focus filter is active at a time. The YOLO class filter (cyclist / car / person chips) can be active simultaneously — focus filter runs first, class filter chains after.
-- If no clips match, a contextual empty state explains why.
-- Lap timeline appears only when `laps.json` has been downloaded via Strava import.
-
-**Timezone correction:** Strava lap/segment `start_date` is true UTC; `abs_time_epoch` in the pipeline is local-time-as-UTC (Cycliq wrong-Z). The app derives the offset automatically — `round((rideStart − earliestStravaEpoch) / 3600) × 3600` — so lap/segment epochs align with video epochs regardless of timezone.
+- Focus filter and class filter can be active simultaneously — focus runs first, class filter chains after.
+- Segment filter stacks independently on top of both.
+- Only segments whose clips are in the candidate pool appear in the dropdown (prevents empty results).
+- Timezone correction applied automatically: Strava lap/segment epochs (true UTC) are offset to align with abs_time_epoch (Cycliq local-as-UTC).
 
 ## Scoring
 
-Each candidate clip is scored on seven dimensions. **All weights are user-configurable** in **Settings → Detection & Scoring**.
+Each candidate clip is scored on six dimensions. Weights are user-configurable in **Settings → AI Scoring → Score Weights**.
 
 | Dimension | Default weight |
 |-----------|---------------|
-| YOLO detections (people, vehicles, cyclists) | 0.30 |
-| Speed (normalised to 60 km/h) | 0.20 |
-| Gradient magnitude | 0.20 |
-| Dual-camera bonus | 0.10 |
-| Scene change / interesting moment | 0.10 |
-| Bounding box area | 0.05 |
-| Strava segment bonus | 0.05 |
+| YOLO detections | 35% |
+| Speed (normalised to 60 km/h) | 20% |
+| Gradient magnitude (normalised to 8%) | 20% |
+| Dual-camera bonus | 10% |
+| Scene change / interesting moment | 10% |
+| Strava segment bonus | 5% |
 
-The Settings screen shows a live proportion bar and a sum badge (green when weights total ~1.0, red otherwise) and a Reset button. YOLO minimum confidence and candidate pool fraction are also adjustable.
+**Cyclist vs. pedestrian scoring:** person detections are weighted at full cyclist weight (100% by default) when a bicycle is also detected in the frame (cyclist context). When person is detected without a bicycle (pedestrian context), a separate lower weight (30% by default) is applied. This prevents pedestrians at intersections from inflating scores.
 
 ## Requirements
 
@@ -204,11 +233,11 @@ The Settings screen shows a live proportion bar and a sum badge (green when weig
 
 ## Pipeline architecture notes
 
-**Gradient smoothing:** `GPXParser` computes `gradient_pct` using a ±15 s centered window (30 s total) rather than adjacent 1-second points. GPS vertical accuracy is ±5–15 m; a 1-second window over 5 m of travel amplifies that to ±100%+ false gradient on flat terrain. The 30-second window reduces noise to < 3% on flat roads while still resolving real climbs and descents. Affects gradient scoring weight and the Climbs/Descents focus filter chips.
+**Gradient smoothing:** `GPXParser` computes `gradient_pct` using a ±15 s centered window (30 s total) rather than adjacent 1-second points. GPS vertical accuracy is ±5–15 m; a 1-second window over 5 m of travel amplifies that to ±100%+ false gradient on flat terrain. The 30-second window reduces noise to < 3% on flat roads while still resolving real climbs and descents.
 
 **Two-pass Concat:** `ConcatStep` runs in two phases:
 1. `clip_NNNN.mp4` files are joined with xfade crossfades and backing music mixed in → `_middle.mp4`. Music is looped by adding N explicit `-i music.path` copies + `concat` audio filter + `atrim` (macOS), or `AVMutableCompositionTrack` segment copy loop (iOS). rawAudioVolume and musicVolume are applied here.
-2. `_intro + _middle + _outro` are joined with xfade crossfades, audio passthrough only — each segment already carries its own music (`intro.mp3`, backing music, `outro.mp3`).
+2. `_intro + _middle + _outro` are joined with xfade crossfades, audio passthrough only — each segment already carries its own music.
 
 **HUD layout (1920×1080):**
 ```
@@ -223,7 +252,7 @@ x=0     x=390  x=398          x=1362  x=1370       x=1920
 ```
 Single-camera mode uses the same layout without PiP. The pipeline infers single/dual from files present — no extra configuration needed beyond the camera toggles in Settings.
 
-**Intro map card overlay:** If `working/description.txt` exists, its content is overlaid as left-side text on the intro map splash card. Lines starting with `--` (Wandrer, myWindsock section headers) are stripped; all other lines are shown.
+**Intro map card overlay:** If `working/description.txt` exists, its content is overlaid as left-side text on the intro map splash card. Lines starting with `--` are stripped; all other lines are shown.
 
 **Audio ownership per segment:**
 - `_intro.mp4` — `intro.mp3` baked in by `IntroBuilder`
@@ -232,7 +261,7 @@ Single-camera mode uses the same layout without PiP. The pipeline infers single/
 
 ## YOLO model
 
-`VeloYOLO.mlpackage` in `Shared/ML/` is a YOLO11s model trained on COCO, exported with `nms=False` and `int8=True`. The Swift inference engine (`YOLOInference.swift`) bypasses the Vision framework and decodes the raw `[1, 84, 8400]` output tensor directly, applying per-class NMS in Swift. Re-exporting with `nms=True` is blocked by a coremltools 9.0 bug with the YOLO11 attention op; the current approach is equivalent and faster.
+`VeloYOLO.mlpackage` in `Shared/ML/` is a YOLO11s model trained on COCO, exported with `nms=False` and `int8=True`. The Swift inference engine (`YOLOInference.swift`) bypasses the Vision framework and decodes the raw `[1, 84, 8400]` output tensor directly, applying per-class NMS in Swift. Three confidence thresholds are applied at decode time: bicycle, pedestrian, vehicle.
 
 To regenerate the model (e.g. for a different YOLO variant):
 

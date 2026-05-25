@@ -35,7 +35,6 @@ enum AppConfig {
 
     // MARK: - YOLO
     static let yoloImageSize: Int = 640
-    static var yoloMinConfidence: Float { Float(GlobalSettings.shared.yoloMinConfidence) }
     static let yoloBatchSizeMac: Int = 8
     static let yoloBatchSizeiPad: Int = 4
     static let yoloDetectClasses: Set<Int> = [0, 1, 2, 3, 5, 7]

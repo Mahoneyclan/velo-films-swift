@@ -20,7 +20,7 @@ struct EnrichStep: PipelineStep {
 
     func run(project: Project, reporter: ProgressReporter) async throws {
         try project.createOutputDirectories()
-        await reporter.report(current: 0, total: 100, message: "Loading CSV files...")
+        await reporter.report(current: 0, total: 100, message: "Loading extract.jsonl...")
 
         let extractRows: [ExtractRow] = try jsonlReader.read(from: project.extractJSONL)
         let flattenRows: [FlattenRow] = try jsonlReader.read(from: project.flattenJSONL)
@@ -29,10 +29,12 @@ struct EnrichStep: PipelineStep {
             throw PipelineError.missingInput("extract.jsonl is empty")
         }
 
-        let gpsEnricher = GPSEnricher(flattenRows: flattenRows)
-        let sceneDetector = SceneDetector()
-        let yolo = YOLODetector(modelURL: yoloModelURL)
+        let gpsEnricher    = GPSEnricher(flattenRows: flattenRows)
+        let sceneDetector  = SceneDetector()
         let segmentMatcher = SegmentMatcher(segmentsURL: project.segmentsJSON)
+        // Single YOLODetector reused across all frames — MLModel loads once on first detect()
+        // call then is reused; NSLock inside loadModel() makes it safe if ever called concurrently.
+        let yolo = YOLODetector(modelURL: yoloModelURL)
 
         // Sort by camera + timestamp for scene continuity (mirrors enrich.py)
         let sorted = extractRows.sorted {
@@ -44,18 +46,20 @@ struct EnrichStep: PipelineStep {
         enrichedRows.reserveCapacity(sorted.count)
 
         let isoFmt = ISO8601DateFormatter()
-        let total = sorted.count
+        let total  = sorted.count
         var globalIdx = 0
 
         // Batch by video file — one AVAssetImageGenerator per clip, not per frame.
-        // This loads the moov box once per 2.2 GB file instead of once per frame.
+        // This loads the moov box once per file instead of once per frame.
         var clipStart = 0
         while clipStart < sorted.count {
             let clipPath = sorted[clipStart].videoPath
-            var clipEnd = clipStart + 1
+            var clipEnd  = clipStart + 1
             while clipEnd < sorted.count && sorted[clipEnd].videoPath == clipPath { clipEnd += 1 }
 
-            let generator = FrameSampler.makeGenerator(for: URL(fileURLWithPath: clipPath))
+            let sz = AppConfig.yoloImageSize
+            let generator = FrameSampler.makeGenerator(for: URL(fileURLWithPath: clipPath),
+                                                       maximumSize: CGSize(width: sz, height: sz))
 
             for rowIdx in clipStart..<clipEnd {
                 let row = sorted[rowIdx]
@@ -66,52 +70,42 @@ struct EnrichStep: PipelineStep {
                 }
                 globalIdx += 1
 
-                // Extract frame
                 let secIntoClip = row.absTimeEpoch - row.clipStartEpoch - AppConfig.clipPreRollS
                 let frame = await FrameSampler.extractFrame(using: generator,
-                                                           atSecond: max(0, secIntoClip))
-                // Save thumbnail for ManualSelectionView
+                                                            atSecond: max(0, secIntoClip))
                 if let frame {
                     let thumbURL = project.framesDir.appending(path: "\(row.index).jpg")
                     FrameSampler.saveJPEG(frame, to: thumbURL)
                 }
 
-            // YOLO detection
-            var detectScore = 0.0
-            var numDetections = 0
-            var bboxArea = 0.0
-            var detectedClasses = ""
-            if let frame, let result = try? yolo.detect(image: frame) {
-                detectScore    = result.detectScore
-                numDetections  = result.detections.count
-                bboxArea       = result.bboxArea
-                detectedClasses = result.detections.map { $0.className }.joined(separator: ",")
-            }
+                var detectScore     = 0.0
+                var numDetections   = 0
+                var bboxArea        = 0.0
+                var detectedClasses = ""
+                if let frame, let result = try? yolo.detect(image: frame) {
+                    detectScore      = result.detectScore
+                    numDetections    = result.detections.count
+                    bboxArea         = result.bboxArea
+                    detectedClasses  = result.detections.map { $0.className }.joined(separator: ",")
+                }
 
-            // Scene detection
-            let sceneBoost = frame.map { sceneDetector.score(frame: $0, camera: row.camera) } ?? 0.0
+                let sceneBoost = frame.map { sceneDetector.score(frame: $0, camera: row.camera) } ?? 0.0
+                let gps        = gpsEnricher.enrich(epoch: row.absTimeEpoch)
+                let segBoost   = segmentMatcher.boost(epoch: row.absTimeEpoch)
 
-            // GPS enrichment
-            let gps = gpsEnricher.enrich(epoch: row.absTimeEpoch)
-
-            // Segment boost
-            let segBoost = segmentMatcher.boost(epoch: row.absTimeEpoch)
-
-            // Scoring
-            guard let camera = AppConfig.CameraName(rawValue: row.camera) else {
-                throw PipelineError.missingInput("Unrecognized camera name '\(row.camera)'")
-            }
-            let composite = ScoreCalculator.composite(ScoreCalculator.Input(
-                detectScore: detectScore,
-                sceneBoost: sceneBoost,
-                speedKmh: gps?.speedKmh ?? 0,
-                gradientPct: gps?.gradientPct ?? 0,
-                segmentBoost: segBoost,
-                camera: camera
-            ))
-            let weighted = ScoreCalculator.weighted(composite, camera: camera)
-
-            let momentId = Int(row.absTimeEpoch.rounded())
+                guard let camera = AppConfig.CameraName(rawValue: row.camera) else {
+                    throw PipelineError.missingInput("Unrecognized camera name '\(row.camera)'")
+                }
+                let composite = ScoreCalculator.composite(ScoreCalculator.Input(
+                    detectScore:  detectScore,
+                    sceneBoost:   sceneBoost,
+                    speedKmh:     gps?.speedKmh    ?? 0,
+                    gradientPct:  gps?.gradientPct ?? 0,
+                    segmentBoost: segBoost,
+                    camera:       camera
+                ))
+                let weighted  = ScoreCalculator.weighted(composite, camera: camera)
+                let momentId  = Int(row.absTimeEpoch.rounded())
 
                 enrichedRows.append(EnrichRow(
                     index: row.index, camera: row.camera,

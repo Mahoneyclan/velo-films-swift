@@ -1,6 +1,6 @@
 import Foundation
 
-/// Attaches GPS telemetry to extract rows via binary search on flatten.csv epochs.
+/// Attaches GPS telemetry to extract rows via binary search on flatten.jsonl epochs.
 /// Mirrors gps_enricher.py: nearest-neighbour lookup within GPX_TOLERANCE.
 struct GPSEnricher {
     let index: GPXIndex

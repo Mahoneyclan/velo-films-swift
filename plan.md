@@ -383,13 +383,7 @@ Cannot be compressed. Needs real rides, real footage, real iPad.
 
 **Architectural gaps to close before release:**
 
-**1. Share/Export — completely missing**
-After concat finishes there is no way to get the video out of the app on iPad. Needs:
-- `ShareLink` in `PipelineView` after successful concat (SwiftUI, works on both platforms)
-- `PHPhotoLibrary.performChanges` to save to Photos library
-- (stretch) Direct Strava video upload — genuine differentiator over the Cycliq app
-
-**2. In-memory gauge rendering**
+**1. In-memory gauge rendering**
 Switch `BuildStep` from `GaugeRenderer.writeFramesToDisk()` to `GaugeRenderer.renderFrames()` returning `[CGImage]` in memory — eliminates the temp PNG encode/decode round-trip and reduces disk I/O on every clip.
 
 **3. AVAssetWriter for clip export**
@@ -416,7 +410,6 @@ Switch `BuildStep` from `GaugeRenderer.writeFramesToDisk()` to `GaugeRenderer.re
 ### Phase 7 — Polish & Release
 
 - [ ] App icon and launch screen
-- [ ] Share/Export flow (see Phase 6 gap — ShareLink + Photos + Strava upload)
 - [ ] Background task handling (`BGProcessingTask`) with progress persistence and resume
 - [ ] iPad multitasking — Split View and Slide Over (SwiftUI handles most of this automatically)
 - [ ] Error handling and user-facing messages for all failure modes

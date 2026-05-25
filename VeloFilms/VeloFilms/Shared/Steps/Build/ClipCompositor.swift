@@ -6,7 +6,9 @@ import CoreGraphics
 /// macOS: FFmpegBridge filter_complex + loudnorm (mirrors clip_renderer.py).
 /// iOS:   AVMutableComposition + ClipVideoCompositor (Metal GPU compositing, no FFmpeg).
 struct ClipCompositor: Sendable {
+#if os(macOS)
     let bridge: any FFmpegBridge
+#endif
     let outputDir: URL
 
     @discardableResult

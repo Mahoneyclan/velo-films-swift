@@ -21,7 +21,7 @@ enum OutroBuilder {
 
         let collagePNG = assetsDir.appending(path: "outro_collage.png")
         let frames = IntroBuilder.collectFrames(from: project.framesDir,
-                                                selectRows: selectRows, max: 24)
+                                                selectRows: selectRows, max: 60)
         let stats  = IntroBuilder.computeRideStats(flattenRows: flattenRows)
         try IntroBuilder.renderCollage(frames: frames, outputURL: collagePNG,
                                        width: W, height: H, bannerHeight: bannerH,

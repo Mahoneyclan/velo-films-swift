@@ -97,7 +97,12 @@ struct ProjectPreferencesView: View {
                 }
             }
         }
+        #if os(macOS)
         .frame(minWidth: 480, minHeight: 400)
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
         .task {
             prefs = project.loadPreferences()
             availableTracks = discoverTracks()
