@@ -69,8 +69,9 @@ final class PipelineExecutor {
                 self.log.info("Pipeline cancelled")
             } catch {
                 self.log.error("Step failed: \(error.localizedDescription)")
+                let stepName = await MainActor.run { self.runningStep?.rawValue ?? "?" }
+                Self.appendToLog("Step failed (\(stepName)): \(error)", projectFolder: project.folderURL)
                 await MainActor.run {
-                    Self.appendToLog("Step failed (\(self.runningStep?.rawValue ?? "?")): \(error)")
                     self.failedStep = self.runningStep
                     self.lastError = error
                     self.runningStep = nil
@@ -80,10 +81,9 @@ final class PipelineExecutor {
         }
     }
 
-    private nonisolated static func appendToLog(_ message: String) {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        guard let url = docs?.appending(path: "pipeline.log"),
-              let data = "[\(Date())] \(message)\n".data(using: .utf8) else { return }
+    private nonisolated static func appendToLog(_ message: String, projectFolder: URL) {
+        let url = projectFolder.appending(path: "pipeline.log")
+        guard let data = "[\(Date())] \(message)\n".data(using: .utf8) else { return }
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
             handle.write(data)
