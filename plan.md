@@ -471,9 +471,9 @@ Fix: `guard let track = composition.addMutableTrack(...) else { throw PipelineEr
 
 `ISO8601DateFormatter` is expensive to initialise. These three sites create a new instance per loop iteration (hundreds to thousands of times per pipeline run):
 
-- [ ] `FlattenStep.swift:29` — `ISO8601DateFormatter()` inside the per-row flatten loop
-- [ ] `ExtractStep.swift:79–80` — two `ISO8601DateFormatter()` inside the grid-point loop
-- [ ] `StravaClient.swift:122` — `ISO8601DateFormatter()` inside the `buildGPX` per-trackpoint loop
+- [x] `FlattenStep.swift:29` — `ISO8601DateFormatter()` inside the per-row flatten loop
+- [x] `ExtractStep.swift:79–80` — two `ISO8601DateFormatter()` inside the grid-point loop
+- [x] `StravaClient.swift:122` — `ISO8601DateFormatter()` inside the `buildGPX` per-trackpoint loop
 
 Fix: add `private static let isoFmt = ISO8601DateFormatter()` at file scope in each file; replace inline constructions with `Self.isoFmt`.
 

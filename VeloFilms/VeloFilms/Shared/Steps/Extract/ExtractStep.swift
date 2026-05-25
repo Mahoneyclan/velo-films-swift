@@ -7,6 +7,7 @@ struct ExtractStep: PipelineStep {
     let name = "extract"
     let jsonlWriter: JSONLWriter
     let jsonlReader: JSONLReader
+    private static let isoFmt = ISO8601DateFormatter()
 
     init(jsonlWriter: JSONLWriter = JSONLWriter(), jsonlReader: JSONLReader = JSONLReader()) {
         self.jsonlWriter = jsonlWriter
@@ -76,8 +77,8 @@ struct ExtractStep: PipelineStep {
                 let clipId   = String(format: "%04d", clipIndex + 1)
                 let index    = "\(camera.rawValue)_\(clipId)_\(String(format: "%06d", Int(secIntoClip)))"
 
-                let iso = ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: t))
-                let adjustedISO = ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: clipStartEpoch))
+                let iso = Self.isoFmt.string(from: Date(timeIntervalSince1970: t))
+                let adjustedISO = Self.isoFmt.string(from: Date(timeIntervalSince1970: clipStartEpoch))
 
                 rows.append(ExtractRow(
                     index: index,

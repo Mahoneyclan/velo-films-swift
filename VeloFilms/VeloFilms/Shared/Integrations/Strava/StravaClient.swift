@@ -34,6 +34,7 @@ struct StravaActivity: Decodable, Identifiable {
 }
 
 struct StravaClient {
+    private static let isoFmt = ISO8601DateFormatter()
     private let auth = StravaAuth.shared
     private let baseURL = "https://www.strava.com/api/v3"
 
@@ -119,7 +120,6 @@ struct StravaClient {
         let gradeSmooth  = (streams["grade_smooth"] as? [String: Any])?["data"] as? [Double]
 
         var trkpts = ""
-        let fmt = ISO8601DateFormatter()
 
         for i in 0..<latlng.count {
             guard latlng[i].count == 2 else { continue }
@@ -129,7 +129,7 @@ struct StravaClient {
             let hr  = i < heartrate.count ? heartrate[i] : -1
             let cad = i < cadence.count   ? cadence[i]   : -1
 
-            let ts = fmt.string(from: startDate.addingTimeInterval(Double(t)))
+            let ts = Self.isoFmt.string(from: startDate.addingTimeInterval(Double(t)))
             var ext = ""
             let hasExt = hr >= 0 || cad >= 0 || (gradeSmooth != nil && i < (gradeSmooth?.count ?? 0))
             if hasExt {
