@@ -61,7 +61,7 @@ enum OutroBuilder {
         // 3. Build a black clip (solid black CGImage encoded as still)
         let blackDur  = 2.0
         let blackClip = assetsDir.appending(path: "outro_black.mp4")
-        let blackImg  = makeBlackImage(width: W, height: H)
+        let blackImg  = try makeBlackImage(width: W, height: H)
         try await VideoEncoder.encodeStill(image: blackImg, duration: blackDur,
                                            outputURL: blackClip)
 
@@ -112,8 +112,10 @@ enum OutroBuilder {
         guard let srcVideo = try? await asset.loadTracks(withMediaType: .video).first else {
             throw PipelineError.renderFailed("OutroBuilder: no video track in collage clip")
         }
-        let vTrack = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let vTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw PipelineError.renderFailed("OutroBuilder: failed to add video track")
+        }
         try vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: durCM), of: srcVideo, at: .zero)
 
         // CoreAnimation layer tree
@@ -179,13 +181,18 @@ enum OutroBuilder {
 
     // MARK: - Black frame
 
-    private static func makeBlackImage(width: Int, height: Int) -> CGImage {
-        let ctx = CGContext(data: nil, width: width, height: height,
-                            bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    private static func makeBlackImage(width: Int, height: Int) throws -> CGImage {
+        guard let ctx = CGContext(data: nil, width: width, height: height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw PipelineError.renderFailed("OutroBuilder: CGContext creation failed")
+        }
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        return ctx.makeImage()!
+        guard let image = ctx.makeImage() else {
+            throw PipelineError.renderFailed("OutroBuilder: black frame CGImage creation failed")
+        }
+        return image
     }
 }

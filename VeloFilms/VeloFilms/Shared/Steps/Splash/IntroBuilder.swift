@@ -106,10 +106,12 @@ enum IntroBuilder {
         let stepCM  = dCM - xCM
 
         let composition = AVMutableComposition()
-        let trackA = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
-        let trackB = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let trackA = composition.addMutableTrack(
+                  withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let trackB = composition.addMutableTrack(
+                  withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw PipelineError.renderFailed("IntroBuilder: failed to create composition tracks")
+        }
 
         var insertTime = CMTime.zero
         for (i, url) in clips.enumerated() {
@@ -186,9 +188,9 @@ enum IntroBuilder {
         let composition = AVMutableComposition()
 
         // Video track
-        if let srcV = try? await videoAsset.loadTracks(withMediaType: .video).first {
-            let vTrack = composition.addMutableTrack(
-                withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        if let srcV = try? await videoAsset.loadTracks(withMediaType: .video).first,
+           let vTrack = composition.addMutableTrack(
+               withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
             try? vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: durCM),
                                         of: srcV, at: .zero)
         }
@@ -197,18 +199,19 @@ enum IntroBuilder {
         var musicTrackComp: AVMutableCompositionTrack? = nil
         if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
             let musicDur  = try await musicAsset.load(.duration)
-            let mTrack    = composition.addMutableTrack(
-                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
-            var remaining = durCM
-            var destTime  = CMTime.zero
-            while remaining > .zero {
-                let insert   = CMTimeMinimum(remaining, musicDur)
-                try? mTrack.insertTimeRange(CMTimeRange(start: .zero, duration: insert),
-                                            of: srcM, at: destTime)
-                destTime  = destTime + insert
-                remaining = remaining - insert
+            if let mTrack = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                var remaining = durCM
+                var destTime  = CMTime.zero
+                while remaining > .zero {
+                    let insert   = CMTimeMinimum(remaining, musicDur)
+                    try? mTrack.insertTimeRange(CMTimeRange(start: .zero, duration: insert),
+                                                of: srcM, at: destTime)
+                    destTime  = destTime + insert
+                    remaining = remaining - insert
+                }
+                musicTrackComp = mTrack
             }
-            musicTrackComp = mTrack
         }
 
         var inputParams: [AVMutableAudioMixInputParameters] = []

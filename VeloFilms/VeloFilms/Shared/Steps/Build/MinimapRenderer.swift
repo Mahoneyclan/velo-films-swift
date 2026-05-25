@@ -74,7 +74,9 @@ struct MinimapRenderer {
             drawOfflineBackground(gpxPoints: gpxPoints, into: ctx, size: size)
         }
 
-        let image = ctx.makeImage()!
+        guard let image = ctx.makeImage() else {
+            throw PipelineError.renderFailed("MinimapRenderer: CGImage creation failed")
+        }
         try saveImage(image, to: outputURL)
     }
 

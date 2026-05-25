@@ -92,8 +92,10 @@ struct ClipCompositor: Sendable {
         guard let mainVSrc = try await mainAsset.loadTracks(withMediaType: .video).first else {
             throw PipelineError.renderFailed("ClipCompositor: no video track in main clip")
         }
-        let mainTrack = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        guard let mainTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw PipelineError.renderFailed("ClipCompositor: failed to add main video track")
+        }
         try mainTrack.insertTimeRange(srcRange, of: mainVSrc, at: .zero)
 
         var pipTrackID: CMPersistentTrackID? = nil
@@ -102,9 +104,9 @@ struct ClipCompositor: Sendable {
             let pipStart  = CMTimeMakeWithSeconds(tStartPip, preferredTimescale: ts)
             let pipRange  = CMTimeRange(start: pipStart, duration: durCM)
             let pipAsset  = AVURLAsset(url: URL(fileURLWithPath: pip.videoPath))
-            if let pipVSrc = try? await pipAsset.loadTracks(withMediaType: .video).first {
-                let pipTrack = composition.addMutableTrack(
-                    withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            if let pipVSrc = try? await pipAsset.loadTracks(withMediaType: .video).first,
+               let pipTrack = composition.addMutableTrack(
+                   withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
                 try? pipTrack.insertTimeRange(pipRange, of: pipVSrc, at: .zero)
                 pipTrackID = pipTrack.trackID
             }
@@ -112,9 +114,9 @@ struct ClipCompositor: Sendable {
 
         // Camera audio at raw volume (no loudnorm available on iOS)
         var audioParams: [AVMutableAudioMixInputParameters] = []
-        if let mainASrc = try? await mainAsset.loadTracks(withMediaType: .audio).first {
-            let audioTrack = composition.addMutableTrack(
-                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        if let mainASrc = try? await mainAsset.loadTracks(withMediaType: .audio).first,
+           let audioTrack = composition.addMutableTrack(
+               withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
             try? audioTrack.insertTimeRange(srcRange, of: mainASrc, at: .zero)
             let params = AVMutableAudioMixInputParameters(track: audioTrack)
             params.setVolume(Float(GlobalSettings.shared.rawAudioVolume), at: .zero)
