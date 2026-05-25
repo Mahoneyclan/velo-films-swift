@@ -252,8 +252,10 @@ struct ProjectDetailView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+#if os(macOS)
             Button("Open in Finder") { reveal(project.finalReelURL) }
                 .buttonStyle(.borderedProminent)
+#endif
         }
         .padding()
         .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))

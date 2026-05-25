@@ -46,14 +46,14 @@ struct GarminClient {
 
     func recentActivities(limit: Int = 30) async throws -> [GarminActivity] {
         let token = try await auth.ensureValidToken()
-        let url = URL(string: "\(base)/activitylist-service/activities/search/activities?start=0&limit=\(limit)")!
+        guard let url = URL(string: "\(base)/activitylist-service/activities/search/activities?start=0&limit=\(limit)") else { throw URLError(.badURL) }
         let data = try await bearer(url: url, token: token)
         return try JSONDecoder().decode([GarminActivity].self, from: data)
     }
 
     func downloadGPX(activityID: Int, to outputURL: URL) async throws {
         let token = try await auth.ensureValidToken()
-        let url = URL(string: "\(base)/download-service/export/gpx/activity/\(activityID)")!
+        guard let url = URL(string: "\(base)/download-service/export/gpx/activity/\(activityID)") else { throw URLError(.badURL) }
         let data = try await bearer(url: url, token: token)
         guard data.count > 100 else { throw GarminError.downloadFailed(0) }
         try data.write(to: outputURL, options: .atomic)

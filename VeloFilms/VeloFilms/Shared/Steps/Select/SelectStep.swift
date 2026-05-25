@@ -118,8 +118,8 @@ struct SelectStep: PipelineStep {
         let endTarget   = totalMoving * (1.0 - endPct)
 
         // Find first epoch where cumulative moving time crosses each target
-        var startEpoch = entries.first!.epoch
-        var endEpoch   = entries.last!.epoch
+        var startEpoch = entries[0].epoch
+        var endEpoch   = entries[entries.count - 1].epoch
         for entry in entries {
             if entry.cumMoving >= startTarget { startEpoch = entry.epoch; break }
         }

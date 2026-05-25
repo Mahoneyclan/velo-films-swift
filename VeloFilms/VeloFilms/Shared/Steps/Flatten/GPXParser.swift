@@ -103,8 +103,8 @@ final class GPXParser: NSObject, XMLParserDelegate {
     private func resample(_ raw: [RawPoint]) -> [GPXPoint] {
         guard raw.count >= 2 else { return [] }
         let sorted = raw.sorted { $0.epoch < $1.epoch }
-        let startEpoch = sorted.first!.epoch.rounded(.down)
-        let endEpoch   = sorted.last!.epoch.rounded(.up)
+        let startEpoch = sorted[0].epoch.rounded(.down)
+        let endEpoch   = sorted[sorted.count - 1].epoch.rounded(.up)
 
         var out: [GPXPoint] = []
         var t = startEpoch
