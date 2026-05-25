@@ -10,6 +10,12 @@ private let stravaTokenURL = URL(string: "https://www.strava.com/oauth/token")!
 final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = StravaAuth()
 
+    // Captured on MainActor just before session.start() so presentationAnchor never
+    // needs a scene-less UIWindow fallback (deprecated on iOS 26).
+#if !os(macOS)
+    private var authScene: UIWindowScene?
+#endif
+
     private let clientID     = StravaSecrets.clientID
     private let clientSecret = StravaSecrets.clientSecret
     // Host must match the "Authorization Callback Domain" in Strava API settings (localhost)
@@ -71,6 +77,13 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
             .init(name: "scope",         value: scope),
         ]
 
+#if !os(macOS)
+        authScene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+#endif
+
         let callbackURL = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
             let session = ASWebAuthenticationSession(
                 url: components.url!,
@@ -121,12 +134,13 @@ final class StravaAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
     }
 #else
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        if let window = scenes.first?.windows.first { return window }
-        if let scene = scenes.first { return UIWindow(windowScene: scene) }
-        Logger(subsystem: "com.velofilms", category: "StravaAuth")
-            .error("No connected UIWindowScene — auth sheet may not present correctly")
-        return UIWindow(frame: .zero)
+        // authScene is captured on MainActor in authenticate() before session.start(),
+        // so this path always has a scene during active OAuth flows.
+        let scene = authScene
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        if let window = scene?.windows.first { return window }
+        if let scene { return UIWindow(windowScene: scene) }
+        preconditionFailure("StravaAuth: no UIWindowScene — unreachable during active UI interaction")
     }
 #endif
 
