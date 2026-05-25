@@ -11,7 +11,7 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 ## Platforms
 
 - **macOS 26+** — full pipeline via system FFmpeg (`/opt/homebrew/bin/ffmpeg`); `Process()` spawn for filter_complex operations
-- **iPadOS 26+** — full pipeline via AVFoundation: `ClipCompositor` uses `AVMutableComposition` + `ClipVideoCompositor` (Metal GPU CIImage compositing); build/concat steps use A/B track opacity crossfades with audio volume ramps; music mixing via `AVMutableComposition` dual audio tracks. No FFmpegKit dependency.
+- **iPadOS 26+** — full pipeline via AVFoundation: `ClipCompositor` uses `AVMutableComposition` + `ClipVideoCompositor` (Metal GPU CIImage compositing) exported via `VideoEncoder.exportInProcess()` (in-process `AVAssetReader` + `AVAssetWriter` — bypasses `mediaserverd` sandbox restrictions on external-drive security-scoped URLs); build/concat steps use A/B track opacity crossfades with audio volume ramps; music mixing via `AVMutableComposition` dual audio tracks. No FFmpegKit dependency.
 
 Both platforms share all pipeline logic; `#if os(macOS)` / `#else` blocks select the appropriate render backend. iPad is the primary portable product; Mac is retained for fast development and production runs.
 
