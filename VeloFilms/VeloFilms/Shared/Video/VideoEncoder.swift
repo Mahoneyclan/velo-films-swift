@@ -82,6 +82,14 @@ enum VideoEncoder {
         audioMix: AVAudioMix? = nil,
         to outputURL: URL
     ) async throws {
+#if os(iOS)
+        // AVAssetExportSession spawns mediaserverd which cannot access security-scoped external
+        // drive URLs and its sandbox blocks our Metal compositor. Use the in-process path instead.
+        try await exportInProcess(composition: composition,
+                                   videoComposition: videoComposition,
+                                   audioMix: audioMix,
+                                   to: outputURL)
+#else
         try? FileManager.default.removeItem(at: outputURL)
 
         guard let session = AVAssetExportSession(
@@ -96,33 +104,56 @@ enum VideoEncoder {
         session.shouldOptimizeForNetworkUse = true
 
         try await session.export(to: outputURL, as: .mp4)
+#endif
     }
 
 #if os(iOS)
     // MARK: - In-process export (iOS)
 
-    /// iOS replacement for export(): uses AVAssetReader + AVAssetWriter entirely in-process.
-    /// AVAssetExportSession spawns mediaserverd which cannot access security-scoped URLs on
-    /// external drives, and its sandbox blocks our Metal compositor (FIGSANDBOX err=-17508).
-    /// AVAssetReader + AVAssetWriter run in the app's own process where security-scoped access
-    /// is active, so they can both read source clips and write output to the external drive.
+    /// iOS audio-mix + video-passthrough export — the only AVAssetReader use on iOS.
+    ///
+    /// iOS constraints established through testing:
+    ///   1. External-drive files: AVAssetReader routes through mediaserverd XPC which cannot
+    ///      access security-scoped URLs. Pass only iosTmp or bundle files to this function.
+    ///   2. AVAssetReaderVideoCompositionOutput: engages the Fig video compositor
+    ///      (FigApplicationStateMonitor err=-19431) regardless of composition complexity.
+    ///      NEVER pass a non-nil videoComposition here; do all video compositing upstream
+    ///      via AVAssetImageGenerator before calling this function.
+    ///   3. AVAssetReaderTrackOutput with decode outputSettings (e.g. BGRA): mediaserverd
+    ///      cannot create a VTDecompressionSession in the current app state ("Cannot Open").
+    ///      Use outputSettings:nil (compressed passthrough) — no decode required.
+    ///
+    /// This function handles ONLY: video compressed passthrough + optional audio mix.
+    /// All video compositing must happen outside via AVAssetImageGenerator frame loops.
     static func exportInProcess(
         composition: AVComposition,
         videoComposition: AVVideoComposition? = nil,
         audioMix: AVAudioMix? = nil,
         to outputURL: URL
     ) async throws {
+        // videoComposition must be nil on iOS — all compositing goes through AVAssetImageGenerator.
+        // Callers that need video compositing should produce a composited video file first and
+        // then call this function for audio mixing only (videoComposition: nil).
+        guard videoComposition == nil else {
+            throw PipelineError.renderFailed(
+                "exportInProcess: non-nil videoComposition on iOS triggers Fig compositor " +
+                "(FigApplicationStateMonitor err=-19431). Do video compositing via " +
+                "AVAssetImageGenerator upstream and call this with videoComposition: nil.")
+        }
+
         try? FileManager.default.removeItem(at: outputURL)
 
         // Reader
         let reader = try AVAssetReader(asset: composition)
 
         let videoTracks = composition.tracks(withMediaType: .video)
-        let readerVideo = AVAssetReaderVideoCompositionOutput(
-            videoTracks: videoTracks,
-            videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-        )
-        readerVideo.videoComposition = videoComposition
+        guard let firstVideoTrack = videoTracks.first else {
+            throw PipelineError.renderFailed("exportInProcess: no video tracks in composition")
+        }
+        // outputSettings: nil → compressed passthrough (no decode, no VTDecompressionSession).
+        // Avoids mediaserverd VT decoder which fails in the current iOS app state.
+        let readerVideo = AVAssetReaderTrackOutput(track: firstVideoTrack, outputSettings: nil)
+        readerVideo.alwaysCopiesSampleData = false
         reader.add(readerVideo)
 
         var readerAudio: AVAssetReaderOutput? = nil
@@ -146,19 +177,19 @@ enum VideoEncoder {
         }
 
         // Writer
-        let W = AppConfig.HUD.outputW
-        let H = AppConfig.HUD.outputH
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
 
-        let writerVideo = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey:  AVVideoCodecType.h264,
-            AVVideoWidthKey:  W,
-            AVVideoHeightKey: H,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: AppConfig.Encoding.videoBitrate,
-                AVVideoProfileLevelKey:   AVVideoProfileLevelH264HighAutoLevel,
-            ]
-        ])
+        // outputSettings: nil → passthrough mode. MP4 container requires a sourceFormatHint
+        // so the writer knows the incoming compressed format before the first sample arrives.
+        // Use async load because AVCompositionTrack.formatDescriptions is not populated
+        // synchronously when the backing file was just written (e.g. iosTmp clips).
+        let videoFormatHint = (try? await firstVideoTrack.load(.formatDescriptions))?.first
+        guard let videoFormatHint else {
+            throw PipelineError.renderFailed(
+                "exportInProcess: could not load video format description for passthrough")
+        }
+        let writerVideo = AVAssetWriterInput(mediaType: .video, outputSettings: nil,
+                                             sourceFormatHint: videoFormatHint)
         writerVideo.expectsMediaDataInRealTime = false
         writer.add(writerVideo)
 
@@ -176,19 +207,28 @@ enum VideoEncoder {
         }
 
         guard reader.startReading() else {
-            throw reader.error ?? PipelineError.renderFailed("exportInProcess: reader failed to start")
+            let errDetail = reader.error.map { " (\($0.localizedDescription))" } ?? ""
+            throw reader.error ?? PipelineError.renderFailed("exportInProcess: reader failed to start\(errDetail)")
         }
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
+
+        guard writer.status == .writing else {
+            throw PipelineError.renderFailed("exportInProcess: writer failed to start: \(writer.error?.localizedDescription ?? "unknown")")
+        }
+        // Ensure writer is cancelled on any throw path before finishWriting is reached.
+        // Deallocating an AVAssetWriter in .writing state raises NSFileHandleOperationException.
+        defer { if writer.status == .writing { writer.cancelWriting() } }
 
         // Pump video and audio concurrently — both run in-process with security-scoped access
         try await withThrowingTaskGroup(of: Void.self) { group in
             let rv = readerVideo
             let wv = writerVideo
-            group.addTask { try await VideoEncoder.pumpOutput(rv, to: wv) }
+            let w  = writer
+            group.addTask { try await VideoEncoder.pumpOutput(rv, to: wv, writer: w) }
             let ra = readerAudio
             let wa = writerAudio
-            group.addTask { try await VideoEncoder.pumpOutput(ra, to: wa) }
+            group.addTask { try await VideoEncoder.pumpOutput(ra, to: wa, writer: w) }
             try await group.waitForAll()
         }
 
@@ -207,15 +247,19 @@ enum VideoEncoder {
     }
 
     /// Pumps one AVAssetReaderOutput → AVAssetWriterInput until the source is exhausted.
+    /// writer is checked before each append — appending to a failed writer raises NSException.
     private static func pumpOutput(
         _ output: AVAssetReaderOutput?,
-        to input: AVAssetWriterInput?
+        to input: AVAssetWriterInput?,
+        writer: AVAssetWriter
     ) async throws {
         guard let output, let input else { return }
         while let buf = output.copyNextSampleBuffer() {
+            guard writer.status == .writing else { break }
             while !input.isReadyForMoreMediaData {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
+            guard writer.status == .writing else { break }
             input.append(buf)
         }
         input.markAsFinished()
@@ -285,3 +329,4 @@ enum VideoEncoder {
         return pixelBuffer
     }
 }
+

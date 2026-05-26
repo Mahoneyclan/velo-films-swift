@@ -3,9 +3,11 @@ import UniformTypeIdentifiers
 
 struct OnboardingView: View {
     @State private var step = 0
-    @State private var showProjectsPicker = false
-    @State private var showInputPicker    = false
     @Environment(\.dismiss) private var dismiss
+#if os(iOS)
+    @State private var showFolderPicker = false
+    @State private var folderApply: ((URL) -> Void)? = nil
+#endif
 
     private var settings: GlobalSettings { GlobalSettings.shared }
 
@@ -29,20 +31,21 @@ struct OnboardingView: View {
                 .padding(24)
         }
         .frame(width: 500, height: 400)
-        .fileImporter(isPresented: $showProjectsPicker,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                _ = url.startAccessingSecurityScopedResource()
-                GlobalSettings.shared.projectsRoot = url
-            }
+#if os(iOS)
+        .sheet(isPresented: $showFolderPicker) {
+            FolderPickerView(
+                onPicked: { url in
+                    showFolderPicker = false
+                    folderApply?(url)
+                    folderApply = nil
+                },
+                onCancel: {
+                    showFolderPicker = false
+                    folderApply = nil
+                }
+            )
         }
-        .fileImporter(isPresented: $showInputPicker,
-                      allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                _ = url.startAccessingSecurityScopedResource()
-                GlobalSettings.shared.inputBaseDir = url
-            }
-        }
+#endif
     }
 
     // MARK: - Pages
@@ -169,7 +172,7 @@ struct OnboardingView: View {
 
     // MARK: - Folder picker
 
-    private func chooseFolder(_ apply: (URL) -> Void) {
+    private func chooseFolder(_ apply: @escaping (URL) -> Void) {
 #if os(macOS)
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -179,6 +182,9 @@ struct OnboardingView: View {
         if panel.runModal() == .OK, let url = panel.url {
             apply(url)
         }
+#else
+        folderApply = apply
+        showFolderPicker = true
 #endif
     }
 }
