@@ -124,7 +124,6 @@ struct ClipCompositor: Sendable {
         // AVAssetReader routes through mediaserverd which can't open external-drive URLs.
         let iosTmp    = FileManager.default.temporaryDirectory
         let tmpVidURL = iosTmp.appending(path: String(format: "clip_vid_%04d.mp4", clipIndex))
-        let tmpAudURL = iosTmp.appending(path: String(format: "clip_aud_%04d.mp4", clipIndex))
         try? FileManager.default.removeItem(at: tmpVidURL)
         let writer = try AVAssetWriter(outputURL: tmpVidURL, fileType: .mp4)
         let writerVideo = AVAssetWriterInput(mediaType: .video, outputSettings: [
@@ -221,13 +220,12 @@ struct ClipCompositor: Sendable {
             throw PipelineError.renderFailed("ClipCompositor: writer status \(writer.status.rawValue)")
         }
 
-        // Extract audio from source using FileHandle (in-process, respects security-scoped bookmarks).
-        // extractAudio writes an audio-only MP4 where audio is trackID 1.
-        let mainSourceURL = Self.reanchorSourceURL(mainRow.videoPath)
-        let hasAudio = (try? await MP4Demuxer.extractAudio(
-            from: mainSourceURL, startTime: tStartMain, duration: duration, to: tmpAudURL)) ?? false
-
-        // Build composition: video (iosTmp) + audio (iosTmp if available) → exportInProcess.
+        // Cycliq raw audio is not used in iOS output — ConcatStep builds the middle via
+        // AVAssetImageGenerator (video-only) then mixes backing music separately.
+        // Attempting to pass Cycliq audio through AVAssetReaderAudioMixOutput triggers
+        // AudioFormatDescription err=-12710 (malformed AudioSpecificConfig in esds box)
+        // which causes reader.startReading() to fail even when format desc creation succeeds.
+        // Produce a video-only clip; ConcatStep adds music in its own pass.
         let durCM = CMTimeMakeWithSeconds(duration, preferredTimescale: ts)
         let comp  = AVMutableComposition()
         if let vt = comp.addMutableTrack(withMediaType: .video,
@@ -237,19 +235,10 @@ struct ClipCompositor: Sendable {
                 sourceTimeRange: CMTimeRange(start: .zero, duration: durCM),
                 targetTimeRange: CMTimeRange(start: .zero, duration: durCM))]
         }
-        if hasAudio,
-           let at = comp.addMutableTrack(withMediaType: .audio,
-                                          preferredTrackID: kCMPersistentTrackID_Invalid) {
-            at.segments = [AVCompositionTrackSegment(
-                url: tmpAudURL, trackID: 1,   // audio-only file: audio is track 1
-                sourceTimeRange: CMTimeRange(start: .zero, duration: durCM),
-                targetTimeRange: CMTimeRange(start: .zero, duration: durCM))]
-        }
 
         try? FileManager.default.removeItem(at: outputURL)
         try await VideoEncoder.exportInProcess(composition: comp, to: outputURL)
         try? FileManager.default.removeItem(at: tmpVidURL)
-        try? FileManager.default.removeItem(at: tmpAudURL)
 #endif
         return outputURL
     }
