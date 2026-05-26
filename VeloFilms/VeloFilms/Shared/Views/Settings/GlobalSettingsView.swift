@@ -3,9 +3,14 @@ import UniformTypeIdentifiers
 
 struct GlobalSettingsView: View {
     private var settings = GlobalSettings.shared
-    private enum PickerTarget { case input, projects, fly12Source, fly6Source, music }
-    @State private var pickerTarget: PickerTarget = .input
-    @State private var showPicker = false
+    @State private var showMusicPicker = false
+#if os(iOS)
+    private enum FolderTarget: String, Identifiable {
+        case input, projects, fly12Source, fly6Source
+        var id: String { rawValue }
+    }
+    @State private var folderTarget: FolderTarget? = nil
+#endif
 
     var body: some View {
         @Bindable var settings = settings
@@ -39,19 +44,29 @@ struct GlobalSettingsView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         #endif
-        .fileImporter(isPresented: $showPicker,
-                      allowedContentTypes: pickerTarget == .music
-                          ? [.mp3, .mpeg4Audio, .wav, .aiff]
-                          : [.folder]) { result in
+#if os(iOS)
+        // Folder picker sheet at the TabView level, separate from the music .fileImporter.
+        // .sheet(item:) avoids the two-sheets-on-same-view SwiftUI silent-drop bug.
+        .sheet(item: $folderTarget) { target in
+            FolderPickerView(
+                onPicked: { url in
+                    folderTarget = nil
+                    switch target {
+                    case .input:       GlobalSettings.shared.inputBaseDir   = url
+                    case .projects:    GlobalSettings.shared.projectsRoot   = url
+                    case .fly12Source: GlobalSettings.shared.fly12SourceURL = url
+                    case .fly6Source:  GlobalSettings.shared.fly6SourceURL  = url
+                    }
+                },
+                onCancel: { folderTarget = nil }
+            )
+        }
+#endif
+        .fileImporter(isPresented: $showMusicPicker,
+                      allowedContentTypes: [.mp3, .mpeg4Audio, .wav, .aiff]) { result in
             guard case .success(let url) = result else { return }
             _ = url.startAccessingSecurityScopedResource()
-            switch pickerTarget {
-            case .input:       GlobalSettings.shared.inputBaseDir   = url
-            case .projects:    GlobalSettings.shared.projectsRoot   = url
-            case .fly12Source: GlobalSettings.shared.fly12SourceURL = url
-            case .fly6Source:  GlobalSettings.shared.fly6SourceURL  = url
-            case .music:       GlobalSettings.shared.musicURL        = url
-            }
+            GlobalSettings.shared.musicURL = url
         }
     }
 
@@ -61,28 +76,28 @@ struct GlobalSettingsView: View {
 #if os(macOS)
         openPanel { GlobalSettings.shared.inputBaseDir = $0 }
 #else
-        pickerTarget = .input; showPicker = true
+        folderTarget = .input
 #endif
     }
     private func chooseProjectsRoot() {
 #if os(macOS)
         openPanel { GlobalSettings.shared.projectsRoot = $0 }
 #else
-        pickerTarget = .projects; showPicker = true
+        folderTarget = .projects
 #endif
     }
     private func chooseFly12Source() {
 #if os(macOS)
         openPanel { GlobalSettings.shared.fly12SourceURL = $0 }
 #else
-        pickerTarget = .fly12Source; showPicker = true
+        folderTarget = .fly12Source
 #endif
     }
     private func chooseFly6Source() {
 #if os(macOS)
         openPanel { GlobalSettings.shared.fly6SourceURL = $0 }
 #else
-        pickerTarget = .fly6Source; showPicker = true
+        folderTarget = .fly6Source
 #endif
     }
     private func chooseMusic() {
@@ -97,7 +112,7 @@ struct GlobalSettingsView: View {
             GlobalSettings.shared.musicURL = url
         }
 #else
-        pickerTarget = .music; showPicker = true
+        showMusicPicker = true
 #endif
     }
 

@@ -29,6 +29,45 @@ enum FrameSampler {
         return applyCycliqUTCFix(rawDate: raw, camera: camera)
     }
 
+    /// Reads the movie duration (seconds) from the mvhd box via binary parsing.
+    /// Equivalent to AVURLAsset.duration but fully in-process — no XPC involved.
+    /// Returns nil for non-MP4 containers (e.g. bare MP3).
+    static func movieDuration(for url: URL) -> Double? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
+        let scanSize = UInt64(4 * 1024 * 1024)
+        let offset   = fileSize > scanSize ? fileSize - scanSize : 0
+        guard (try? handle.seek(toOffset: offset)) != nil,
+              let tail = try? handle.readToEnd() else { return nil }
+        let magic = Data([0x6D, 0x76, 0x68, 0x64]) // "mvhd"
+        guard let range = tail.range(of: magic, options: .backwards) else { return nil }
+        let pos = range.lowerBound
+        let versionIdx = pos + 4
+        guard versionIdx + 1 <= tail.endIndex else { return nil }
+        let version = tail[versionIdx]
+        let ctIdx = versionIdx + 4 // skip version(1) + flags(3)
+        if version == 0 {
+            // creation(4) + modification(4) = 8 bytes before timescale
+            let tsIdx  = ctIdx + 8
+            let durIdx = ctIdx + 12
+            guard durIdx + 4 <= tail.endIndex else { return nil }
+            let ts = readU32BE(tail, at: tsIdx)
+            let dur = readU32BE(tail, at: durIdx)
+            guard ts > 0 else { return nil }
+            return Double(dur) / Double(ts)
+        } else {
+            // creation(8) + modification(8) = 16 bytes before timescale
+            let tsIdx  = ctIdx + 16
+            let durIdx = ctIdx + 20
+            guard durIdx + 8 <= tail.endIndex else { return nil }
+            let ts = readU32BE(tail, at: tsIdx)
+            let dur = readU64BE(tail, at: durIdx)
+            guard ts > 0 else { return nil }
+            return Double(dur) / Double(ts)
+        }
+    }
+
     /// Public accessor for the raw (uncorrected) mvhd creation time — used by diagnostics.
     static func rawCreationTime(for url: URL) -> Date? {
         readMVHDCreationTime(url: url)
