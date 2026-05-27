@@ -3,7 +3,6 @@ import AVFoundation
 import CoreGraphics
 import MapKit
 import CoreLocation
-import os
 #if os(macOS)
 import AppKit
 #else
@@ -12,8 +11,6 @@ import UIKit
 
 /// Builds _intro.mp4: logo → map+banner → collage crossfade chain, with music.
 /// Mirrors intro_builder.py. All rendering via AVFoundation + Core Graphics.
-private let introLog = Logger(subsystem: "com.velofilms", category: "IntroBuilder")
-
 enum IntroBuilder {
 
     static func build(project: Project,
@@ -26,7 +23,7 @@ enum IntroBuilder {
         try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
 
         let stats       = computeRideStats(flattenRows: flattenRows)
-        let frames      = collectFrames(from: project.framesDir, selectRows: selectRows, max: 60)
+        let frames      = collectFrames(from: project.framesDir, selectRows: selectRows, max: 24)
         let description = loadFilteredDescription(from: project.descriptionTXT)
 
         let W = AppConfig.HUD.outputW, H = AppConfig.HUD.outputH
@@ -52,35 +49,25 @@ enum IntroBuilder {
         let clipDur  = 3.0
         let xfadeDur = 1.2
 
-        // On iOS, intermediate MP4s must live in the system temp dir so AVAssetReader
-        // (which routes through mediaserverd) can access them. External-drive files are
-        // security-scoped to the app process only and are invisible to mediaserverd.
-        // Only the final outputURL is written to the external drive (via AVAssetWriter, which works).
-#if os(iOS)
-        let tmpDir = FileManager.default.temporaryDirectory
-#else
-        let tmpDir = assetsDir
-#endif
-
         var clips: [(image: CGImage, url: URL)] = []
 
         if let logoURL = findResourceImage(named: "velo_films"),
            let logoCG  = loadCGImage(from: logoURL) {
-            let c = tmpDir.appending(path: "intro_logo.mp4")
+            let c = assetsDir.appending(path: "intro_logo.mp4")
             try await VideoEncoder.encodeStill(image: logoCG, duration: clipDur, outputURL: c)
             clips.append((logoCG, c))
         }
 
-        let mapClip = tmpDir.appending(path: "intro_map.mp4")
+        let mapClip = assetsDir.appending(path: "intro_map.mp4")
         try await VideoEncoder.encodeStill(image: mapCG, duration: clipDur, outputURL: mapClip)
         clips.append((mapCG, mapClip))
 
-        let collageClip = tmpDir.appending(path: "intro_collage.mp4")
+        let collageClip = assetsDir.appending(path: "intro_collage.mp4")
         try await VideoEncoder.encodeStill(image: collageCG, duration: clipDur, outputURL: collageClip)
         clips.append((collageCG, collageClip))
 
         // 3. Cross-dissolve chain
-        let rawURL = tmpDir.appending(path: "intro_raw.mp4")
+        let rawURL = assetsDir.appending(path: "intro_raw.mp4")
         try await crossDissolveChain(clips: clips.map(\.url),
                                      clipDur: clipDur, xfadeDur: xfadeDur,
                                      outputURL: rawURL)
@@ -110,35 +97,25 @@ enum IntroBuilder {
             return
         }
 
-#if os(iOS)
-        // AVAssetReaderVideoCompositionOutput engages the Fig video compositor which triggers
-        // FigApplicationStateMonitor err=-19431 on iOS regardless of composition complexity.
-        // Use AVAssetImageGenerator (in-process, same path confirmed working in Extract step)
-        // + CGContext alpha blending + AVAssetWriter instead.
-        try await crossDissolveIOS(clips: clips, clipDur: clipDur, xfadeDur: xfadeDur,
-                                    outputURL: outputURL)
-#else
         let ts      = CMTimeScale(600)
         let dCM     = CMTimeMakeWithSeconds(clipDur,  preferredTimescale: ts)
         let xCM     = CMTimeMakeWithSeconds(xfadeDur, preferredTimescale: ts)
         let stepCM  = dCM - xCM
 
         let composition = AVMutableComposition()
-        guard let trackA = composition.addMutableTrack(
-                  withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-              let trackB = composition.addMutableTrack(
-                  withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw PipelineError.renderFailed("IntroBuilder: failed to create composition tracks")
-        }
+        let trackA = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        let trackB = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
 
         var insertTime = CMTime.zero
         for (i, url) in clips.enumerated() {
+            let asset  = AVURLAsset(url: url)
             let vTrack = (i % 2 == 0) ? trackA : trackB
-            vTrack.segments = (vTrack.segments ?? []) + [AVCompositionTrackSegment(
-                url: url, trackID: 1,
-                sourceTimeRange: CMTimeRange(start: .zero, duration: dCM),
-                targetTimeRange: CMTimeRange(start: insertTime, duration: dCM)
-            )]
+            if let src = try? await asset.loadTracks(withMediaType: .video).first {
+                try? vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: dCM),
+                                            of: src, at: insertTime)
+            }
             if i < clips.count - 1 { insertTime = insertTime + stepCM }
         }
 
@@ -190,120 +167,7 @@ enum IntroBuilder {
         try await VideoEncoder.export(composition: composition,
                                       videoComposition: videoComp,
                                       to: outputURL)
-#endif
     }
-
-#if os(iOS)
-    private static func crossDissolveIOS(clips: [URL], clipDur: Double, xfadeDur: Double,
-                                          outputURL: URL) async throws {
-        let fps  = 30
-        let ts   = CMTimeScale(600)
-        let W    = AppConfig.HUD.outputW
-        let H    = AppConfig.HUD.outputH
-        let step = clipDur - xfadeDur
-        let n    = clips.count
-        let totalFrames = Int(ceil((Double(n) * clipDur - Double(n - 1) * xfadeDur) * Double(fps)))
-
-        // One AVAssetImageGenerator per clip, composition-wrapped for in-process decode.
-        let gens: [AVAssetImageGenerator] = clips.map { url in
-            let comp = AVMutableComposition()
-            if let vt = comp.addMutableTrack(
-                withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                let dur = CMTimeMakeWithSeconds(clipDur, preferredTimescale: ts)
-                vt.segments = [AVCompositionTrackSegment(
-                    url: url, trackID: 1,
-                    sourceTimeRange: CMTimeRange(start: .zero, duration: dur),
-                    targetTimeRange: CMTimeRange(start: .zero, duration: dur)
-                )]
-            }
-            let g = AVAssetImageGenerator(asset: comp)
-            g.maximumSize = CGSize(width: W, height: H)
-            g.appliesPreferredTrackTransform = true
-            g.requestedTimeToleranceBefore = CMTime(value: 1, timescale: CMTimeScale(fps))
-            g.requestedTimeToleranceAfter  = CMTime(value: 1, timescale: CMTimeScale(fps))
-            return g
-        }
-
-        try? FileManager.default.removeItem(at: outputURL)
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        let wvIn   = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey:  AVVideoCodecType.h264,
-            AVVideoWidthKey:  W,
-            AVVideoHeightKey: H,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: AppConfig.Encoding.videoBitrate,
-                AVVideoProfileLevelKey:   AVVideoProfileLevelH264HighAutoLevel,
-            ]
-        ])
-        wvIn.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: wvIn,
-            sourcePixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey  as String: W,
-                kCVPixelBufferHeightKey as String: H,
-            ]
-        )
-        writer.add(wvIn)
-        writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
-        defer { if writer.status == .writing { writer.cancelWriting() } }
-
-        let frameDur = CMTime(value: CMTimeValue(ts / CMTimeScale(fps)), timescale: ts)
-        let rect     = CGRect(x: 0, y: 0, width: W, height: H)
-
-        for f in 0..<totalFrames {
-            let t = Double(f) / Double(fps)
-
-            var outCG: CGImage? = nil
-            var inXfade = false
-
-            for i in 0..<(n - 1) {
-                let xStart = Double(i + 1) * step
-                guard t >= xStart && t < xStart + xfadeDur else { continue }
-                inXfade = true
-                let alpha = (t - xStart) / xfadeDur
-                let tA    = CMTimeMakeWithSeconds(t - Double(i) * step,       preferredTimescale: ts)
-                let tB    = CMTimeMakeWithSeconds(t - Double(i + 1) * step,   preferredTimescale: ts)
-                let cgA   = (try? await gens[i].image(at: tA))?.image
-                let cgB   = (try? await gens[i + 1].image(at: tB))?.image
-                if let a = cgA, let b = cgB {
-                    let ctx = makeBitmapContext(width: W, height: H)
-                    ctx.draw(a, in: rect)
-                    ctx.setAlpha(CGFloat(alpha))
-                    ctx.draw(b, in: rect)
-                    outCG = ctx.makeImage()
-                } else {
-                    outCG = cgA ?? cgB
-                }
-                break
-            }
-
-            if !inXfade {
-                var clipIdx = 0
-                for i in stride(from: n - 1, through: 0, by: -1) {
-                    if t >= Double(i) * step { clipIdx = i; break }
-                }
-                let localT = CMTimeMakeWithSeconds(t - Double(clipIdx) * step, preferredTimescale: ts)
-                outCG = (try? await gens[clipIdx].image(at: localT))?.image
-            }
-
-            guard let cg = outCG else { continue }
-            let pb = try VideoEncoder.makePixelBuffer(from: cg, width: W, height: H)
-            while !wvIn.isReadyForMoreMediaData {
-                try await Task.sleep(nanoseconds: 1_000_000)
-            }
-            adaptor.append(pb, withPresentationTime: CMTimeMultiply(frameDur, multiplier: Int32(f)))
-        }
-
-        wvIn.markAsFinished()
-        await writer.finishWriting()
-        if let err = writer.error { throw err }
-        guard writer.status == .completed else {
-            throw PipelineError.renderFailed("crossDissolveIOS: writer status \(writer.status.rawValue)")
-        }
-    }
-#endif
 
     // MARK: - Music mix (replaces silent track with music audio)
 
@@ -313,35 +177,32 @@ enum IntroBuilder {
                           outputURL: URL) async throws {
         let ts         = CMTimeScale(600)
         let durCM      = CMTimeMakeWithSeconds(duration, preferredTimescale: ts)
+        let videoAsset = AVURLAsset(url: videoURL)
+        let musicAsset = AVURLAsset(url: musicURL)
+
         let composition = AVMutableComposition()
 
-        // Video track — trackID 1 (AVAssetWriter assigns video as first track)
-        if let vTrack = composition.addMutableTrack(
-               withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            vTrack.segments = [AVCompositionTrackSegment(
-                url: videoURL, trackID: 1,
-                sourceTimeRange: CMTimeRange(start: .zero, duration: durCM),
-                targetTimeRange: CMTimeRange(start: .zero, duration: durCM)
-            )]
+        // Video track
+        if let srcV = try? await videoAsset.loadTracks(withMediaType: .video).first {
+            let vTrack = composition.addMutableTrack(
+                withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            try? vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: durCM),
+                                        of: srcV, at: .zero)
         }
 
         // Music audio — loop to fill duration
-        // Binary parse for duration avoids XPC for files on external drives.
-        let musicDurS = FrameSampler.movieDuration(for: musicURL) ?? 180.0
-        let musicDur  = CMTimeMakeWithSeconds(musicDurS, preferredTimescale: ts)
         var musicTrackComp: AVMutableCompositionTrack? = nil
-        if let mTrack = composition.addMutableTrack(
-                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+        if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
+            let musicDur  = try await musicAsset.load(.duration)
+            let mTrack    = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
             var remaining = durCM
             var destTime  = CMTime.zero
             while remaining > .zero {
-                let insert = CMTimeMinimum(remaining, musicDur)
-                mTrack.segments = (mTrack.segments ?? []) + [AVCompositionTrackSegment(
-                    url: musicURL, trackID: 1,
-                    sourceTimeRange: CMTimeRange(start: .zero, duration: insert),
-                    targetTimeRange: CMTimeRange(start: destTime, duration: insert)
-                )]
-                destTime  = destTime  + insert
+                let insert   = CMTimeMinimum(remaining, musicDur)
+                try? mTrack.insertTimeRange(CMTimeRange(start: .zero, duration: insert),
+                                            of: srcM, at: destTime)
+                destTime  = destTime + insert
                 remaining = remaining - insert
             }
             musicTrackComp = mTrack
@@ -373,7 +234,7 @@ enum IntroBuilder {
                 }
             }
         }
-        introLog.warning("findResourceImage: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
+        print("[IntroBuilder] findResourceImage: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
         return nil
     }
 
@@ -387,7 +248,7 @@ enum IntroBuilder {
                 }
             }
         }
-        introLog.warning("findResourceAudio: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
+        print("[IntroBuilder] findResourceAudio: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
         return nil
     }
 
@@ -413,12 +274,10 @@ enum IntroBuilder {
         let recommended = Set(selectRows.filter { $0.recommended }.map { $0.base.index })
         let all = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
-        let jpgs = all
-            .filter { $0.pathExtension.lowercased() == "jpg" }
+        let jpgs = all.filter { $0.pathExtension.lowercased() == "jpg" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        // Exact stem match against the full index string (e.g. "Fly12Sport_001_000042")
         let filtered = jpgs.filter { url in
-            recommended.contains(url.deletingPathExtension().lastPathComponent)
+            recommended.contains(where: { url.lastPathComponent.contains(String($0)) })
         }
         return Array((filtered.isEmpty ? jpgs : filtered).prefix(max))
     }

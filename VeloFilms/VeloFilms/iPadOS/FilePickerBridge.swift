@@ -1,20 +1,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Folder picker for iPadOS external drive selection.
-/// Uses UIDocumentPickerViewController in open mode (forOpeningContentTypes:) which returns
-/// a direct security-scoped URL without materialising folder contents — required for large
-/// folders on external USB drives where .fileImporter import mode fails silently.
-/// Presented via .sheet so the picker VC is the root of a modal presentation, not embedded
-/// as a child VC (embedding renders blank on iOS).
+/// Wraps UIDocumentPickerViewController for iPadOS drive root selection.
+/// The resolved URL is persisted as a security-scoped bookmark so the app
+/// can re-access it on every subsequent launch without user interaction.
 #if os(iOS)
-struct FolderPickerView: UIViewControllerRepresentable {
+struct DrivePickerView: UIViewControllerRepresentable {
     var onPicked: (URL) -> Void
-    var onCancel: (() -> Void)? = nil
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onPicked: onPicked, onCancel: onCancel)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator(onPicked: onPicked) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
@@ -24,30 +18,24 @@ struct FolderPickerView: UIViewControllerRepresentable {
         return picker
     }
 
-    func updateUIViewController(_ picker: UIDocumentPickerViewController, context: Context) {
-        context.coordinator.onPicked = onPicked
-        context.coordinator.onCancel = onCancel
-    }
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
         var onPicked: (URL) -> Void
-        var onCancel: (() -> Void)?
+        init(onPicked: @escaping (URL) -> Void) { self.onPicked = onPicked }
 
-        init(onPicked: @escaping (URL) -> Void, onCancel: (() -> Void)? = nil) {
-            self.onPicked = onPicked
-            self.onCancel = onCancel
-        }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController,
-                            didPickDocumentsAt urls: [URL]) {
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            // Leave security scope open for the session — pipeline reads from this folder later.
-            _ = url.startAccessingSecurityScopedResource()
-            onPicked(url)
-        }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            onCancel?()
+            // Persist bookmark so we can re-resolve on future launches.
+            if let bookmark = try? url.bookmarkData(options: .minimalBookmark,
+                                                    includingResourceValuesForKeys: nil,
+                                                    relativeTo: nil) {
+                onPicked(url)
+                _ = bookmark  // caller stores this; see GlobalSettings.inputBaseDirBookmark
+            }
         }
     }
 }
