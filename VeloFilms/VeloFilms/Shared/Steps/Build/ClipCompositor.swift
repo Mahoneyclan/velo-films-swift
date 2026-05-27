@@ -6,7 +6,17 @@ import CoreGraphics
 /// macOS: FFmpegBridge filter_complex + loudnorm (mirrors clip_renderer.py).
 /// iOS:   AVMutableComposition + ClipVideoCompositor (Metal GPU compositing, no FFmpeg).
 struct ClipCompositor: Sendable {
+#if os(macOS)
     let bridge: any FFmpegBridge
+    init(bridge: any FFmpegBridge, outputDir: URL) {
+        self.bridge = bridge
+        self.outputDir = outputDir
+    }
+#else
+    init(outputDir: URL) {
+        self.outputDir = outputDir
+    }
+#endif
     let outputDir: URL
 
     /// Re-derives a file URL from one of the bookmark-resolved parent URLs in GlobalSettings.
