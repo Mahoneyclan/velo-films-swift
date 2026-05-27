@@ -307,6 +307,7 @@ enum IntroBuilder {
                                                longitude: (lons.min()! + lons.max()!) / 2),
                 span: MKCoordinateSpan(latitudeDelta: latSpan, longitudeDelta: lonSpan))
             opts.size     = CGSize(width: width, height: mapH)
+            opts.scale    = 1.0  // force @1x: snap.point(for:) returns 0…width coords at @1x
             opts.mapType  = .standard
             opts.showsBuildings = false
 
@@ -327,7 +328,12 @@ enum IntroBuilder {
                 let path = CGMutablePath()
                 var started = false
                 for pt in gpxPoints {
-                    let p = snap.point(for: CLLocationCoordinate2D(latitude: pt.lat, longitude: pt.lon))
+                    let raw = snap.point(for: CLLocationCoordinate2D(latitude: pt.lat, longitude: pt.lon))
+#if os(macOS)
+                    let p = raw
+#else
+                    let p = CGPoint(x: raw.x, y: CGFloat(mapH) - raw.y)
+#endif
                     if !started { path.move(to: p); started = true } else { path.addLine(to: p) }
                 }
                 ctx.addPath(path); ctx.strokePath()
