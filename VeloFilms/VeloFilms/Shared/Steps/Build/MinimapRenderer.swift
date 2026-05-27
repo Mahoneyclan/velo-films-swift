@@ -166,12 +166,17 @@ struct MinimapRenderer {
 
     // MARK: - Coordinate conversion
 
-    /// snapshot.point(for:) returns UIKit/screen coords (y-down, origin top-left).
-    /// CGBitmapContext saves with y=0 at the top of the PNG, so coordinates map directly — no flip.
+    /// snapshot.point(for:) returns UIKit coords (y-down, origin top-left).
+    /// On macOS, AppKit snapshot points are y-up (CG convention) — no flip needed.
+    /// On iOS, UIKit y-down must be flipped to CG y-up: y_cg = size - y_uikit.
     private static func cgPoint(_ snapshot: MKMapSnapshotter.Snapshot,
                                  lat: Double, lon: Double, size: Int) -> CGPoint {
         let p = snapshot.point(for: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+#if os(macOS)
         return CGPoint(x: p.x, y: p.y)
+#else
+        return CGPoint(x: p.x, y: CGFloat(size) - p.y)
+#endif
     }
 
     // MARK: - Context / save

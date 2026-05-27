@@ -10,8 +10,8 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 
 ## Platforms
 
-- **macOS 26+** — full pipeline via system FFmpeg (`/opt/homebrew/bin/ffmpeg`); `Process()` spawn for filter_complex operations
-- **iPadOS 26+** — full pipeline via AVFoundation: `ClipCompositor` uses `AVMutableComposition` + `ClipVideoCompositor` (Metal GPU CIImage compositing) exported via `VideoEncoder.exportInProcess()` (in-process `AVAssetReader` + `AVAssetWriter` — bypasses `mediaserverd` sandbox restrictions on external-drive security-scoped URLs); build/concat steps use A/B track opacity crossfades with audio volume ramps; music mixing via `AVMutableComposition` dual audio tracks. No FFmpegKit dependency.
+- **macOS 26+** — full pipeline via system FFmpeg (`/opt/homebrew/bin/ffmpeg`); `Process()` spawn for `filter_complex` operations
+- **iPadOS 26+** — full pipeline via AVFoundation: `ClipCompositor` uses `AVMutableComposition` + `ClipVideoCompositor` (Metal GPU compositing) exported via `AVAssetExportSession`; concat uses A/B track opacity crossfades with audio volume ramps; music mixing via `AVMutableComposition` dual audio tracks. No FFmpegKit dependency.
 
 Both platforms share all pipeline logic; `#if os(macOS)` / `#else` blocks select the appropriate render backend. iPad is the primary portable product; Mac is retained for fast development and production runs.
 
@@ -51,20 +51,20 @@ Shared/
     Build/                ClipCompositor, GaugeRenderer, ElevationRenderer, MinimapRenderer
     Splash/               IntroBuilder, OutroBuilder → SplashStep
     Concat/               ConcatStep (phase 1: clips+music→_middle; phase 2: intro+middle+outro→final)
-  Video/                  FFmpegBridge (shared protocol)
+  Video/                  FFmpegBridge protocol, VideoEncoder, ClipVideoCompositor (Metal, iOS)
   Views/
     Main/                 ContentView, ProjectListView, ProjectDetailView
     Import/               CopyVideosView, StravaImportView, GarminImportView, ImportView
     Pipeline/             PipelineView (live progress log)
     Selection/            ManualSelectionView (thumbnail grid with toggle + focus filters)
     Settings/             GlobalSettingsView, OnboardingView, ProjectPreferencesView
-macOS/                    FFmpegMac (native binary wrapper)
-iPadOS/                   FFmpegiOS, FilePickerBridge
+macOS/                    FFmpegMacBridge (native binary wrapper)
+iPadOS/                   FilePickerBridge (UIDocumentPickerViewController wrappers)
 ```
 
 ## Camera quirks
 
-Cycliq cameras record local time but tag it as UTC in the MP4 `mvhd` box (the "Cycliq UTC bug"). Velo Films corrects for this by reading the raw binary creation time and subtracting the camera's configured UTC offset. Set the correct timezone in **Settings → Camera Calibration** (e.g. `UTC+10`, `UTC+10:30`).
+Cycliq cameras record local time but tag it as UTC in the MP4 `mvhd` box (the "Cycliq UTC bug"). Velo Films corrects for this by reading the raw binary creation time and subtracting the camera's configured UTC offset. Set the correct timezone in **Settings → Time Sync** (e.g. `UTC+10`, `UTC+10:30`).
 
 AVFoundation does not expose `mvhd.creation_time` for NOVATEK mp42 containers, so Velo Films reads it directly by scanning the last 4 MB of each file.
 
@@ -111,9 +111,8 @@ Open **+ → Copy from Camera** with the Cycliq SD card inserted. The importer:
 |---------|---------|-------------|
 | Highlight duration (min) | 5 | Target length for the finished reel |
 | Min gap between clips (s) | 10 | Prevents back-to-back clips from the same moment |
-| Opening zone | 15% | Fraction of *moving* time classed as the opening; long stops don't distort the boundary |
-| Closing zone | 15% | Fraction of *moving* time classed as the closing; long stops don't distort the boundary |
-| Show elevation strip | ✓ | Render elevation profile bar at bottom of frame |
+| Opening zone | 15% | Fraction of *moving* time classed as the opening |
+| Closing zone | 15% | Fraction of *moving* time classed as the closing |
 | Dynamic gauges (ProRes) | ✗ | Render gauges as a separate alpha layer |
 | Music volume (0–1) | 0.7 | Background music level |
 | Raw audio volume (0–1) | 0.3 | Original camera audio level |
@@ -166,11 +165,11 @@ Weights should sum to 100% — a live proportion bar and sum badge (green/red) a
 |---------|---------|-------------|
 | Climb steepness | ≥4% | Minimum gradient to show in Climbs filter |
 | Descent steepness | ≥4% | Minimum magnitude to show in Descents filter |
-| Group min riders | 5 | Minimum riders for Group filter — counted as max(persons, bicycles) per camera to avoid double-counting cyclists |
+| Group min riders | 5 | Minimum riders for Group filter |
 
 ## Focus Mode (Manual Clip Selection)
 
-After the AI selects clips, the manual selection screen lets you filter the visible list. A first-open banner explains the basics (dismissed permanently). Focus mode is view-only — it never alters AI scores, the underlying `select.jsonl`, or the build pipeline.
+After the AI selects clips, the manual selection screen lets you filter the visible list. Focus mode is view-only — it never alters AI scores, the underlying `select.jsonl`, or the build pipeline.
 
 **Filter chips:**
 
@@ -183,17 +182,11 @@ After the AI selects clips, the manual selection screen lets you filter the visi
 | Descents ≥X% | gradient_pct ≤ −X |
 | Group N+ | N+ person/bicycle detections (max across cameras) |
 | Strava PRs | Clips during a segment effort ranked PR (#1) |
-| Segment ▾ | Dropdown — clips during a specific Strava segment effort (only segments with clips in the candidate pool are listed) |
+| Segment ▾ | Dropdown — clips during a specific Strava segment effort |
 
 **Lap timeline** — proportional timeline of Strava laps. Tap a block to filter to that lap.
 
-**YOLO class filter bar** — chips for each detected class (Cyclist, Pedestrian, Car, Truck, Bus, Motorcycle). "Cyclist" shows clips where person + bicycle were detected together; "Pedestrian" shows clips where person was detected *without* a bicycle in the same frame.
-
-**Behaviour:**
-- Focus filter and class filter can be active simultaneously — focus runs first, class filter chains after.
-- Segment filter stacks independently on top of both.
-- Only segments whose clips are in the candidate pool appear in the dropdown (prevents empty results).
-- Timezone correction applied automatically: Strava lap/segment epochs (true UTC) are offset to align with abs_time_epoch (Cycliq local-as-UTC).
+**YOLO class filter bar** — chips for each detected class (Cyclist, Pedestrian, Car, Truck, Bus, Motorcycle).
 
 ## Scoring
 
@@ -208,36 +201,31 @@ Each candidate clip is scored on six dimensions. Weights are user-configurable i
 | Scene change / interesting moment | 10% |
 | Strava segment bonus | 5% |
 
-**Cyclist vs. pedestrian scoring:** person detections are weighted at full cyclist weight (100% by default) when a bicycle is also detected in the frame (cyclist context). When person is detected without a bicycle (pedestrian context), a separate lower weight (30% by default) is applied. This prevents pedestrians at intersections from inflating scores.
+**Cyclist vs. pedestrian scoring:** person detections are weighted at full cyclist weight when a bicycle is also detected in the frame. When person is detected without a bicycle, a separate lower weight is applied. This prevents pedestrians at intersections from inflating scores.
 
 ## Requirements
 
-- Xcode 26.4+
-- macOS 26+ (FFmpeg pipeline); iPadOS 26+ (AVFoundation pipeline — full functionality)
+- Xcode 26+
+- macOS 26+ (FFmpeg pipeline) or iPadOS 26+ (AVFoundation pipeline — full functionality)
 - FFmpeg installed via Homebrew (`brew install ffmpeg`) for the macOS target only
 - Strava or Garmin account for GPX import (or drop a `.gpx` file directly into the project folder)
 - External drive formatted exFAT or APFS (NTFS is read-only on Apple platforms — pipeline writes will fail)
 
-## Repo location
+## Repo
 
 `/Volumes/GDrive/Github/velo-films-swift`
 
-## Immediate priorities (May 2026)
-
-1. **iOS device build** — direct device build to iPad Air M2 via Xcode; QA full pipeline on device
-2. **Real-footage QA** — run full pipeline on a real ride; visual QA of new HUD layout, PiP composite, splash cards
-3. **Share/Export** — add `ShareLink` + Photos save after concat; stretch goal: Strava video upload
-4. **BGProcessingTask** — wire iOS background task so app can be left running during long renders
-5. **Concurrent clip rendering** — `TaskGroup` in `BuildStep` (cap 3 on iPad for thermal management)
-6. **App Store decision** — Option A (AVFoundation on macOS too, App Store on both) vs Option B (FFmpeg on Mac, direct distribution)
-
 ## Pipeline architecture notes
 
-**Gradient smoothing:** `GPXParser` computes `gradient_pct` using a ±15 s centered window (30 s total) rather than adjacent 1-second points. GPS vertical accuracy is ±5–15 m; a 1-second window over 5 m of travel amplifies that to ±100%+ false gradient on flat terrain. The 30-second window reduces noise to < 3% on flat roads while still resolving real climbs and descents.
+**Gradient smoothing:** `GPXParser` computes `gradient_pct` using a ±15 s centered window (30 s total) rather than adjacent 1-second points. GPS vertical accuracy is ±5–15 m; a 1-second window over 5 m of travel amplifies that to ±100%+ false gradient on flat terrain. The 30-second window reduces noise to <3% on flat roads while still resolving real climbs and descents.
 
 **Two-pass Concat:** `ConcatStep` runs in two phases:
-1. `clip_NNNN.mp4` files are joined with xfade crossfades and backing music mixed in → `_middle.mp4`. Music is looped by adding N explicit `-i music.path` copies + `concat` audio filter + `atrim` (macOS), or `AVMutableCompositionTrack` segment copy loop (iOS). rawAudioVolume and musicVolume are applied here.
-2. `_intro + _middle + _outro` are joined with xfade crossfades, audio passthrough only — each segment already carries its own music.
+1. `clip_NNNN.mp4` files joined with crossfades and backing music → `_middle.mp4`. Music is looped by adding N explicit `-i music.path` copies + `concat` audio filter + `atrim` (macOS), or `AVMutableCompositionTrack` segment copy loop (iOS). rawAudioVolume and musicVolume are applied here.
+2. `_intro + _middle + _outro` joined with crossfades, audio passthrough — each segment already carries its own music.
+
+**Cross-platform path reanchoring:** Projects created on iPad store iOS-format paths in JSONL. When opened on macOS (or vice versa), `ClipCompositor.reanchorSourceURL()` resolves paths by matching the parent folder's last path component against bookmark-resolved URLs in `GlobalSettings`. This lets a project created on iPad be rendered on Mac without reconfiguration.
+
+**Minimap coordinate system:** `MKMapSnapshotter.Snapshot.point(for:)` returns UIKit y-down coords on iOS but CG y-up on macOS. The map tile background draws correctly on both via a double-flip (UIImage→CG→UIImage PNG cancel out), but route path coordinates must be explicitly flipped on iOS: `y_cg = size - y_uikit`. The snapshotter is also forced to `scale = 1.0` so `point(for:)` returns `0…size` coordinates matching the CGContext.
 
 **HUD layout (1920×1080):**
 ```
@@ -250,9 +238,7 @@ x=0     x=390  x=398          x=1362  x=1370       x=1920
 │390×75 │  (x=398 to x=1370)   │                    │
 └───────┴───────────────────────┴────────────────────┘  y=1080
 ```
-Single-camera mode uses the same layout without PiP. The pipeline infers single/dual from files present — no extra configuration needed beyond the camera toggles in Settings.
-
-**Intro map card overlay:** If `working/description.txt` exists, its content is overlaid as left-side text on the intro map splash card. Lines starting with `--` are stripped; all other lines are shown.
+Single-camera mode uses the same layout without PiP.
 
 **Audio ownership per segment:**
 - `_intro.mp4` — `intro.mp3` baked in by `IntroBuilder`
@@ -261,9 +247,9 @@ Single-camera mode uses the same layout without PiP. The pipeline infers single/
 
 ## YOLO model
 
-`VeloYOLO.mlpackage` in `Shared/ML/` is a YOLO11s model trained on COCO, exported with `nms=False` and `int8=True`. The Swift inference engine (`YOLOInference.swift`) bypasses the Vision framework and decodes the raw `[1, 84, 8400]` output tensor directly, applying per-class NMS in Swift. Three confidence thresholds are applied at decode time: bicycle, pedestrian, vehicle.
+`VeloYOLO.mlpackage` in `Shared/ML/` is a YOLO11s model trained on COCO, exported with `nms=False` and `int8=True`. The Swift inference engine (`YOLOInference.swift`) bypasses the Vision framework and decodes the raw `[1, 84, 8400]` output tensor directly, applying per-class NMS in Swift.
 
-To regenerate the model (e.g. for a different YOLO variant):
+To regenerate the model:
 
 ```
 cd velo-films-swift
@@ -273,10 +259,10 @@ python Scripts/export_coreml.py
 ## Known bugs / deferred
 
 - Intermittent xfade "inputs too short" error in intro builder (macOS FFmpeg path)
-- Route overview map in splash — currently a black placeholder frame
 - `ClipPreviewView` (inline `VideoPlayer` tap preview) — deferred
 - `CameraCalibrationView` (frame preview + offset sliders) — deferred
-- Metal `flock` warning on first launch — `libCoreFSCache.dylib` lock contention on the Metal shader cache; benign, no functional impact
+- iOS loudnorm missing — camera audio uses rawAudioVolume directly, no normalisation
+- Metal `flock` warning on first launch — `libCoreFSCache.dylib` lock contention on Metal shader cache; benign
 
 ## License
 
