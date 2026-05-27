@@ -307,7 +307,9 @@ enum IntroBuilder {
                                                longitude: (lons.min()! + lons.max()!) / 2),
                 span: MKCoordinateSpan(latitudeDelta: latSpan, longitudeDelta: lonSpan))
             opts.size     = CGSize(width: width, height: mapH)
+#if os(iOS)
             opts.scale    = 1.0  // force @1x: snap.point(for:) returns 0…width coords at @1x
+#endif
             opts.mapType  = .standard
             opts.showsBuildings = false
 
