@@ -9,6 +9,31 @@ struct ClipCompositor: Sendable {
     let bridge: any FFmpegBridge
     let outputDir: URL
 
+    /// Re-derives a file URL from one of the bookmark-resolved parent URLs in GlobalSettings.
+    /// Handles cross-platform projects: a path written on iPad resolves correctly on macOS
+    /// (and vice versa) by matching on the parent folder's last path component.
+    static func reanchorSourceURL(_ path: String) -> URL {
+        let gs = GlobalSettings.shared
+        let candidates = [gs.fly12SourceURL, gs.fly6SourceURL, gs.inputBaseDir].compactMap { $0 }
+        for parent in candidates {
+            let parentPath = parent.path(percentEncoded: false)
+            if path.hasPrefix(parentPath) {
+                let relative = String(path.dropFirst(parentPath.count)).drop(while: { $0 == "/" })
+                if !relative.isEmpty { return parent.appending(path: String(relative)) }
+                return parent
+            }
+            let anchor = parent.lastPathComponent
+            if !anchor.isEmpty {
+                let needle = "/\(anchor)/"
+                if let r = path.range(of: needle) {
+                    let relative = String(path[r.upperBound...])
+                    if !relative.isEmpty { return parent.appending(path: relative) }
+                }
+            }
+        }
+        return URL(fileURLWithPath: path)
+    }
+
     @discardableResult
     func renderClip(
         mainRow:       EnrichRow,
@@ -26,13 +51,15 @@ struct ClipCompositor: Sendable {
 
         // -framerate 1 must appear before -i when using an image sequence
         var inputs: [String] = [
-            "-ss", String(tStartMain), "-t", String(duration), "-i", mainRow.videoPath,
+            "-ss", String(tStartMain), "-t", String(duration),
+            "-i", Self.reanchorSourceURL(mainRow.videoPath).path,
         ]
 
         let filterComplex: String
         if let pip = pipRow {
             let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
-            inputs += ["-ss", String(tStartPip), "-t", String(duration), "-i", pip.videoPath]
+            inputs += ["-ss", String(tStartPip), "-t", String(duration),
+                       "-i", Self.reanchorSourceURL(pip.videoPath).path]
             // map=2, elev=3, gauge=4
             inputs += ["-i", minimapPath.path,
                        "-i", elevationPath.path,
