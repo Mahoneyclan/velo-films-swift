@@ -57,7 +57,6 @@ struct EnrichStep: PipelineStep {
             var clipEnd  = clipStart + 1
             while clipEnd < sorted.count && sorted[clipEnd].videoPath == clipPath { clipEnd += 1 }
 
-            let sz = AppConfig.yoloImageSize
             let generator = FrameSampler.makeGenerator(
                 for: ClipCompositor.reanchorSourceURL(clipPath))
 
