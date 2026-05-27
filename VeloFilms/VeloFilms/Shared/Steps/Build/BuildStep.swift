@@ -78,11 +78,8 @@ struct BuildStep: PipelineStep {
         }
 
         await reporter.report(current: 0, total: total, message: "Rendering clips...")
-#if os(macOS)
-        let compositor = ClipCompositor(bridge: makeBridge(), outputDir: project.clipsDir)
-#else
-        let compositor = ClipCompositor(outputDir: project.clipsDir)
-#endif
+        let bridge     = makeBridge()
+        let compositor = ClipCompositor(bridge: bridge, outputDir: project.clipsDir)
 
         for (i, moment) in moments.enumerated() {
             guard let primary  = moment.primary,

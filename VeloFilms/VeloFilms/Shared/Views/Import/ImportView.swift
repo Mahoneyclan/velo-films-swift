@@ -24,30 +24,28 @@ struct ImportView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            // CopyVideos sheet on the List — kept here so it doesn't conflict with
-            // the folder picker sheet which is attached at the NavigationStack level.
             .sheet(isPresented: $showCopyVideos) { CopyVideosView { dismiss() } }
-        }
 #if os(iOS)
-        // Folder picker sheet at the NavigationStack level — separate from CopyVideos sheet.
-        // Two .sheet modifiers on the same view are silently dropped by SwiftUI; keeping them
-        // at different hierarchy levels avoids that.
-        .sheet(isPresented: $showFolderPicker) {
-            FolderPickerView(
-                onPicked: { url in
-                    showFolderPicker = false
+            // iOS folder picker — presented as a system sheet over this view
+            .fileImporter(
+                isPresented: $showFolderPicker,
+                allowedContentTypes: [.folder],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    // Start security-scoped access and leave it open for the session —
+                    // the pipeline needs to read from this folder when it runs.
+                    _ = url.startAccessingSecurityScopedResource()
                     addProject(at: url)
-                },
-                onCancel: { showFolderPicker = false }
-            )
-        }
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
+            }
 #endif
-        #if os(macOS)
+        }
         .frame(minWidth: 360, minHeight: 220)
-        #else
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        #endif
         .alert("Failed to Create Project", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }

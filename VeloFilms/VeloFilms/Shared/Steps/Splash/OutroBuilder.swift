@@ -21,7 +21,7 @@ enum OutroBuilder {
 
         let collagePNG = assetsDir.appending(path: "outro_collage.png")
         let frames = IntroBuilder.collectFrames(from: project.framesDir,
-                                                selectRows: selectRows, max: 60)
+                                                selectRows: selectRows, max: 24)
         let stats  = IntroBuilder.computeRideStats(flattenRows: flattenRows)
         try IntroBuilder.renderCollage(frames: frames, outputURL: collagePNG,
                                        width: W, height: H, bannerHeight: bannerH,
@@ -37,30 +37,13 @@ enum OutroBuilder {
         let fadeOutStart  = 3.0
         let fadeOutDur    = 0.7
 
-        // On iOS, intermediate MP4s must live in the system temp dir so AVAssetReader
-        // (mediaserverd) can access them — external-drive files are security-scoped to the
-        // app process only. Only the final outputURL goes to the external drive (AVAssetWriter).
-#if os(iOS)
-        let tmpDir = FileManager.default.temporaryDirectory
-#else
-        let tmpDir = assetsDir
-#endif
-
-        let collageClip = tmpDir.appending(path: "outro_collage.mp4")
-#if os(iOS)
-        // AVVideoCompositionCoreAnimationTool (used in addTextOverlay) is designed for
-        // AVAssetExportSession and requires the mediaserverd compositor. It fails with
-        // AVAssetReaderVideoCompositionOutput. Render text statically via CoreGraphics instead.
-        let annotated = Self.renderTextOn(collageCG, text: "Velo Films",
-                                          fontSize: CGFloat(160 * W / 2560), width: W, height: H)
-        try await VideoEncoder.encodeStill(image: annotated, duration: outroDuration,
-                                           outputURL: collageClip)
-#else
         // 1. Encode collage still (no text yet — text added via CoreAnimation)
-        let collageRaw = tmpDir.appending(path: "outro_collage_raw.mp4")
+        let collageRaw = assetsDir.appending(path: "outro_collage_raw.mp4")
         try await VideoEncoder.encodeStill(image: collageCG, duration: outroDuration,
                                            outputURL: collageRaw)
+
         // 2. Add animated "Velo Films" text overlay using AVVideoCompositionCoreAnimationTool
+        let collageClip = assetsDir.appending(path: "outro_collage.mp4")
         try await addTextOverlay(
             videoURL:     collageRaw,
             outputURL:    collageClip,
@@ -74,17 +57,16 @@ enum OutroBuilder {
             totalDur:     outroDuration
         )
         try? FileManager.default.removeItem(at: collageRaw)
-#endif
 
         // 3. Build a black clip (solid black CGImage encoded as still)
         let blackDur  = 2.0
-        let blackClip = tmpDir.appending(path: "outro_black.mp4")
-        let blackImg  = try makeBlackImage(width: W, height: H)
+        let blackClip = assetsDir.appending(path: "outro_black.mp4")
+        let blackImg  = makeBlackImage(width: W, height: H)
         try await VideoEncoder.encodeStill(image: blackImg, duration: blackDur,
                                            outputURL: blackClip)
 
         // 4. Cross-dissolve collage → black
-        let rawURL = tmpDir.appending(path: "outro_raw.mp4")
+        let rawURL = assetsDir.appending(path: "outro_raw.mp4")
         try await IntroBuilder.crossDissolveChain(
             clips:    [collageClip, blackClip],
             clipDur:  outroDuration,   // first clip duration
@@ -124,17 +106,15 @@ enum OutroBuilder {
         let ts    = CMTimeScale(600)
         let durCM = CMTimeMakeWithSeconds(totalDur, preferredTimescale: ts)
 
+        let asset       = AVURLAsset(url: videoURL)
         let composition = AVMutableComposition()
 
-        guard let vTrack = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw PipelineError.renderFailed("OutroBuilder: failed to add video track")
+        guard let srcVideo = try? await asset.loadTracks(withMediaType: .video).first else {
+            throw PipelineError.renderFailed("OutroBuilder: no video track in collage clip")
         }
-        vTrack.segments = [AVCompositionTrackSegment(
-            url: videoURL, trackID: 1,
-            sourceTimeRange: CMTimeRange(start: .zero, duration: durCM),
-            targetTimeRange: CMTimeRange(start: .zero, duration: durCM)
-        )]
+        let vTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
+        try vTrack.insertTimeRange(CMTimeRange(start: .zero, duration: durCM), of: srcVideo, at: .zero)
 
         // CoreAnimation layer tree
         let W = CGFloat(width), H = CGFloat(height)
@@ -197,33 +177,15 @@ enum OutroBuilder {
                                       to: outputURL)
     }
 
-    // MARK: - Static text overlay (iOS — replaces CoreAnimation tool)
-
-    private static func renderTextOn(_ image: CGImage, text: String,
-                                      fontSize: CGFloat, width: Int, height: Int) -> CGImage {
-        let ctx = IntroBuilder.makeBitmapContext(width: width, height: height)
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        ctx.setShadow(offset: CGSize(width: 4, height: -4), blur: 3,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.7))
-        IntroBuilder.drawCentred(text, in: ctx, x: width / 2, y: height / 2,
-                                  fontSize: fontSize, bold: false)
-        return ctx.makeImage() ?? image
-    }
-
     // MARK: - Black frame
 
-    private static func makeBlackImage(width: Int, height: Int) throws -> CGImage {
-        guard let ctx = CGContext(data: nil, width: width, height: height,
-                                  bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            throw PipelineError.renderFailed("OutroBuilder: CGContext creation failed")
-        }
+    private static func makeBlackImage(width: Int, height: Int) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height,
+                            bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        guard let image = ctx.makeImage() else {
-            throw PipelineError.renderFailed("OutroBuilder: black frame CGImage creation failed")
-        }
-        return image
+        return ctx.makeImage()!
     }
 }
