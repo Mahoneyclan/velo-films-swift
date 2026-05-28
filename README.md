@@ -6,11 +6,15 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 
 ## Screenshots
 
-<!-- iPad -->
-![iPad pipeline](docs/screenshot-ipad.png)
+### iPadOS
+![iOS Main](docs/iOS%20Main.png)
+![iOS Settings](docs/iOS%20Settings.png)
+![iOS AI Settings](docs/iOS%20AI%20Settings.png)
 
-<!-- macOS -->
-![macOS pipeline](docs/screenshot-macos.png)
+### macOS
+![macOS Main](docs/OSX%20Main.png)
+![macOS Fine Tune](docs/OSX%20Fine%20Tune.png)
+![macOS Final](docs/OSX%20Final.png)
 
 ## Platforms
 

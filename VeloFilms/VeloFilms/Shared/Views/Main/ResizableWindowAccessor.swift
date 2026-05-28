@@ -30,7 +30,15 @@ private struct _ResizableNSViewBridge: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    // Called on every SwiftUI re-render. Defer the restore so it runs after
+    // SwiftUI's layout engine has finished resetting the window frame.
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let target = context.coordinator.userFrame else { return }
+        DispatchQueue.main.async { [weak nsView] in
+            guard let window = nsView?.window, window.frame != target else { return }
+            window.setFrame(target, display: true, animate: false)
+        }
+    }
 
     // Observes three notifications on the hosting window:
     // - willStartLiveResize: user started dragging → set isUserResizing
@@ -65,7 +73,7 @@ private struct _ResizableNSViewBridge: NSViewRepresentable {
                       !self.isUserResizing,
                       let target = self.userFrame,
                       window.frame != target else { return }
-                window.setFrame(target, display: false, animate: false)
+                window.setFrame(target, display: true, animate: false)
             })
         }
 
