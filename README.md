@@ -6,15 +6,15 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 
 ## Screenshots
 
-### iPadOS
-![iOS Main](docs/iOS%20Main.png)
-![iOS Settings](docs/iOS%20Settings.png)
-![iOS AI Settings](docs/iOS%20AI%20Settings.png)
-
 ### macOS
 ![macOS Main](docs/OSX%20Main.png)
 ![macOS Fine Tune](docs/OSX%20Fine%20Tune.png)
 ![macOS Final](docs/OSX%20Final.png)
+
+### iPadOS
+![iOS Main](docs/iOS%20Main.png)
+![iOS Settings](docs/iOS%20Settings.png)
+![iOS AI Settings](docs/iOS%20AI%20Settings.png)
 
 ## Platforms
 
@@ -25,9 +25,9 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 
 ## Workflow
 
-**On iPad:** ride ends → plug cameras into iPad via USB-C hub → Copy from Camera → pipeline runs → share. No Mac required.
-
 **On Mac:** open project → run pipeline → done. Faster rendering, same output.
+
+**On iPad:** ride ends → plug cameras into iPad via USB-C hub → Copy from Camera → pipeline runs → share. No Mac required.
 
 ## Pipeline
 
@@ -39,7 +39,7 @@ Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear)
 | **Select** | Rank and pick top clips; manual review UI |
 | **Build** | Composite each clip with minimap, gauges, elevation, optional PiP |
 | **Splash** | Render intro (map card + collage) and outro |
-| **Concat** | Join clips with crossfades + backing music, add intro/outro |
+| **Concat** | Join clips with crossfades + sequenced backing music (plays through the library rather than looping one track), add intro/outro |
 
 Steps are dependency-aware — running Build from cold runs all prerequisites automatically.
 
