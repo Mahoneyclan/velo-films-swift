@@ -27,8 +27,8 @@ struct ConcatStep: PipelineStep {
                 "No clip_####.mp4 files found — run build step first")
         }
 
-        let prefs    = project.loadPreferences()
-        let musicURL = findMusicTrack(preferred: prefs.selectedMusicTrack)
+        let prefs       = project.loadPreferences()
+        let musicTracks = musicPlaylist(preferred: prefs.selectedMusicTrack)
 
         // MARK: Phase 1 — clips → _middle.mp4 with backing music
 
@@ -45,14 +45,14 @@ struct ConcatStep: PipelineStep {
             clipDurations.append(CMTimeGetSeconds(dur))
         }
 
-        if clipFiles.count == 1, let music = musicURL {
+        if clipFiles.count == 1, !musicTracks.isEmpty {
 #if os(macOS)
             let bridge = makeBridge()
             try await xfadeConcat(parts: clipFiles, durations: clipDurations,
-                                  outputURL: middleURL, bridge: bridge, musicURL: music)
+                                  outputURL: middleURL, bridge: bridge, musicTracks: musicTracks)
 #else
             try await crossFadeConcatAVF(parts: clipFiles, durations: clipDurations,
-                                          outputURL: middleURL, musicURL: music)
+                                          outputURL: middleURL, musicTracks: musicTracks)
 #endif
         } else if clipFiles.count == 1 {
             try FileManager.default.copyItem(at: clipFiles[0], to: middleURL)
@@ -60,10 +60,10 @@ struct ConcatStep: PipelineStep {
 #if os(macOS)
             let bridge = makeBridge()
             try await xfadeConcat(parts: clipFiles, durations: clipDurations,
-                                   outputURL: middleURL, bridge: bridge, musicURL: musicURL)
+                                   outputURL: middleURL, bridge: bridge, musicTracks: musicTracks)
 #else
             try await crossFadeConcatAVF(parts: clipFiles, durations: clipDurations,
-                                          outputURL: middleURL, musicURL: musicURL)
+                                          outputURL: middleURL, musicTracks: musicTracks)
 #endif
         }
 
@@ -95,7 +95,7 @@ struct ConcatStep: PipelineStep {
                                  outputURL: project.finalReelURL, bridge: bridge)
 #else
             try await crossFadeConcatAVF(parts: finalParts, durations: finalDurations,
-                                          outputURL: project.finalReelURL, musicURL: nil)
+                                          outputURL: project.finalReelURL, musicTracks: [])
 #endif
         }
 
@@ -112,7 +112,7 @@ struct ConcatStep: PipelineStep {
 
     private func xfadeConcat(parts: [URL], durations: [Double],
                               outputURL: URL, bridge: any FFmpegBridge,
-                              musicURL: URL?) async throws {
+                              musicTracks: [URL]) async throws {
         let X   = AppConfig.concatXfadeDuration
         let vbr = "\(AppConfig.Encoding.videoBitrate / 1000)k"
         let abr = "\(AppConfig.Encoding.audioBitrate / 1000)k"
@@ -126,25 +126,30 @@ struct ConcatStep: PipelineStep {
             hasAudio.append(!tracks.isEmpty)
         }
 
-        // Total output duration — needed to calculate music copy count and trim
+        // Total output duration — needed to build the music sequence and trim
         var totalDur = durations[0]
         for i in 1..<durations.count { totalDur += durations[i] - X }
 
-        // Probe music duration and calculate how many copies are needed to cover totalDur.
-        // Using explicit copies + concat filter is more reliable than aloop (whose size
-        // parameter must match the exact sample count of the file to loop correctly).
-        var musicLoopCount = 1
-        if let music = musicURL {
-            let mAsset = AVURLAsset(url: music)
-            let mDur = (try? await mAsset.load(.duration)).map { CMTimeGetSeconds($0) } ?? totalDur
-            musicLoopCount = max(1, Int(ceil(totalDur / max(mDur, 0.001))) + 1)
+        // Walk the playlist in order (cycling back to the start only once every distinct
+        // track has been used) until the sequence covers totalDur — plays each track once
+        // and moves on to the next rather than looping a single track.
+        var musicSequence: [URL] = []
+        if !musicTracks.isEmpty {
+            var seqDur = 0.0
+            var idx    = 0
+            while seqDur < totalDur {
+                let track = musicTracks[idx % musicTracks.count]
+                musicSequence.append(track)
+                let mAsset = AVURLAsset(url: track)
+                let mDur = (try? await mAsset.load(.duration)).map { CMTimeGetSeconds($0) } ?? totalDur
+                seqDur += max(mDur, 0.001)
+                idx += 1
+            }
         }
 
         var inputs: [String] = []
         for part in parts { inputs += ["-i", part.path] }
-        if let music = musicURL {
-            for _ in 0..<musicLoopCount { inputs += ["-i", music.path] }
-        }
+        for track in musicSequence { inputs += ["-i", track.path] }
 
         var filterParts: [String] = []
         for i in 0..<parts.count {
@@ -179,26 +184,32 @@ struct ConcatStep: PipelineStep {
             cumulativeDur += durations[i] - X
         }
 
-        filterParts.append("[vchain]null[vout]")
-        if let _ = musicURL {
+        // When there's only one part, the crossfade loop above never runs, so prevV/prevA
+        // are still [vn0]/[an0] rather than the [vchain]/[achain] labels the loop would
+        // have produced — use prevV/prevA here rather than hardcoding [vchain]/[achain].
+        filterParts.append("\(prevV)null[vout]")
+        if !musicSequence.isEmpty {
             let N      = parts.count
+            let count  = musicSequence.count
             let durStr = String(format: "%.3f", totalDur)
-            // Concat N explicit copies of the music track, trim to totalDur.
-            // This avoids aloop's sample-count dependency and works for all formats.
-            let concatInputs = (0..<musicLoopCount).map { "[\(N + $0):a]" }.joined()
+            // Concat the distinct tracks in sequence, trim to totalDur. Using explicit
+            // concat is more reliable than aloop (whose size parameter must match the
+            // exact sample count of the file to loop correctly).
+            let concatInputs = (0..<count).map { "[\(N + $0):a]" }.joined()
             filterParts.append(
-                "[achain]volume=\(rv)[rawA];" +
-                "\(concatInputs)concat=n=\(musicLoopCount):v=0:a=1," +
+                "\(prevA)volume=\(rv)[rawA];" +
+                "\(concatInputs)concat=n=\(count):v=0:a=1," +
                 "atrim=end=\(durStr),asetpts=PTS-STARTPTS," +
                 "volume=\(mv)[musicA];" +
                 "[rawA][musicA]amix=inputs=2:duration=longest:dropout_transition=0[aout]"
             )
         } else {
-            filterParts.append("[achain]volume=\(rv)[aout]")
+            filterParts.append("\(prevA)volume=\(rv)[aout]")
         }
 
         let filter = filterParts.joined(separator: ";")
-        print("[ConcatStep] xfade middle: \(parts.count) clips, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
+        let musicDesc = musicSequence.isEmpty ? "none" : musicSequence.map(\.lastPathComponent).joined(separator: " → ")
+        print("[ConcatStep] xfade middle: \(parts.count) clips, music=\(musicDesc) → \(outputURL.lastPathComponent)")
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
@@ -260,9 +271,12 @@ struct ConcatStep: PipelineStep {
             cumulativeDur += durations[i] - X
         }
 
-        // Audio passthrough — each part's music is already baked in at correct levels
-        filterParts.append("[vchain]null[vout]")
-        filterParts.append("[achain]anull[aout]")
+        // Audio passthrough — each part's music is already baked in at correct levels.
+        // When there's only one part, the crossfade loop above never runs, so prevV/prevA
+        // are still [vn0]/[an0] rather than the [vchain]/[achain] labels the loop would
+        // have produced — use prevV/prevA here rather than hardcoding [vchain]/[achain].
+        filterParts.append("\(prevV)null[vout]")
+        filterParts.append("\(prevA)anull[aout]")
 
         let filter = filterParts.joined(separator: ";")
         print("[ConcatStep] xfade join: \(parts.count) parts → \(outputURL.lastPathComponent)")
@@ -279,7 +293,7 @@ struct ConcatStep: PipelineStep {
     // MARK: - AVFoundation crossfade (iOS)
 
     private func crossFadeConcatAVF(parts: [URL], durations: [Double],
-                                     outputURL: URL, musicURL: URL?) async throws {
+                                     outputURL: URL, musicTracks: [URL]) async throws {
         let X   = AppConfig.concatXfadeDuration
         let ts  = CMTimeScale(600)
         let xCM = CMTimeMakeWithSeconds(X, preferredTimescale: ts)
@@ -381,31 +395,39 @@ struct ConcatStep: PipelineStep {
         }
         var inputParams: [AVMutableAudioMixInputParameters] = [paramsA, paramsB]
 
-        if let musicURL = musicURL {
-            let musicAsset = AVURLAsset(url: musicURL)
-            let musicDur   = try await musicAsset.load(.duration)
-            if let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first {
-                let mTrack = composition.addMutableTrack(
-                    withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
-                var remaining = totalDurCM
-                var destTime  = CMTime.zero
-                while remaining > .zero {
-                    let insert = CMTimeMinimum(remaining, musicDur)
-                    try? mTrack.insertTimeRange(
-                        CMTimeRange(start: .zero, duration: insert), of: srcM, at: destTime)
-                    destTime  = destTime + insert
-                    remaining = remaining - insert
-                }
-                let mp = AVMutableAudioMixInputParameters(track: mTrack)
-                mp.setVolume(Float(GlobalSettings.shared.musicVolume), at: .zero)
-                inputParams.append(mp)
+        if !musicTracks.isEmpty {
+            let mTrack = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
+            var remaining = totalDurCM
+            var destTime  = CMTime.zero
+            var idx       = 0
+            // Walk the playlist in order (cycling back to the start only once every distinct
+            // track has been used) until the timeline is filled — plays each track once and
+            // moves on to the next rather than looping a single track.
+            while remaining > .zero {
+                let track = musicTracks[idx % musicTracks.count]
+                idx += 1
+                let musicAsset = AVURLAsset(url: track)
+                guard let musicDur = try? await musicAsset.load(.duration),
+                      musicDur > .zero,
+                      let srcM = try? await musicAsset.loadTracks(withMediaType: .audio).first
+                else { break }
+                let insert = CMTimeMinimum(remaining, musicDur)
+                try? mTrack.insertTimeRange(
+                    CMTimeRange(start: .zero, duration: insert), of: srcM, at: destTime)
+                destTime  = destTime + insert
+                remaining = remaining - insert
             }
+            let mp = AVMutableAudioMixInputParameters(track: mTrack)
+            mp.setVolume(Float(GlobalSettings.shared.musicVolume), at: .zero)
+            inputParams.append(mp)
         }
 
         let audioMix = AVMutableAudioMix()
         audioMix.inputParameters = inputParams
 
-        print("[ConcatStep] crossfade join (AVF): \(parts.count) parts, music=\(musicURL?.lastPathComponent ?? "none") → \(outputURL.lastPathComponent)")
+        let musicDesc = musicTracks.isEmpty ? "none" : musicTracks.map(\.lastPathComponent).joined(separator: " → ")
+        print("[ConcatStep] crossfade join (AVF): \(parts.count) parts, music=\(musicDesc) → \(outputURL.lastPathComponent)")
         try await VideoEncoder.export(composition: composition,
                                        videoComposition: videoComp,
                                        audioMix: audioMix,
@@ -414,10 +436,15 @@ struct ConcatStep: PipelineStep {
 
     // MARK: - Music lookup
 
-    private func findMusicTrack(preferred: String = "") -> URL? {
+    /// Ordered playlist to sequence through for backing music: starts at the preferred/random
+    /// pick, then walks the rest of the library in order so a long ride plays through
+    /// different tracks instead of looping the same one. A user-supplied global override
+    /// (GlobalSettings.musicURL) has no library to draw from, so it's played (and looped if
+    /// needed) on its own.
+    private func musicPlaylist(preferred: String = "") -> [URL] {
         if let url = GlobalSettings.shared.musicURL,
            FileManager.default.fileExists(atPath: url.path) {
-            return url
+            return [url]
         }
         let extensions = ["mp3", "m4a", "aac", "wav"]
         var candidates: [URL] = []
@@ -432,10 +459,16 @@ struct ConcatStep: PipelineStep {
                 candidates += rootURLs
             }
         }
+        guard !candidates.isEmpty else { return [] }
+        candidates.sort { $0.lastPathComponent < $1.lastPathComponent }
+
+        let startIndex: Int
         if !preferred.isEmpty,
-           let match = candidates.first(where: { $0.lastPathComponent == preferred }) {
-            return match
+           let idx = candidates.firstIndex(where: { $0.lastPathComponent == preferred }) {
+            startIndex = idx
+        } else {
+            startIndex = Int.random(in: 0..<candidates.count)
         }
-        return candidates.randomElement()
+        return Array(candidates[startIndex...] + candidates[..<startIndex])
     }
 }
