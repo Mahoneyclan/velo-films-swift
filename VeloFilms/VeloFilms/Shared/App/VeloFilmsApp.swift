@@ -1,5 +1,6 @@
 // VeloFilmsApp.swift
-// App entry point: creates the shared project list and the main and (macOS) Settings windows.
+// App entry point: creates the shared project list and the main window, plus the Fine Tune and Settings windows on
+// macOS.
 
 import SwiftUI
 
@@ -24,7 +25,7 @@ struct VeloFilmsApp: App {
         }
     }
 
-    /// The main window, plus a Settings window on macOS. "New" menu items are removed on macOS.
+    /// The main window, plus Fine Tune and Settings windows on macOS. "New" menu items are removed on macOS.
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -37,6 +38,13 @@ struct VeloFilmsApp: App {
         }
 #endif
 #if os(macOS)
+        // Fine Tune gets its own window so it can be sized freely (a sheet is capped at its parent's height).
+        WindowGroup("Fine Tune", id: FineTuneView.windowID, for: UUID.self) { $projectID in
+            FineTuneWindow(projectID: projectID)
+                .environment(projectStore)
+        }
+        .defaultSize(width: 1100, height: 780)
+        .windowResizability(.contentMinSize)
         Settings {
             GlobalSettingsView()
         }

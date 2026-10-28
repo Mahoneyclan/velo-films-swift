@@ -27,7 +27,7 @@ struct SelectRow: Codable {
     var segmentDistance: Double?
     /// Segment average gradient in percent.
     var segmentGrade: Double?
-    /// Set when the user manually overrides the AI recommendation in ManualSelectionView.
+    /// Set when the user manually overrides the AI recommendation on the Fine Tune screen (FineTuneModel).
     /// Non-nil means the user has explicitly chosen (true) or excluded (false) this clip.
     /// SelectStep preserves this value on re-run so manual decisions survive re-scoring.
     var manualOverride: Bool?

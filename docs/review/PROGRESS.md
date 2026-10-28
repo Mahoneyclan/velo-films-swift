@@ -1,6 +1,12 @@
 # Review loop progress
 
-## ▶ RESUME HERE (saved 2026-10-28, before a reboot)
+## ▶ RESUME HERE (saved end of 2026-10-28)
+
+**Next session:** ask whether the Fine Tune hand test passed (steps under "Item 3" below); if yes, commit (the
+Fine Tune screen, test target and docs are uncommitted). Open question: CLAUDE.md line 2 still says "paid App Store
+product". Then item 4: stray-folder guard in ImportView and the remaining scorecard bugs.
+
+### Earlier notes (saved 2026-10-28, before a reboot)
 
 **Objective changed 2026-10-28:** not a paid app any more — "just make it awesome" (reel quality + UX). The App
 Store checklist (`docs/APP_STORE.md`) is reference only.
@@ -34,7 +40,23 @@ reopened). YOLO only, never Apple Vision.
 - Checked on 15 rides (Python copy of the Swift logic, same clip counts): picks <30 s apart 10–64% → 0%; longest
   riding without a pick e.g. River Loop 41 → 8.5 min, BrownSnake 31 → 8.8, Brissie 21 → 15; only B2GC worse
   (12.8 → 14.5); average pick score 0–7% lower. Built macOS + iOS, 0 warnings. Owner hand test passed 2026-10-28.
-- Next: item 3 (Fine Tune screen mock-up).
+- Committed 2026-10-28 as 8471774 (main, not pushed).
+
+**Item 3 (Fine Tune) built 2026-10-28** from the approved mock-up (https://claude.ai/artifact/H9GtkAuJccDVJiU1CbNBse).
+- `ManualSelectionView` (1,196 lines) replaced by FineTuneView/Model/Data, MomentReasons, RideTimelineView,
+  MomentDetailView, FilmStripView, FrameImage (all < 260 lines). Lap/segment and object filters left out (owner).
+- FocusFilter trimmed to climbs/descents/group/PR; zone filters, `movingTimeZoneBoundaries` and zone % removed.
+- Test target added (item 4, part 1): `VeloFilmsTests`, shared scheme; 64 tests pass on macOS and the iPhone 17
+  simulator. Old FocusFilterTests fixed (stale helper, rider count expectations from an older rule).
+- Owner hand test 2026-10-28 found two problems, both fixed the same day: (a) front/rear had to be chosen with a
+  switch; now both frames show together (side by side; stacked on iPhone) and tapping one puts that camera in the
+  reel, tapping the one in the reel takes it out; (b) on the Mac the window could widen but not grow taller (a sheet
+  is capped at its parent window's height); Fine Tune now opens in its own window. The "reviewed"/stale-reel logic
+  moved to `ReviewCompletion` (run by Fine Tune on close). 70 tests pass on macOS and the iPhone 17 simulator.
+- Second round (2026-10-28): selected filter chip text was invisible on the Mac (fixed colours + checkmark); film
+  strip now has a front row above a rear row on iPad/Mac (one row on iPhone); tapping opens the moment only.
+- Hand test owed: open Fine Tune on SCL Riverloop (Mac + iPad/iPhone): resize the Mac window taller, tap front/rear
+  frames, timeline drag, add/remove, filters, Reset, Cancel with changes, Save, then Build and check the reel.
 
 **Item 1 (reel ending) done 2026-10-28** (owner dropped the stats card; YOLO stays, no Apple Vision):
 - Start/finish picks: `ClipSelector.ensurePick` puts one moment in the first and last 5 min (`AppConfig.rideEdgeWindowS`).

@@ -1,3 +1,6 @@
+// FocusFilterTests.swift
+// Tests for the Fine Tune moment filters (climbs, descents, group riding, Strava PRs) and the rider count.
+
 import XCTest
 @testable import VeloFilms
 
@@ -6,6 +9,7 @@ import XCTest
 private func makeRow(
     index: String = "0",
     momentId: Int = 0,
+    camera: String = "Fly12Sport",
     absTimeEpoch: Double = 0,
     gradientPct: Double? = nil,
     speedKmh: Double? = 20,
@@ -13,7 +17,7 @@ private func makeRow(
     numDetections: Int = 0
 ) -> EnrichRow {
     EnrichRow(
-        index: index, camera: "Fly12Sport", clipNum: 1, frameNumber: 0,
+        index: index, camera: camera, clipNum: 1, frameNumber: 0,
         videoPath: "/dev/null",
         absTimeEpoch: absTimeEpoch, absTimeIso: "", sessionTsS: 0,
         clipStartEpoch: 0, adjustedStartTime: "", durationS: 3.5,
@@ -42,25 +46,14 @@ private func makeMoment(momentId: Int, gradientPct: Double? = nil,
     return PartnerMatcher.Moment(momentId: momentId, rows: [row])
 }
 
-/// Ride: 1_000 → 4_600 (3_600 s).
-/// Default zone endpoints mirror a 10-min opening / 10-min closing window.
+/// Thresholds as the Fine Tune screen would capture them from settings.
 private func makeContext(
-    rideStartEpoch: Double = 1_000,
-    rideDurationS: Double = 3_600,
-    lapEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)] = [],
-    startZoneEndEpoch: Double = 1_600,   // 600 s = 10 min into ride
-    endZoneStartEpoch: Double = 4_000,   // 600 s before end
     climbGradientPct: Double = 3.0,
     descentGradientPct: Double = -3.0,   // stored negative, e.g. -3.0 means ≥ 3% descent
     groupMinDetections: Int = 5,
     stravaPRMomentIds: Set<Int> = []
 ) -> FocusFilterContext {
     FocusFilterContext(
-        rideStartEpoch: rideStartEpoch,
-        rideDurationS: rideDurationS,
-        lapEpochRanges: lapEpochRanges,
-        startZoneEndEpoch: startZoneEndEpoch,
-        endZoneStartEpoch: endZoneStartEpoch,
         climbGradientPct: climbGradientPct,
         descentGradientPct: descentGradientPct,
         groupMinDetections: groupMinDetections,
@@ -82,37 +75,6 @@ final class FocusFilterTests: XCTestCase {
         ]
         let ctx = makeContext()
         XCTAssertTrue(moments.allSatisfy { FocusFilter.all.matches($0, in: ctx) })
-    }
-
-    // MARK: Zone filters (opening / closing)
-
-    func testOpeningZone_includesEarlyMoments() {
-        // startZoneEndEpoch = 1600 — moments at or before pass.
-        let ctx = makeContext(startZoneEndEpoch: 1_600)
-        let early  = makeMoment(momentId: 1_300)
-        let border = makeMoment(momentId: 1_600)
-        let late   = makeMoment(momentId: 1_601)
-        XCTAssertTrue(FocusFilter.openingZone.matches(early,  in: ctx))
-        XCTAssertTrue(FocusFilter.openingZone.matches(border, in: ctx))
-        XCTAssertFalse(FocusFilter.openingZone.matches(late,  in: ctx))
-    }
-
-    func testClosingZone_includesLateMoments() {
-        // endZoneStartEpoch = 4000 — moments at or after pass.
-        let ctx = makeContext(endZoneStartEpoch: 4_000)
-        let early  = makeMoment(momentId: 3_999)
-        let border = makeMoment(momentId: 4_000)
-        let late   = makeMoment(momentId: 4_500)
-        XCTAssertFalse(FocusFilter.closingZone.matches(early,  in: ctx))
-        XCTAssertTrue(FocusFilter.closingZone.matches(border,  in: ctx))
-        XCTAssertTrue(FocusFilter.closingZone.matches(late,    in: ctx))
-    }
-
-    func testOpeningZone_whenBoundaryIsZero_nothingPasses() {
-        // startZoneEndEpoch = 0 means zone was never computed; epoch 0 still passes but nothing positive.
-        let ctx = makeContext(startZoneEndEpoch: 0)
-        let m = makeMoment(momentId: 1000)
-        XCTAssertFalse(FocusFilter.openingZone.matches(m, in: ctx))
     }
 
     // MARK: Terrain filters
@@ -153,15 +115,16 @@ final class FocusFilterTests: XCTestCase {
 
     func testGroupRiding_countsPersonAndBicycle() {
         let ctx = makeContext(groupMinDetections: 5)
-        let enough = makeMoment(momentId: 0, detectedClasses: "person,person,person,bicycle,bicycle")
-        let tooFew = makeMoment(momentId: 0, detectedClasses: "person,person,car")
+        // Five riders, each seen as a person on a bicycle; four would fall short of the threshold.
+        let enough = makeMoment(momentId: 0, detectedClasses: "person,person,person,person,person,bicycle,bicycle,bicycle,bicycle,bicycle")
+        let tooFew = makeMoment(momentId: 0, detectedClasses: "person,person,person,person,bicycle,bicycle,bicycle,bicycle,car")
         XCTAssertTrue(FocusFilter.groupRiding.matches(enough, in: ctx))
         XCTAssertFalse(FocusFilter.groupRiding.matches(tooFew, in: ctx))
     }
 
     func testGroupRiding_exactThreshold_passes() {
         let ctx = makeContext(groupMinDetections: 3)
-        let exact = makeMoment(momentId: 0, detectedClasses: "person,bicycle,person")
+        let exact = makeMoment(momentId: 0, detectedClasses: "person,bicycle,person,bicycle,person")
         XCTAssertTrue(FocusFilter.groupRiding.matches(exact, in: ctx))
     }
 
@@ -198,64 +161,24 @@ final class FocusFilterTests: XCTestCase {
         XCTAssertFalse(FocusFilter.stravaPR.matches(makeMoment(momentId: 1000), in: ctx))
     }
 
-    // MARK: Lap filter
-
-    func testLap_matchesMomentInsideLapWindow() {
-        let laps = [(name: "Lap 3", startEpoch: 2_000.0, endEpoch: 2_500.0)]
-        let ctx = makeContext(lapEpochRanges: laps)
-
-        let inside  = makeMoment(momentId: 2_250)
-        let atStart = makeMoment(momentId: 2_000)
-        let atEnd   = makeMoment(momentId: 2_500)
-        let before  = makeMoment(momentId: 1_999)
-        let after   = makeMoment(momentId: 2_501)
-
-        XCTAssertTrue(FocusFilter.lap(name: "Lap 3").matches(inside,  in: ctx))
-        XCTAssertTrue(FocusFilter.lap(name: "Lap 3").matches(atStart, in: ctx))
-        XCTAssertTrue(FocusFilter.lap(name: "Lap 3").matches(atEnd,   in: ctx))
-        XCTAssertFalse(FocusFilter.lap(name: "Lap 3").matches(before, in: ctx))
-        XCTAssertFalse(FocusFilter.lap(name: "Lap 3").matches(after,  in: ctx))
-    }
-
-    func testLap_wrongNameFails() {
-        let laps = [(name: "Lap 3", startEpoch: 2_000.0, endEpoch: 2_500.0)]
-        let ctx = makeContext(lapEpochRanges: laps)
-        let m = makeMoment(momentId: 2_250)
-        XCTAssertFalse(FocusFilter.lap(name: "Lap 99").matches(m, in: ctx))
-    }
-
-    func testLap_multipleLaps_correctIsolation() {
-        let laps: [(name: String, startEpoch: Double, endEpoch: Double)] = [
-            ("Lap 1", 1_000, 1_800),
-            ("Lap 2", 2_000, 2_800)
-        ]
-        let ctx = makeContext(lapEpochRanges: laps)
-        let m1 = makeMoment(momentId: 1_400)
-        let m2 = makeMoment(momentId: 2_400)
-
-        XCTAssertTrue(FocusFilter.lap(name: "Lap 1").matches(m1,  in: ctx))
-        XCTAssertFalse(FocusFilter.lap(name: "Lap 1").matches(m2, in: ctx))
-        XCTAssertTrue(FocusFilter.lap(name: "Lap 2").matches(m2,  in: ctx))
-        XCTAssertFalse(FocusFilter.lap(name: "Lap 2").matches(m1, in: ctx))
-    }
-
     // MARK: riderCount helper
 
     func testRiderCount_exactlyCountsPersonAndBicycle() {
         let classes = "person,car,bicycle,truck,person"
         let row = makeRow(index: "0", momentId: 0, detectedClasses: classes)
         let moment = PartnerMatcher.Moment(momentId: 0, rows: [row])
-        XCTAssertEqual(FocusFilter.riderCount(for: moment), 3) // 2 person + 1 bicycle, car/truck ignored
+        // max(2 person, 1 bicycle): a cyclist is often detected as both, so the two aren't added together.
+        XCTAssertEqual(FocusFilter.riderCount(for: moment), 2)
     }
 
     func testRiderCount_usesBestCameraRow() {
-        // Front camera sees 1 rider; rear sees 6 — filter should use the max.
+        // Front camera sees 1 rider; rear sees 3 (3 person + 3 bicycle) — the best camera row wins.
         let front = makeRow(index: "0", momentId: 0, camera: "Fly12Sport",
                             detectedClasses: "person")
         let rear  = makeRow(index: "1", momentId: 0, camera: "Fly6Pro",
                             detectedClasses: "person,person,person,bicycle,bicycle,bicycle")
         let moment = PartnerMatcher.Moment(momentId: 0, rows: [front, rear])
-        XCTAssertEqual(FocusFilter.riderCount(for: moment), 6)
+        XCTAssertEqual(FocusFilter.riderCount(for: moment), 3)
     }
 
     // MARK: AI selection unchanged by focus filter
@@ -275,7 +198,7 @@ final class FocusFilterTests: XCTestCase {
         XCTAssertEqual(selected1.map(\.momentId), selected2.map(\.momentId),
                        "AI selection must be deterministic")
 
-        let ctx      = makeContext(rideStartEpoch: 1000, rideDurationS: 200)
+        let ctx      = makeContext()
         let filtered = moments.filter { FocusFilter.climbs.matches($0, in: ctx) }
         let selectedAfterFilter = ClipSelector.select(moments: moments, config: config)
         XCTAssertEqual(selected1.map(\.momentId), selectedAfterFilter.map(\.momentId),
@@ -288,22 +211,12 @@ final class FocusFilterTests: XCTestCase {
     func testAllFilters_emptyMoments_nocrash() {
         let ctx = makeContext()
         let allFilters: [FocusFilter] = [
-            .all, .openingZone, .closingZone, .climbs, .descents,
-            .groupRiding, .stravaPR, .lap(name: "Lap 1")
+            .all, .climbs, .descents, .groupRiding, .stravaPR
         ]
         for filter in allFilters {
             let result = [PartnerMatcher.Moment]().filter { filter.matches($0, in: ctx) }
             XCTAssertTrue(result.isEmpty, "\(filter) should return empty for empty input")
         }
-    }
-
-    func testOpeningZone_veryShortRide_allPass() {
-        // Entire 30-second ride falls inside a 10-minute opening zone.
-        let ctx = makeContext(rideStartEpoch: 0, startZoneEndEpoch: 600)
-        let m1 = makeMoment(momentId: 0)
-        let m2 = makeMoment(momentId: 25)
-        XCTAssertTrue(FocusFilter.openingZone.matches(m1, in: ctx))
-        XCTAssertTrue(FocusFilter.openingZone.matches(m2, in: ctx))
     }
 
     // MARK: Performance
@@ -318,16 +231,12 @@ final class FocusFilterTests: XCTestCase {
                               detectedClasses: i % 10 == 0 ? "person,bicycle,person" : "car")
         }
         let ctx = makeContext(
-            rideStartEpoch: rideStart,
-            rideDurationS: Double(momentCount * 5),
-            startZoneEndEpoch: rideStart + 600,
-            endZoneStartEpoch: rideStart + Double(momentCount * 5) - 600,
             climbGradientPct: 3.0,
             descentGradientPct: -3.0,
             groupMinDetections: 3
         )
 
-        let filters: [FocusFilter] = [.openingZone, .closingZone, .climbs, .descents, .groupRiding]
+        let filters: [FocusFilter] = [.climbs, .descents, .groupRiding, .stravaPR]
         measure {
             for filter in filters {
                 _ = moments.filter { filter.matches($0, in: ctx) }

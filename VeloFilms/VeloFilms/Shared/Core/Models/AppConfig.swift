@@ -42,10 +42,6 @@ enum AppConfig {
     // MARK: - Selection
     /// When `true`, moments without GPS would be excluded from selection. Not currently used.
     static let requireGpsForSelection: Bool = false
-    /// Fraction of moving time shown by the Fine Tune "Opening" filter. Selection itself no longer uses zones.
-    static let startZonePct: Double = 0.15
-    /// Fraction of moving time shown by the Fine Tune "Closing" filter.
-    static let endZonePct: Double   = 0.15
     /// Below this speed (km/h) a moment counts as stopped (café, lights) and isn't picked.
     static let movingSpeedKmh: Double = 2.0
     /// Gap between picks as a fraction of the average spacing the ride allows. Half the average leaves room

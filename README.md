@@ -39,7 +39,7 @@ without the App Sandbox, so it can't go on the Mac App Store as is).
 | **Flatten** | Parse the GPX into one point per second, with speed and gradient |
 | **Extract** | Build the 5-second sampling grid and match each point to the camera clip that covers it (reads clip timestamps; no frames yet) |
 | **Enrich** | Grab a frame at each point; YOLO detection, scene change, GPS telemetry, composite scoring |
-| **Select** | Pick the best moments spread across the whole ride (no picks while stopped, gap between picks grows with ride length, always one from the first and last 5 minutes); manual review UI |
+| **Select** | Pick the best moments spread across the whole ride (no picks while stopped, gap between picks grows with ride length, always one from the first and last 5 minutes); review and change picks on the **Fine Tune** screen |
 | **Build** | Composite each clip with minimap, gauges, elevation, optional PiP |
 | **Splash** | Render intro (map card + collage) and outro |
 | **Concat** | Join clips with crossfades + sequenced backing music (plays through the library rather than looping one track), music fades out before the outro; add intro/outro |
@@ -93,7 +93,7 @@ Override** is set, that one file plays instead of the library. Use only music yo
 - Build (macOS): `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS' build`
 - Build (iPad simulator): `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=iOS Simulator,name=iPhone 17' build`
 - Strava credentials go in `VeloFilms/VeloFilms/Shared/Integrations/Strava/Secrets.swift` (gitignored; never commit it).
-- There is no test target yet; `VeloFilmsTests/FocusFilterTests.swift` is not wired into the project.
+- Tests (64, in `VeloFilms/VeloFilmsTests/`): `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'` (or the iPhone 17 simulator destination).
 
 ## License
 

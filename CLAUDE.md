@@ -3,13 +3,13 @@ Mac + iPad + iPhone app (iPad/iPhone = paid App Store product that must meet eve
 to a Strava GPX (or a .gpx file placed in the project), scores them (speed, gradient, YOLO object detection, scene change),
 and renders with map, gauge and elevation overlays.
 
-## Build (verified 2026-10-25: iOS and macOS builds OK)
+## Build (verified 2026-10-28: iOS and macOS builds and tests OK)
 - macOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS' build`
 - iPad/iOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=iOS Simulator,name=iPhone 17' build`
-- No test target: `VeloFilmsTests/FocusFilterTests.swift` exists but isn't in any target.
+- Tests: `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'` (70 tests in `VeloFilms/VeloFilmsTests/`; also passes on the iPhone 17 simulator).
 
 ## Layout
-- `VeloFilms/VeloFilms/`: app source (the only folder in the build)
+- `VeloFilms/VeloFilms/`: app source; `VeloFilms/VeloFilmsTests/`: unit tests (the two folders in the build)
 - `VeloFilms/VeloFilms/Shared/ML/`: YOLO model (`VeloYOLO.mlpackage`); `Scripts/`: Python helper (CoreML export)
 - See ARCHITECTURE.md for the pipeline and data layout, SECURITY.md for data protection
 - `docs/`: screenshots and notes

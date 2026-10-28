@@ -1,6 +1,7 @@
 // ProjectDetailView.swift
 // The main project screen: a guided four-step card layout (Set Up, Analyse, Review, Build) that runs the
-// pipeline and opens the selection, preferences and GPX import sheets.
+// pipeline and opens Fine Tune (a window on the Mac, a sheet on iPad/iPhone) and the preferences and GPX import
+// sheets.
 
 import SwiftUI
 
@@ -10,15 +11,19 @@ struct ProjectDetailView: View {
     /// The project shown.
     let project: Project
     @Environment(ProjectStore.self) private var store
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @State private var executor = PipelineExecutor()
     @State private var showGPXPicker = false
-    @State private var showManualSelection = false
+    #if os(iOS)
+    @State private var showFineTune = false
+    #endif
     @State private var showProjectPreferences = false
     @State private var pendingReviewPrompt = false
     @State private var reviewedFlag = false     // mirrors UserDefaults per-project
-    @State private var selectionSnapshot: Set<Int> = []  // recommended momentIds captured before fine-tune opens
 
-    private var reviewedKey: String { "reviewed-\(project.id)" }
+    private var reviewedKey: String { ReviewCompletion.reviewedKey(for: project.id) }
     private var artifacts: ProjectArtifacts { ProjectArtifacts.check(project) }
 
     // Gate conditions
@@ -65,36 +70,30 @@ struct ProjectDetailView: View {
                 executor.run(.flatten, project: project)
             }
         }
-        .sheet(isPresented: $showManualSelection) {
-            ManualSelectionView(project: project)
+        #if os(iOS)
+        .sheet(isPresented: $showFineTune) {
+            FineTuneView(project: project)
         }
+        #endif
         .sheet(isPresented: $showProjectPreferences) {
             ProjectPreferencesView(project: project)
         }
         .onAppear {
             registerSteps()
-            reviewedFlag = UserDefaults.standard.bool(forKey: reviewedKey)
+            reviewedFlag = ReviewCompletion.isReviewed(project)
         }
         .onChange(of: executor.isRunning) {
             if !executor.isRunning {
                 store.lastPipelineUpdate = .now
                 if pendingReviewPrompt && analysisComplete {
                     pendingReviewPrompt = false
-                    showManualSelection = true
+                    openFineTune()
                 }
             }
         }
-        .onChange(of: showManualSelection) {
-            // Mark reviewed when the sheet is dismissed
-            if !showManualSelection && analysisComplete {
-                reviewedFlag = true
-                UserDefaults.standard.set(true, forKey: reviewedKey)
-                // If the selection changed and a reel already exists, the built artifacts are
-                // now stale — delete them so the user must re-build.
-                if buildComplete && recommendedMomentIds() != selectionSnapshot {
-                    invalidateBuiltArtifacts()
-                }
-            }
+        // Fine Tune marks the ride reviewed when it closes (see ReviewCompletion) and then bumps this date.
+        .onChange(of: store.lastPipelineUpdate) {
+            reviewedFlag = ReviewCompletion.isReviewed(project)
         }
     }
 
@@ -205,14 +204,12 @@ struct ProjectDetailView: View {
                     Spacer()
                     if reviewedFlag {
                         Button("Fine-tune Again…") {
-                            selectionSnapshot = recommendedMomentIds()
-                            showManualSelection = true
+                            openFineTune()
                         }
                         .buttonStyle(.bordered)
                     } else {
                         Button("Fine-tune Selection…") {
-                            selectionSnapshot = recommendedMomentIds()
-                            showManualSelection = true
+                            openFineTune()
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -374,9 +371,14 @@ struct ProjectDetailView: View {
         executor.register(ConcatStep(),                        for: .concat)
     }
 
-    private func recommendedMomentIds() -> Set<Int> {
-        guard let rows = try? JSONLReader().read(from: project.selectJSONL) as [SelectRow] else { return [] }
-        return Set(rows.filter { $0.recommended }.map { $0.base.momentId })
+    /// Opens Fine Tune: its own resizable window on the Mac (a sheet can't be taller than the window it is
+    /// attached to), a full-screen sheet on iPad and iPhone.
+    private func openFineTune() {
+        #if os(macOS)
+        openWindow(id: FineTuneView.windowID, value: project.id)
+        #else
+        showFineTune = true
+        #endif
     }
 
     /// Deletes the four analysis outputs (`flatten`, `extract`, `enriched`, `select`) so the next analysis
@@ -388,19 +390,6 @@ struct ProjectDetailView: View {
         }
         reviewedFlag = false
         UserDefaults.standard.set(false, forKey: reviewedKey)
-    }
-
-    private func invalidateBuiltArtifacts() {
-        let fm = FileManager.default
-        try? fm.removeItem(at: project.finalReelURL)
-        for dir in [project.minimapsDir, project.elevationDir] {
-            guard let files = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
-            for f in files { try? fm.removeItem(at: dir.appending(path: f)) }
-        }
-        guard let clips = try? fm.contentsOfDirectory(atPath: project.clipsDir.path) else { return }
-        for f in clips where f.hasSuffix(".mp4") || f.hasSuffix(".mov") {
-            try? fm.removeItem(at: project.clipsDir.appending(path: f))
-        }
     }
 
     private func reveal(_ url: URL) {

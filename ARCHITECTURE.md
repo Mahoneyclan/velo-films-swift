@@ -35,8 +35,8 @@ All app source is in `VeloFilms/VeloFilms/` (Xcode picks up new files there auto
 | `Shared/Views/` | SwiftUI screens, grouped by area (Main, Import, Selection, Settings, Pipeline) |
 | `iPadOS/` | iPad-only folder picker wrapper |
 
-Outside the app: `Scripts/export_coreml.py` (build-time model export), `VeloFilmsTests/` (a test file not yet
-in any target), `docs/` (screenshots, review scorecards and progress).
+Outside the app: `Scripts/export_coreml.py` (build-time model export), `VeloFilms/VeloFilmsTests/` (unit tests,
+see Testing), `docs/` (screenshots, review scorecards and progress).
 
 ## Layers
 
@@ -69,7 +69,16 @@ Views (SwiftUI)  ──>  PipelineExecutor  ──>  Steps (Flatten … Concat) 
 Running a later step runs any earlier step whose output is missing. The step you ask for always runs.
 Only one run happens at a time, so GPX import and analysis Re-run are disabled while a step is running. Re-importing the GPX
 or pressing Re-run deletes all four analysis outputs, so the next analysis starts again from the GPX.
-The **Fine Tune** screen (`ManualSelectionView`) edits `select.jsonl` between Select and Build.
+The **Fine Tune** screen edits `select.jsonl` between Select and Build. On the Mac it opens in its own resizable
+window (`FineTuneWindow`, a `WindowGroup` keyed by project id; a sheet can't grow taller than its parent window); on
+iPad and iPhone it is a full-screen sheet. `FineTuneView` lays it out (stacked below 760 pt wide, side panel above);
+the open moment shows its front and rear frames together (side by side, stacked on iPhone) and tapping a frame puts
+that camera's clip in the reel. The film strip has a front row above a rear row on iPad and Mac (one row on iPhone). `FineTuneModel` holds the rules (in/out of the reel, camera per clip,
+filters, reset, save) with no view code; `FineTuneData` reads the picks, laps and elevation; `MomentReasons` writes
+the "Why this moment" lines; `RideTimelineView`, `MomentDetailView`, `FilmStripView` and `FrameImage` are the parts.
+A moment is in the reel when one camera row has `recommended`; every manual change sets `manualOverride` on all of
+the moment's rows so re-running Select keeps it. When Fine Tune closes, `ReviewCompletion` marks the ride reviewed
+(unlocking Build) and deletes a built reel whose clips no longer match the selection.
 
 ### Scoring
 
@@ -120,8 +129,11 @@ main-actor isolated too: their synchronous work runs on the main thread and only
 
 ## Testing
 
-There is no test target yet. `VeloFilmsTests/FocusFilterTests.swift` (25 tests) exists but is not in any target,
-so it never runs. Hand-testing steps for each change are recorded in `docs/review/PROGRESS.md`.
+`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 70 tests:
+clip selection (`ClipSelectorTests`), the Fine Tune rules and data (`FineTuneModelTests`, `FineTuneDataTests`,
+`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing) and the moment filters (`FocusFilterTests`, XCTest). Run with
+`xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'`. No test touches the network or the footage drives. Screens are hand-tested; the steps
+for each change are recorded in `docs/review/PROGRESS.md`.
 
 ## Known issues
 

@@ -1,17 +1,13 @@
 // FocusFilter.swift
-// Filters for the manual selection screen (climbs, descents, group riding, laps, etc.) and their matching rules.
+// Moment filters for the Fine Tune screen (climbs, descents, group riding, Strava PRs) and their matching rules.
 
 import Foundation
 
-/// View-level focus mode applied on top of AI clip selection in ManualSelectionView.
-/// Filters the visible list of moments without modifying AI scores, selection, or any pipeline step.
+/// A view-level filter on the Fine Tune screen. It narrows which moments are shown without changing scores,
+/// selection or any pipeline step.
 enum FocusFilter: Hashable {
     /// Every moment.
     case all
-    /// Moments in the opening part of the ride.
-    case openingZone
-    /// Moments in the closing part of the ride.
-    case closingZone
     /// Moments at or above the climb gradient threshold.
     case climbs
     /// Moments at or below the (negative) descent gradient threshold.
@@ -20,60 +16,20 @@ enum FocusFilter: Hashable {
     case groupRiding
     /// Moments inside a Strava segment PR.
     case stravaPR
-    /// Moments inside the named Strava lap.
-    case lap(name: String)
-
-    /// Name shown on the filter button.
-    var label: String {
-        switch self {
-        case .all:          return "All Clips"
-        case .openingZone:  return "Opening"
-        case .closingZone:  return "Closing"
-        case .climbs:       return "Climbs"
-        case .descents:     return "Descents"
-        case .groupRiding:  return "Group Riding"
-        case .stravaPR:     return "Strava PRs"
-        case .lap(let n):   return n
-        }
-    }
-
-    /// SF Symbol name for the filter button.
-    var icon: String {
-        switch self {
-        case .all:          return "square.grid.2x2"
-        case .openingZone:  return "play.circle"
-        case .closingZone:  return "stop.circle"
-        case .climbs:       return "arrow.up.right"
-        case .descents:     return "arrow.down.right"
-        case .groupRiding:  return "person.3"
-        case .stravaPR:     return "trophy"
-        case .lap:          return "flag.checkered"
-        }
-    }
 }
 
 // MARK: - Filtering context
 
-/// Immutable snapshot of all values needed to evaluate a FocusFilter.
-/// Passed to `matches(_:in:)` to avoid accessing singletons in the hot path.
+/// The thresholds and PR moments needed to evaluate a `FocusFilter`, captured once so matching never reads
+/// settings in a loop.
 struct FocusFilterContext {
-    /// Ride start, Unix seconds.
-    let rideStartEpoch: Double
-    /// Ride duration in seconds.
-    let rideDurationS: Double
-    /// Strava laps as named time ranges (Unix seconds).
-    let lapEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)]
-    /// Wall-clock epoch where the opening zone ends (from moving-time boundary in SelectStep).
-    let startZoneEndEpoch: Double
-    /// Wall-clock epoch where the closing zone begins (from moving-time boundary in SelectStep).
-    let endZoneStartEpoch: Double
     /// Climb threshold in percent.
     let climbGradientPct: Double
     /// Descent threshold in percent, stored as a negative number (e.g. -4.0).
     let descentGradientPct: Double
     /// Minimum rider count for the Group Riding filter.
     let groupMinDetections: Int
-    /// momentIds of clips where SelectRow.stravaPR == true.
+    /// momentIds of clips where `SelectRow.stravaPR` is `true`.
     let stravaPRMomentIds: Set<Int>
 }
 
@@ -83,39 +39,21 @@ extension FocusFilter {
     /// Whether `moment` passes this filter.
     /// - Parameters:
     ///   - moment: A grid point with the rows from one or both cameras.
-    ///   - ctx: Thresholds and ride timing captured when the screen loaded.
+    ///   - ctx: Thresholds captured when the screen loaded.
     /// - Returns: `true` if the moment should be shown. Gradient filters use the primary camera's row and treat a
     ///   missing gradient as 0.
     func matches(_ moment: PartnerMatcher.Moment, in ctx: FocusFilterContext) -> Bool {
-        let t = Double(moment.momentId)
-
         switch self {
         case .all:
             return true
-
-        case .openingZone:
-            return t <= ctx.startZoneEndEpoch
-
-        case .closingZone:
-            return t >= ctx.endZoneStartEpoch
-
         case .climbs:
             return (moment.primary?.gradientPct ?? 0) >= ctx.climbGradientPct
-
         case .descents:
-            // descentGradientPct stored as negative (e.g. -4.0)
             return (moment.primary?.gradientPct ?? 0) <= ctx.descentGradientPct
-
         case .groupRiding:
             return Self.riderCount(for: moment) >= ctx.groupMinDetections
-
         case .stravaPR:
             return ctx.stravaPRMomentIds.contains(moment.momentId)
-
-        case .lap(let name):
-            return ctx.lapEpochRanges.contains {
-                $0.name == name && t >= $0.startEpoch && t <= $0.endEpoch
-            }
         }
     }
 
