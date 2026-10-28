@@ -1,6 +1,13 @@
+// ProjectDetailView.swift
+// The main project screen: a guided four-step card layout (Set Up, Analyse, Review, Build) that runs the
+// pipeline and opens the selection, preferences and GPX import sheets.
+
 import SwiftUI
 
+/// Shows a project's status and runs its pipeline steps. Owns the `PipelineExecutor` for this project.
+/// Errors are shown with `ErrorMessageView`: a plain message, with any FFmpeg output behind a Details disclosure.
 struct ProjectDetailView: View {
+    /// The project shown.
     let project: Project
     @Environment(ProjectStore.self) private var store
     @State private var executor = PipelineExecutor()
@@ -23,6 +30,7 @@ struct ProjectDetailView: View {
     private var analyseSteps: Set<StepName> { [.flatten, .extract, .enrich, .select] }
     private var buildSteps: Set<StepName>   { [.build, .splash, .concat] }
 
+    /// The four step cards, the running indicator and the "reel ready" banner.
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
@@ -36,9 +44,7 @@ struct ProjectDetailView: View {
                 }
 
                 if let error = executor.lastError {
-                    Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                        .font(.caption)
+                    ErrorMessageView(error: error)
                         .padding(.horizontal)
                 }
             }
@@ -54,6 +60,8 @@ struct ProjectDetailView: View {
         }
         .sheet(isPresented: $showGPXPicker) {
             GPXPickerView(project: project) {
+                // A new GPX makes every analysis output stale; clear them so Run Analysis starts from it.
+                invalidateAnalysis()
                 executor.run(.flatten, project: project)
             }
         }
@@ -125,14 +133,17 @@ struct ProjectDetailView: View {
                     Image(systemName: artifacts.gpxExists ? "location.fill" : "location.slash")
                         .foregroundStyle(artifacts.gpxExists ? .green : .secondary)
                         .frame(width: 20)
-                    Text(artifacts.gpxExists ? "GPX imported" : "No GPX file — import from Strava or Garmin")
+                    Text(artifacts.gpxExists ? "GPX imported" : "No GPX file — import from Strava")
                     Spacer()
+                    // Disabled while a step runs: the follow-up GPS read would be dropped (one run at a time).
                     if artifacts.gpxExists {
                         Button("Re-import") { showGPXPicker = true }
                             .buttonStyle(.bordered).controlSize(.small).tint(.secondary)
+                            .disabled(executor.isRunning)
                     } else {
                         Button("Import GPX…") { showGPXPicker = true }
                             .buttonStyle(.borderedProminent).controlSize(.small)
+                            .disabled(executor.isRunning)
                     }
                 }
             }
@@ -151,20 +162,21 @@ struct ProjectDetailView: View {
 
                 if executor.isRunning, let step = executor.runningStep, analyseSteps.contains(step) {
                     runningIndicator
+                } else if executor.isRunning {
+                    Label("Busy: \(stepLabel(for: executor.runningStep)) Analysis is available when it finishes.",
+                          systemImage: "hourglass")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else if analysisComplete {
                     HStack {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                         Text("Analysis complete")
                         Spacer()
                         Button("Re-run") {
-                            // Delete Enrich + Select artifacts so the dependency chain
-                            // re-runs both — otherwise it would skip Enrich (already complete)
-                            // and only re-run Select, missing any YOLO setting changes.
-                            try? FileManager.default.removeItem(at: project.enrichedJSONL)
-                            try? FileManager.default.removeItem(at: project.selectJSONL)
+                            // Clear every analysis output so the chain re-reads the GPX and re-scores;
+                            // otherwise completed steps would be skipped and setting changes missed.
+                            invalidateAnalysis()
                             pendingReviewPrompt = true
-                            reviewedFlag = false
-                            UserDefaults.standard.set(false, forKey: reviewedKey)
                             executor.run(.select, project: project)
                         }
                         .buttonStyle(.bordered).controlSize(.small).tint(.secondary)
@@ -367,6 +379,17 @@ struct ProjectDetailView: View {
         return Set(rows.filter { $0.recommended }.map { $0.base.momentId })
     }
 
+    /// Deletes the four analysis outputs (`flatten`, `extract`, `enriched`, `select`) so the next analysis
+    /// runs every step again from the GPX, and clears the "reviewed" mark. Frames are kept and overwritten.
+    private func invalidateAnalysis() {
+        let fm = FileManager.default
+        for url in [project.flattenJSONL, project.extractJSONL, project.enrichedJSONL, project.selectJSONL] {
+            try? fm.removeItem(at: url)
+        }
+        reviewedFlag = false
+        UserDefaults.standard.set(false, forKey: reviewedKey)
+    }
+
     private func invalidateBuiltArtifacts() {
         let fm = FileManager.default
         try? fm.removeItem(at: project.finalReelURL)
@@ -394,7 +417,6 @@ private struct GPXPickerView: View {
     var onGPXSaved: () -> Void
 
     @State private var showStrava = false
-    @State private var showGarmin = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -403,9 +425,6 @@ private struct GPXPickerView: View {
                 Section {
                     Button { showStrava = true } label: {
                         Label("Import from Strava", systemImage: "bicycle")
-                    }
-                    Button { showGarmin = true } label: {
-                        Label("Import from Garmin Connect", systemImage: "arrow.down.circle")
                     }
                 } header: {
                     Text("Choose the source for **\(project.name)**")
@@ -427,9 +446,6 @@ private struct GPXPickerView: View {
             }
             .sheet(isPresented: $showStrava) {
                 StravaImportView(onComplete: { onGPXSaved(); dismiss() }, targetProject: project)
-            }
-            .sheet(isPresented: $showGarmin) {
-                GarminImportView(onComplete: { onGPXSaved(); dismiss() }, targetProject: project)
             }
         }
         #if os(macOS)

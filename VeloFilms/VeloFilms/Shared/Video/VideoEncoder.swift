@@ -1,16 +1,26 @@
+// VideoEncoder.swift
+// AVFoundation helpers: turn a still image into a video, and export compositions to MP4.
+
 import Foundation
 import AVFoundation
 import CoreGraphics
 import CoreImage
 
 /// Shared AVFoundation-based encoding and export utilities.
-/// Replaces FFmpegBridge for all render operations.
+/// Used on both platforms for the intro and outro, and on iPadOS for clips too. macOS still renders clips and
+/// joins the reel with FFmpeg (ClipCompositor, ConcatStep).
 enum VideoEncoder {
 
     // MARK: - Still image → video
 
-    /// Encodes a single CGImage as a looped H.264 video.
+    /// Encodes a single image as an H.264 video of the given length (the same frame repeated).
     /// The image is scaled and letterboxed to 1920×1080 if needed.
+    /// - Parameters:
+    ///   - image: The still.
+    ///   - duration: Length in seconds.
+    ///   - fps: Frame rate.
+    ///   - outputURL: Destination `.mp4` (replaced).
+    /// - Throws: `PipelineError.renderFailed` or AVAssetWriter errors.
     static func encodeStill(
         image: CGImage,
         duration: Double,
@@ -74,7 +84,13 @@ enum VideoEncoder {
 
     // MARK: - Composition export
 
-    /// Export an AVMutableComposition to an .mp4 file using AVAssetExportSession.
+    /// Exports a composition to an `.mp4` file at 1920×1080 using AVAssetExportSession.
+    /// - Parameters:
+    ///   - composition: The tracks to export.
+    ///   - videoComposition: Optional compositing instructions.
+    ///   - audioMix: Optional volume settings.
+    ///   - outputURL: Destination file (replaced).
+    /// - Throws: `PipelineError.renderFailed` if the session can't be created, or the export error.
     static func export(
         composition: AVComposition,
         videoComposition: AVVideoComposition? = nil,
@@ -99,6 +115,13 @@ enum VideoEncoder {
 
     // MARK: - Scale / pad helper (letterbox to exact W×H)
 
+    /// Scales `image` to fit W×H without cropping and centres it on black.
+    /// - Returns: A W×H image.
+    /// - Throws: `PipelineError.renderFailed` if drawing fails.
+    /// - Parameters:
+    ///   - image: The source image.
+    ///   - W: Output width in pixels.
+    ///   - H: Output height in pixels.
     static func scaleAndPad(image: CGImage, toWidth W: Int, height H: Int) throws -> CGImage {
         let srcW = CGFloat(image.width)
         let srcH = CGFloat(image.height)
@@ -127,6 +150,13 @@ enum VideoEncoder {
 
     // MARK: - Pixel buffer
 
+    /// Copies an image into a new 32-bit BGRA pixel buffer for AVAssetWriter.
+    /// - Returns: The pixel buffer.
+    /// - Throws: `PipelineError.renderFailed` if the buffer or context can't be created.
+    /// - Parameters:
+    ///   - image: The source image, drawn to fill the buffer.
+    ///   - width: Buffer width in pixels.
+    ///   - height: Buffer height in pixels.
     static func makePixelBuffer(from image: CGImage, width: Int, height: Int) throws -> CVPixelBuffer {
         var pb: CVPixelBuffer?
         let status = CVPixelBufferCreate(

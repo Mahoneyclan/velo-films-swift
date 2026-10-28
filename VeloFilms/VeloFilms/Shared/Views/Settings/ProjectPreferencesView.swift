@@ -1,13 +1,18 @@
+// ProjectPreferencesView.swift
+// Per-project settings sheet, saved to the project's preferences.json.
+
 import SwiftUI
 
 /// Per-project settings sheet — music track, highlight target override, notes.
 struct ProjectPreferencesView: View {
+    /// The project whose preferences are edited.
     let project: Project
     @Environment(\.dismiss) private var dismiss
 
     @State private var prefs = ProjectPreferences()
     @State private var availableTracks: [String] = []
 
+    /// Music track, highlight length override and notes.
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -17,7 +22,7 @@ struct ProjectPreferencesView: View {
                     GroupBox("Music") {
                         VStack(alignment: .leading, spacing: 12) {
                             if availableTracks.isEmpty {
-                                Text("No music tracks found in bundle or Shared/Resources/music")
+                                Text("No music yet. Choose a music folder or add songs in Settings → Audio.")
                                     .foregroundStyle(.secondary)
                                     .font(.caption)
                             } else {
@@ -28,7 +33,7 @@ struct ProjectPreferencesView: View {
                                     }
                                 }
                                 .pickerStyle(.menu)
-                                Text("Random picks a different track each build.")
+                                Text("Random picks a different track each build. Ignored when Settings → Audio → Single Track Override is set.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -110,25 +115,6 @@ struct ProjectPreferencesView: View {
     }
 
     private func discoverTracks() -> [String] {
-        let extensions = ["mp3", "m4a", "aac", "wav"]
-        var names: [String] = []
-
-        // Bundled tracks in the music/ subfolder (folder reference)
-        for ext in extensions {
-            names += (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "music") ?? [])
-                .map { $0.lastPathComponent }
-        }
-
-        // Fallback: Xcode may flatten subdirectory into bundle root
-        if names.isEmpty {
-            let splash = Set(["intro", "outro"])
-            for ext in extensions {
-                names += (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [])
-                    .filter { !splash.contains($0.deletingPathExtension().lastPathComponent) }
-                    .map { $0.lastPathComponent }
-            }
-        }
-
-        return Array(Set(names)).sorted()
+        MusicLibrary.allTracks().map(\.lastPathComponent)
     }
 }

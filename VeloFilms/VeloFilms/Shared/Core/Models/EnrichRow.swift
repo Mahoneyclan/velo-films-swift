@@ -1,50 +1,89 @@
+// EnrichRow.swift
+// Row model for enriched.jsonl, written by EnrichStep and read by SelectStep and the manual selection screen.
+
 import Foundation
 
-/// One row in enriched.jsonl — extract row + YOLO detections + GPS + scores.
-/// Mirrors enrich.py output schema exactly.
+/// One row in `enriched.jsonl`: an `ExtractRow` plus YOLO detections, scene change, GPS telemetry and scores.
+/// JSON keys match `enrich.py` in the original Python app; they are permanent.
 struct EnrichRow: Codable {
-    // From ExtractRow
+    // From ExtractRow (same meaning as there)
+    /// Unique row ID (see `ExtractRow.index`).
     var index: String
+    /// Camera raw value.
     var camera: String
+    /// 1-based clip number.
     var clipNum: Int
+    /// Frame index in the clip.
     var frameNumber: Int
+    /// Absolute path to the source clip.
     var videoPath: String
+    /// Grid time in Unix seconds, shared by both cameras.
     var absTimeEpoch: Double
+    /// Grid time as ISO 8601.
     var absTimeIso: String
+    /// Seconds since the first GPX point.
     var sessionTsS: Double
+    /// Corrected clip start, Unix seconds.
     var clipStartEpoch: Double
+    /// Clip start as ISO 8601.
     var adjustedStartTime: String
+    /// Clip duration in seconds.
     var durationS: Double
+    /// Always `"video"`.
     var source: String
+    /// Clip frame rate.
     var fps: Double
 
     // YOLO detections
+    /// Highest (confidence × class weight) among the frame's detections, 0–1. A person counts with the
+    /// pedestrian weight unless a bicycle is also in the frame.
     var detectScore: Double
+    /// Number of objects detected above the confidence thresholds.
     var numDetections: Int
+    /// Combined area of the cycling-related boxes (person, bicycle) as a fraction of the frame, 0–1.
     var bboxArea: Double
-    var detectedClasses: String  // comma-separated class names
+    /// Comma-separated class names of the detections, e.g. `"person,bicycle"`.
+    var detectedClasses: String
+    /// `true` when at least one object was detected.
     var objectDetected: Bool
 
     // Scene detection
+    /// Scene-change score, 0–1: how different this frame is from an earlier frame of the same camera
+    /// (see `SceneDetector`). 0 for the first frames of each camera.
     var sceneBoost: Double
 
     // GPS (may be absent if no GPX match within tolerance)
+    /// Time of the matched GPX point.
     var gpxEpoch: Double?
+    /// Matched GPX time as ISO 8601.
     var gpxTimeUtc: String?
+    /// Latitude in degrees.
     var lat: Double?
+    /// Longitude in degrees.
     var lon: Double?
+    /// Elevation in metres.
     var elevation: Double?
+    /// Heart rate in bpm.
     var hrBpm: Double?
+    /// Cadence in rpm.
     var cadenceRpm: Double?
+    /// Speed in km/h.
     var speedKmh: Double?
+    /// Gradient in percent; negative is downhill.
     var gradientPct: Double?
 
     // Scores
+    /// Weighted sum of the component scores (`ScoreCalculator.composite`).
     var scoreComposite: Double
+    /// Composite × camera weight (`ScoreCalculator.weighted`).
     var scoreWeighted: Double
+    /// Strava segment score for this time (`AppConfig.StravaBoost`), 0 if none.
     var segmentBoost: Double
-    var momentId: Int            // int(round(absTimeEpoch)) — groups dual-camera pairs
+    /// `absTimeEpoch` rounded to whole seconds. Rows from both cameras at the same grid point share it, which
+    /// is how front and rear footage are paired.
+    var momentId: Int
 
+    /// JSON key names (snake_case). Permanent: existing files use them.
     enum CodingKeys: String, CodingKey {
         case index, camera
         case clipNum          = "clip_num"

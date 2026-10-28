@@ -1,17 +1,34 @@
+// SelectStep.swift
+// Pipeline step 4: chooses the highlight clips and writes select.jsonl, keeping the user's manual choices.
+
 import Foundation
 
-/// Runs clip selection and writes select.jsonl.
-/// Mirrors select.py: groups by moment_id → score → gap filter → zone enforcement.
+/// Runs clip selection and writes `select.jsonl` (one row per enriched row, with a `recommended` flag).
+/// Steps: group by moment → select (`ClipSelector`) → apply manual overrides → add Strava segment details.
+/// Same approach as `select.py` in the original Python app.
 struct SelectStep: PipelineStep {
+    /// Step name used in logs.
     let name = "select"
+    /// Output writer (injectable for testing).
     let jsonlWriter: JSONLWriter
+    /// Input reader (injectable for testing).
     let jsonlReader: JSONLReader
 
+    /// Creates the step with standard reader and writer by default.
+    /// - Parameters:
+    ///   - jsonlWriter: Writes `select.jsonl`.
+    ///   - jsonlReader: Reads `enriched.jsonl` and the earlier `select.jsonl`.
     init(jsonlWriter: JSONLWriter = JSONLWriter(), jsonlReader: JSONLReader = JSONLReader()) {
         self.jsonlWriter = jsonlWriter
         self.jsonlReader = jsonlReader
     }
 
+    /// Selects clips and writes `select.jsonl`. Manual choices from an earlier `select.jsonl` are kept.
+    /// - Throws: `PipelineError.missingInput` if `enriched.jsonl` is empty; file errors.
+    /// - Note: Only the higher-scoring camera's row of a selected moment is marked `recommended`.
+    /// - Parameters:
+    ///   - project: The ride project to process.
+    ///   - reporter: Receives progress updates for the pipeline screen.
     func run(project: Project, reporter: ProgressReporter) async throws {
         await reporter.report(current: 0, total: 3, message: "Loading enriched.jsonl...")
 
@@ -24,18 +41,7 @@ struct SelectStep: PipelineStep {
 
         let moments = PartnerMatcher.group(enrichedRows)
 
-        // Compute zone boundaries from moving time so long stops don't skew the opening/closing zones.
-        let flattenRows: [FlattenRow] = (try? jsonlReader.read(from: project.flattenJSONL)) ?? []
-        let (startZoneEnd, endZoneStart) = Self.movingTimeZoneBoundaries(
-            flatten: flattenRows,
-            startPct: AppConfig.startZonePct,
-            endPct: AppConfig.endZonePct
-        )
-        var config = ClipSelector.Config()
-        config.startZoneEndEpoch = startZoneEnd
-        config.endZoneStartEpoch = endZoneStart
-
-        let selected = ClipSelector.select(moments: moments, config: config)
+        let selected = ClipSelector.select(moments: moments)
         let selectedIds = Set(selected.map { $0.momentId })
         let momentById  = Dictionary(moments.map { ($0.momentId, $0) }, uniquingKeysWith: { a, _ in a })
 
@@ -90,9 +96,15 @@ struct SelectStep: PipelineStep {
     // MARK: - Moving-time zone boundaries
 
     /// Returns the wall-clock epoch values where [startPct] and (1−[endPct]) of total moving
-    /// time have elapsed. Rows with [speedKmh] < 3 km/h are treated as stopped and excluded
+    /// time have elapsed. Used by the Fine Tune screen's Opening/Closing filters; selection itself has no zones. Rows with [speedKmh] < 3 km/h are treated as stopped and excluded
     /// from the moving-time accumulation, so long stops don't push zone boundaries into the
     /// dead middle of the ride.
+    /// - Parameters:
+    ///   - flatten: The 1 Hz track.
+    ///   - startPct: Fraction of moving time in the opening zone.
+    ///   - endPct: Fraction of moving time in the closing zone.
+    /// - Returns: Zone boundary times, or (0, 0) if the track is empty or never moving (callers then fall back
+    ///   to a simple percentage of the ride).
     static func movingTimeZoneBoundaries(
         flatten: [FlattenRow],
         startPct: Double,

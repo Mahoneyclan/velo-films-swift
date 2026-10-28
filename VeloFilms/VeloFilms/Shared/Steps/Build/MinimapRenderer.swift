@@ -1,3 +1,6 @@
+// MinimapRenderer.swift
+// Draws the square route map overlay for each clip, using Apple Maps tiles when available.
+
 import Foundation
 import CoreGraphics
 import MapKit
@@ -11,16 +14,22 @@ import UIKit
 /// Renders a 390×390 minimap PNG per clip.
 /// One MKMapSnapshotter call captures real map tiles once per ride; each per-clip
 /// render draws the route polyline and position dot on top synchronously.
+///
+/// Privacy: the snapshot request sends the ride's area (not the track) to Apple Maps.
 struct MinimapRenderer {
 
+    /// The map tiles for the whole ride, fetched once.
     struct BaseSnapshot {
+        /// The Apple Maps snapshot.
         let snapshot: MKMapSnapshotter.Snapshot
     }
 
     // MARK: - One-time async setup
 
-    /// Call once before the clip loop. Returns nil if gpxPoints too sparse.
-    /// Never throws — network failure silently falls back to offline renderer.
+    /// Fetches the map tiles once before the clip loop.
+    /// - Parameter gpxPoints: The whole ride.
+    /// - Returns: The snapshot, or `nil` if there are fewer than two points or the fetch fails (e.g. offline);
+    ///   `render` then uses the offline fallback.
     static func makeBaseSnapshot(gpxPoints: [GPXPoint]) async -> BaseSnapshot? {
         guard gpxPoints.count >= 2 else { return nil }
 
@@ -56,7 +65,14 @@ struct MinimapRenderer {
     // MARK: - Per-clip render
 
     /// Renders one minimap PNG. Falls back to offline CG renderer if base is nil
-    /// (e.g. no network during snapshot fetch).
+    /// (e.g. no network during snapshot fetch); the fallback draws the route but no position marker.
+    /// - Parameters:
+    ///   - base: From `makeBaseSnapshot`, or `nil`.
+    ///   - gpxPoints: The whole ride.
+    ///   - currentEpoch: The clip's time; the marker goes on the nearest point.
+    ///   - outputURL: Destination PNG (overwritten).
+    /// - Throws: `PipelineError.renderFailed` or file write errors. Writes nothing if there are fewer than two
+    ///   points or PNG encoding fails.
     static func render(base: BaseSnapshot?,
                        gpxPoints: [GPXPoint],
                        currentEpoch: Double,

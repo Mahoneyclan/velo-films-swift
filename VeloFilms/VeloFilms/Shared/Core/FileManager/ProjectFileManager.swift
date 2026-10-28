@@ -1,8 +1,14 @@
+// ProjectFileManager.swift
+// Folder layout and file discovery for a ride project.
+
 import Foundation
 
-/// Creates and validates the project directory structure on disk.
-/// Mirrors io_paths.py. All paths are derived from Project.folderURL.
+/// Creates the project folder structure and finds input files on disk.
+/// All paths are derived from `Project.folderURL`. Ported from `io_paths.py` in the original Python app.
 enum ProjectFileManager {
+    /// Creates the project folder and its working subfolders if they don't exist.
+    /// - Parameter project: The project whose folders to create.
+    /// - Throws: File system errors, e.g. when the drive is not mounted or read-only.
     static func createDirectoryStructure(for project: Project) throws {
         let dirs: [URL] = [
             project.folderURL,
@@ -18,7 +24,10 @@ enum ProjectFileManager {
         }
     }
 
-    /// Discover project folders in a projects root directory.
+    /// Lists every subfolder of `root` as a project, newest name first. Not currently used.
+    /// - Parameter root: The projects root folder.
+    /// - Returns: One `Project` per subfolder.
+    /// - Throws: File system errors reading `root`.
     static func discoverProjects(in root: URL) throws -> [Project] {
         let contents = try FileManager.default.contentsOfDirectory(
             at: root,
@@ -35,8 +44,11 @@ enum ProjectFileManager {
             .sorted { $0.name > $1.name }
     }
 
-    /// Find all source video files for a project's source folder.
-    /// Source folder is {inputBaseDir}/{rideFolderName} or supplied directly.
+    /// Lists the `.MP4` clips directly inside `sourceDir` (not subfolders), sorted by file name, which is
+    /// recording order for Cycliq cameras.
+    /// - Parameter sourceDir: `{inputBaseDir}/{rideFolderName}` or a folder the user picked.
+    /// - Returns: Clip URLs in name order.
+    /// - Throws: File system errors reading the folder.
     static func findVideoFiles(in sourceDir: URL) throws -> [URL] {
         let contents = try FileManager.default.contentsOfDirectory(
             at: sourceDir,
@@ -48,7 +60,10 @@ enum ProjectFileManager {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// Find a GPX file in the given directory (returns first match).
+    /// Returns the first `.gpx` file found directly inside `dir`, or `nil` if there is none or the folder
+    /// can't be read. If several exist, which one is "first" is not defined.
+    /// - Parameter dir: Folder to search (not recursive).
+    /// - Returns: A `.gpx` file, or `nil`.
     static func findGPXFile(in dir: URL) -> URL? {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: dir,

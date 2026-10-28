@@ -1,6 +1,13 @@
-import SwiftUI
+// StravaImportView.swift
+// Strava sign-in and ride picker; downloads the chosen ride's GPX, segments, laps and description.
 
+import SwiftUI
+import AuthenticationServices
+
+/// Lists recent Strava cycling activities and imports the chosen one, either into `targetProject` or into a
+/// new project.
 struct StravaImportView: View {
+    /// Called after a successful import.
     var onComplete: (() -> Void)? = nil
     /// When set, GPX is saved to this project instead of creating a new one.
     var targetProject: Project? = nil
@@ -12,6 +19,7 @@ struct StravaImportView: View {
     @State private var isImporting = false
     @State private var error: String?
 
+    /// Sign-in prompt, activity list, or loading/error state.
     var body: some View {
         NavigationStack {
             Group {
@@ -102,6 +110,8 @@ struct StravaImportView: View {
         do {
             _ = try await StravaAuth.shared.authenticate()
             await loadActivities()
+        } catch let authError as ASWebAuthenticationSessionError where authError.code == .canceledLogin {
+            // The user closed the sign-in sheet; nothing went wrong.
         } catch {
             self.error = error.localizedDescription
         }

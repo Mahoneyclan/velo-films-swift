@@ -1,14 +1,21 @@
+// FrameSampler.swift
+// Clip metadata (frame rate, corrected recording time) and still-frame extraction for the pipeline.
+
 import Foundation
 import AVFoundation
 import ImageIO
 
 /// Extracts frames from video files and reads clip metadata.
-/// Mirrors video_utils.py: fix_cycliq_utc_bug, infer_recording_start, frame extraction.
+/// Ported from `video_utils.py` in the original Python app (`fix_cycliq_utc_bug`, `infer_recording_start`,
+/// frame extraction).
 enum FrameSampler {
 
     // MARK: - Metadata
 
-    /// Returns the FPS of an asset's first video track.
+    /// Returns the frame rate of the asset's first video track.
+    /// - Parameter asset: The clip.
+    /// - Returns: Frames per second, or 59.94 (Cycliq's usual rate) if the clip has no video track.
+    /// - Throws: AVFoundation loading errors.
     static func fps(for asset: AVAsset) async throws -> Double {
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard let track = tracks.first else { return 59.94 }
@@ -23,13 +30,20 @@ enum FrameSampler {
     ///
     /// isLocalWrongZ=true  → camera stores local time mislabelled as UTC (Cycliq bug): subtract tz offset.
     /// isLocalWrongZ=false → camera stores genuine UTC (GPS-synced): use raw value directly.
+    /// - Parameters:
+    ///   - url: The clip file.
+    ///   - camera: Which camera recorded it (selects the time zone).
+    ///   - isLocalWrongZ: The "camera stores local time" setting.
+    /// - Returns: Unix seconds, or `nil` if the creation time can't be found in the file.
     static func creationTime(for url: URL, camera: AppConfig.CameraName, isLocalWrongZ: Bool) -> Double? {
         guard let raw = readMVHDCreationTime(url: url) else { return nil }
         guard isLocalWrongZ else { return raw.timeIntervalSince1970 }
         return applyCycliqUTCFix(rawDate: raw, camera: camera)
     }
 
-    /// Public accessor for the raw (uncorrected) mvhd creation time — used by diagnostics.
+    /// The raw (uncorrected) creation time stored in the clip, used in ExtractStep's error message.
+    /// - Returns: The stored time, or `nil` if it can't be found.
+    /// - Parameter url: The clip file.
     static func rawCreationTime(for url: URL) -> Date? {
         readMVHDCreationTime(url: url)
     }
@@ -76,16 +90,23 @@ enum FrameSampler {
     ///
     /// camera.timezoneIdentifier = "UTC+10" → offset = 36000s
     /// corrected_epoch = raw_epoch - offset
+    /// - Parameters:
+    ///   - rawDate: The time stored in the clip.
+    ///   - camera: Supplies the time zone setting (IANA name or an offset like "UTC+10"; unparseable means UTC).
+    /// - Returns: Corrected Unix seconds.
     static func applyCycliqUTCFix(rawDate: Date, camera: AppConfig.CameraName) -> Double {
         let identifier = camera.timezoneIdentifier
         // TimeZone(identifier:) only accepts IANA names — "UTC+10" returns nil.
         // Parse offset strings like "UTC+10", "UTC+10:30", "GMT-5", "+10" ourselves.
+        // TimeZone(secondsFromGMT: 0) always succeeds, so the final force-unwrap can't fail.
         let tz = TimeZone(identifier: identifier) ?? parseUTCOffset(identifier) ?? TimeZone(secondsFromGMT: 0)!
         let offsetSeconds = Double(tz.secondsFromGMT(for: rawDate))
         return rawDate.timeIntervalSince1970 - offsetSeconds
     }
 
-    /// Parses offset strings: "UTC+10", "UTC-5", "UTC+10:30", "+10", "-5:30", "GMT+11"
+    /// Parses offset strings: "UTC+10", "UTC-5", "UTC+10:30", "+10", "-5:30", "GMT+11".
+    /// - Parameter s: The offset text. Empty (or just "UTC") means UTC.
+    /// - Returns: A fixed-offset time zone, or `nil` if the hours part isn't a number.
     static func parseUTCOffset(_ s: String) -> TimeZone? {
         var clean = s.uppercased()
             .replacingOccurrences(of: "UTC", with: "")
@@ -103,6 +124,10 @@ enum FrameSampler {
 
     // MARK: - Frame extraction
 
+    /// Creates a frame generator for a clip. Frames within ±0.5 s of the requested time are accepted, which is
+    /// much faster than exact-frame decoding and close enough for scoring.
+    /// - Parameter videoURL: The clip.
+    /// - Returns: A generator that applies the clip's rotation.
     static func makeGenerator(for videoURL: URL) -> AVAssetImageGenerator {
         let asset = AVURLAsset(url: videoURL)
         let gen = AVAssetImageGenerator(asset: asset)
@@ -112,8 +137,12 @@ enum FrameSampler {
         return gen
     }
 
-    /// Extract one frame using a pre-built generator, with an 8-second timeout.
+    /// Extracts one frame using a pre-built generator, with an 8-second timeout.
     /// On timeout, cancels the generator so the next call doesn't also hang.
+    /// - Parameters:
+    ///   - generator: From `makeGenerator(for:)`; reuse it for several frames of the same clip.
+    ///   - second: Time in the clip (negative values are treated as 0).
+    /// - Returns: The frame, or `nil` on failure or timeout.
     static func extractFrame(using generator: AVAssetImageGenerator,
                              atSecond second: Double) async -> CGImage? {
         let time = CMTime(seconds: max(0, second), preferredTimescale: 600)
@@ -135,7 +164,11 @@ enum FrameSampler {
         }
     }
 
-    /// Convenience overload — creates its own generator (used from BuildStep / SplashStep).
+    /// Convenience overload that creates (and cancels) its own generator. Not currently used.
+    /// - Returns: The frame, or `nil` on failure or timeout.
+    /// - Parameters:
+    ///   - videoURL: The clip file.
+    ///   - second: Time into the clip, in seconds.
     static func extractFrame(videoURL: URL, atSecond second: Double) async -> CGImage? {
         let gen = makeGenerator(for: videoURL)
         defer { gen.cancelAllCGImageGeneration() }
@@ -144,6 +177,10 @@ enum FrameSampler {
 
     // MARK: - Thumbnail persistence
 
+    /// Saves `image` as a JPEG (quality 0.7). Failures are ignored.
+    /// - Parameters:
+    ///   - image: The frame.
+    ///   - url: Destination file (overwritten).
     static func saveJPEG(_ image: CGImage, to url: URL) {
         guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else { return }
         CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)

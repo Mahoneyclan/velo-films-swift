@@ -1,3 +1,7 @@
+// ManualSelectionView.swift
+// The "Fine Tune" screen: review the automatically chosen clips side by side (front and rear camera), filter by
+// climbs, laps, group riding and more, and include or exclude clips by hand. Saves to select.jsonl.
+
 import SwiftUI
 import AVKit
 
@@ -39,7 +43,10 @@ private struct DetectionStats {
 
 // MARK: - Main view
 
+/// Review screen for clip selection. Manual choices are stored as `SelectRow.manualOverride` and survive
+/// re-running the Select step.
 struct ManualSelectionView: View {
+    /// The project being reviewed.
     let project: Project
     @Environment(\.dismiss) private var dismiss
 
@@ -63,7 +70,9 @@ struct ManualSelectionView: View {
     /// momentIds immediately adjacent to AI-recommended clips — shown to aid comparison.
     @State private var neighborMomentIds: Set<Int> = []
 
+    /// Number of clips currently marked for the reel.
     var selectedCount: Int { selectRows.filter { $0.recommended }.count }
+    /// Target clip count (global setting; per-project overrides are not applied).
     var target: Int { AppConfig.targetClips }
 
     private var stravaPRMomentIds: Set<Int> {
@@ -158,6 +167,7 @@ struct ManualSelectionView: View {
         return result
     }
 
+    /// Focus filters, stats, lap timeline and the moment cards.
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -305,9 +315,9 @@ struct ManualSelectionView: View {
         case .groupRiding:
             return "No clips have \(s.focusGroupMinDetections)+ riders (person or bicycle) detected."
         case .openingZone:
-            return "No clips in the opening zone (\(Int(s.startZonePct * 100))% of moving time)."
+            return "No clips in the opening zone (\(Int(AppConfig.startZonePct * 100))% of moving time)."
         case .closingZone:
-            return "No clips in the closing zone (\(Int(s.endZonePct * 100))% of moving time)."
+            return "No clips in the closing zone (\(Int(AppConfig.endZonePct * 100))% of moving time)."
         case .stravaPR:
             return "No Strava segment PRs were matched to any clip."
         case .lap(let name):
@@ -356,21 +366,19 @@ struct ManualSelectionView: View {
             rideDurationS  = Double(last.momentId - first.momentId)
         }
 
-        // Moving-time zone boundaries — mirrors exactly what SelectStep computed, so Opening/Closing
-        // filter chips match the zones the AI used rather than a wall-clock approximation.
-        let s = GlobalSettings.shared
+        // Moving-time zone boundaries for the Opening/Closing filter chips, so long stops don't skew them.
         if let flattenRows = try? JSONLReader().read(from: project.flattenJSONL) as [FlattenRow],
            !flattenRows.isEmpty {
             let (zStart, zEnd) = SelectStep.movingTimeZoneBoundaries(
                 flatten: flattenRows,
-                startPct: s.startZonePct,
-                endPct: s.endZonePct
+                startPct: AppConfig.startZonePct,
+                endPct: AppConfig.endZonePct
             )
             zoneStartEndEpoch = zStart
             zoneEndStartEpoch = zEnd
         } else {
-            zoneStartEndEpoch = rideStartEpoch + rideDurationS * s.startZonePct
-            zoneEndStartEpoch = rideStartEpoch + rideDurationS * (1.0 - s.endZonePct)
+            zoneStartEndEpoch = rideStartEpoch + rideDurationS * AppConfig.startZonePct
+            zoneEndStartEpoch = rideStartEpoch + rideDurationS * (1.0 - AppConfig.endZonePct)
         }
 
         // Add ±1 temporal neighbors of every AI-recommended clip to the display pool.
@@ -443,14 +451,10 @@ struct ManualSelectionView: View {
     }
 
     /// Re-runs ClipSelector on the in-memory enriched rows and restores recommended/manualOverride
-    /// to the AI's picks. No I/O — uses zone epochs already computed during load().
+    /// to the AI's picks. No I/O.
     private func resetAllToAI() {
         let grouped = PartnerMatcher.group(selectRows.map { $0.base })
-        var config = ClipSelector.Config()
-        config.startZoneEndEpoch = zoneStartEndEpoch
-        config.endZoneStartEpoch = zoneEndStartEpoch
-
-        let selected   = ClipSelector.select(moments: grouped, config: config)
+        let selected   = ClipSelector.select(moments: grouped)
         let selectedIds = Set(selected.map { $0.momentId })
         let momentById  = Dictionary(grouped.map { ($0.momentId, $0) }, uniquingKeysWith: { a, _ in a })
 
@@ -1145,6 +1149,8 @@ private struct ScoreBar: View {
         let color: Color
     }
 
+    // Mirrors ScoreCalculator.composite, except gradient is not zeroed when stopped, so the bar can differ
+    // slightly from the real score for stationary moments.
     private var segments: [Segment] {
         let detect  = min(row.detectScore, 1.0)          * AppConfig.ScoreWeights.detectScore
         let speed   = min((row.speedKmh ?? 0) / AppConfig.speedNormDivisor, 1.0)

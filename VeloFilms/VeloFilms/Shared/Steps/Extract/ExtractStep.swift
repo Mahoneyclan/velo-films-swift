@@ -1,19 +1,41 @@
+// ExtractStep.swift
+// Pipeline step 2: builds the sampling grid and matches each grid point to the camera clip that covers it.
+
 import Foundation
 import AVFoundation
 
-/// Generates extract.jsonl: one row per (camera, grid-point) pair.
-/// Mirrors extract.py: GPX-anchored global 5s grid → per-clip frame rows.
+/// Generates `extract.jsonl`: one row per (camera, grid point) pair.
+///
+/// The grid is anchored to the GPX timeline (extended by `AppConfig.gpxGridExtensionM` either side) and spaced by
+/// the sampling interval (default 5 s, user-adjustable). Each clip's real start is its file creation time
+/// (corrected for the camera clock) minus its duration minus the manual offset. No pixels are read here.
+/// Same approach as `extract.py` in the original Python app.
 struct ExtractStep: PipelineStep {
+    /// Step name used in logs.
     let name = "extract"
+    /// Output writer (injectable for testing).
     let jsonlWriter: JSONLWriter
+    /// Input reader (injectable for testing).
     let jsonlReader: JSONLReader
     private static let isoFmt = ISO8601DateFormatter()
 
+    /// Creates the step with standard reader and writer by default.
+    /// - Parameters:
+    ///   - jsonlWriter: Writes `extract.jsonl`.
+    ///   - jsonlReader: Reads `flatten.jsonl`.
     init(jsonlWriter: JSONLWriter = JSONLWriter(), jsonlReader: JSONLReader = JSONLReader()) {
         self.jsonlWriter = jsonlWriter
         self.jsonlReader = jsonlReader
     }
 
+    /// Reads `flatten.jsonl`, scans the source clips and writes `extract.jsonl`.
+    /// - Throws: `PipelineError.missingInput` if flatten output, source folder or clips are missing, or if no clip
+    ///   overlaps the GPX time window (the message explains the likely clock setting to change); file errors.
+    /// - Note: Clips whose camera can't be identified from the file name, or whose duration or creation time can't be
+    ///   read, are skipped.
+    /// - Parameters:
+    ///   - project: The ride project to process.
+    ///   - reporter: Receives progress updates for the pipeline screen.
     func run(project: Project, reporter: ProgressReporter) async throws {
         await reporter.report(current: 0, total: 4, message: "Loading flatten.jsonl...")
 
@@ -125,7 +147,7 @@ struct ExtractStep: PipelineStep {
                         let correctedStr = gpxFmt.string(from: Date(timeIntervalSince1970: corrected))
                         diagLines.append("First clip corrected time: \(correctedStr) UTC (subtracted \(cam.timezoneIdentifier) offset)")
                         diagLines.append("→ If the raw time above is within the GPX window, the camera stores genuine UTC.")
-                        diagLines.append("  Disable 'Camera stores local time (Cycliq UTC bug)' in Settings → Camera Calibration.")
+                        diagLines.append("  Disable 'Camera stores local time (Cycliq UTC bug)' in Settings → Time Sync.")
                     } else {
                         diagLines.append("→ Raw time is used as-is (GPS-synced UTC mode). If this is wrong,")
                         diagLines.append("  enable 'Camera stores local time (Cycliq UTC bug)' and set the correct timezone.")
@@ -135,7 +157,7 @@ struct ExtractStep: PipelineStep {
                 }
             }
 
-            diagLines.append("Fix: Settings → Camera Calibration → toggle 'Camera stores local time (Cycliq UTC bug)'.")
+            diagLines.append("Fix: Settings → Time Sync → toggle 'Camera stores local time (Cycliq UTC bug)'.")
             throw PipelineError.missingInput(diagLines.joined(separator: "\n"))
         }
 

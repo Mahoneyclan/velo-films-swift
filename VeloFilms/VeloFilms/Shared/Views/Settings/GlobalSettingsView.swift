@@ -1,6 +1,10 @@
+// GlobalSettingsView.swift
+// App settings, in six tabs: Setup, Time Sync, Pipeline, AI Scoring, Filters, Audio.
+
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The Settings window (macOS) or sheet (iPadOS). Most controls call `GlobalSettings.save()` when changed.
 struct GlobalSettingsView: View {
     private var settings = GlobalSettings.shared
     @State private var showMusicPicker = false
@@ -12,6 +16,7 @@ struct GlobalSettingsView: View {
     @State private var folderTarget: FolderTarget? = nil
 #endif
 
+    /// The tab view and folder/music pickers.
     var body: some View {
         @Bindable var settings = settings
         TabView {
@@ -332,20 +337,6 @@ private struct PipelineTab: View {
                     .padding(8)
                 }
 
-                GroupBox("Zones") {
-                    VStack(spacing: 12) {
-                        FocusSliderRow(label: "Opening zone", icon: "play.circle",
-                                       value: $settings.startZonePct, range: 0.05...0.40,
-                                       unit: "%", multiplier: 100)
-                            .onChange(of: settings.startZonePct) { settings.save() }
-                        FocusSliderRow(label: "Closing zone", icon: "stop.circle",
-                                       value: $settings.endZonePct, range: 0.05...0.40,
-                                       unit: "%", multiplier: 100)
-                            .onChange(of: settings.endZonePct) { settings.save() }
-                    }
-                    .padding(8)
-                }
-
                 GroupBox("Output") {
                     Toggle("Dynamic gauges (ProRes)", isOn: $settings.dynamicGauges)
                         .onChange(of: settings.dynamicGauges) { settings.save() }
@@ -430,29 +421,6 @@ private struct ScoringTab: View {
                     .padding(8)
                 }
 
-                // Candidate pool
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Label("Candidate Pool", systemImage: "list.number").font(.caption.bold())
-                            Spacer()
-                            RunTag(step: "Select")
-                        }
-                        HStack {
-                            Text("Pool size").font(.caption)
-                            Spacer()
-                            Text(String(format: "%.1f×", settings.candidateFraction))
-                                .font(.caption.bold().monospacedDigit()).foregroundStyle(Color.accentColor)
-                        }
-                        Slider(value: $settings.candidateFraction, in: 1.0...5.0, step: 0.5)
-                            .onChange(of: settings.candidateFraction) { settings.save() }
-                        let shown = Int((Double(AppConfig.targetClips) * settings.candidateFraction).rounded(.up))
-                        Text("Shows ~\(shown) clips in manual selection for \(AppConfig.targetClips)-clip target")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    .padding(8)
-                }
-
                 // Score weights — collapsed by default (advanced)
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
@@ -484,19 +452,11 @@ private struct ScoringTab: View {
                                     .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
                                 WeightSliderRow(label: "Strava segment",  icon: "location",          color: .teal,
                                                 value: $settings.scoreWeightSegment)   { settings.save() }
-                                    .help("Bonus during a Strava segment effort — higher for PRs. Default: 5%")
+                                    .help("Bonus for your Strava PRs (full) and 2nd/3rd best efforts (70%). Ordinary segment efforts score nothing. Default: 15%")
                                 WeightSliderRow(label: "Dual camera",     icon: "camera.on.rectangle", color: .pink,
                                                 value: $settings.scoreWeightDualCamera) { settings.save() }
                                     .help("Bonus when both cameras captured this moment. Default: 10%")
-                                Button("Reset to defaults") {
-                                    settings.scoreWeightDetect    = 0.35
-                                    settings.scoreWeightScene     = 0.10
-                                    settings.scoreWeightSpeed     = 0.20
-                                    settings.scoreWeightGradient  = 0.20
-                                    settings.scoreWeightSegment   = 0.05
-                                    settings.scoreWeightDualCamera = 0.10
-                                    settings.save()
-                                }
+                                Button("Reset to defaults") { settings.resetScoreWeights() }
                                 .font(.caption).buttonStyle(.bordered).controlSize(.small)
                             }
                             .padding(.top, 8)
@@ -583,9 +543,18 @@ private struct AudioTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                GroupBox("Music Track") {
-                    DirRow(label: "Music file", url: settings.musicURL, onChoose: chooseMusic)
-                        .padding(8)
+                MusicFolderSection()
+
+                MyMusicSection()
+
+                GroupBox("Single Track Override") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        DirRow(label: "Music file", url: settings.musicURL, onChoose: chooseMusic)
+                        Text("When set, this one file plays for every reel instead of the library.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(8)
                 }
 
                 GroupBox("Volumes") {
@@ -602,6 +571,110 @@ private struct AudioTab: View {
             .padding(20)
         }
     }
+}
+
+/// Lists the user's own backing-music tracks (`MusicLibrary` My Music) with Add, Remove and, on macOS,
+/// Show in Finder. Built-in tracks are royalty-free; commercial music belongs here, never in the app.
+private struct MyMusicSection: View {
+    @State private var tracks: [URL] = []
+    @State private var trackToRemove: URL?
+    @State private var errorMessage: String?
+#if os(iOS)
+    @State private var showImporter = false
+#endif
+
+    var body: some View {
+        GroupBox("Added Songs") {
+            VStack(alignment: .leading, spacing: 10) {
+                if tracks.isEmpty {
+                    Text("Or add single songs here; the app keeps its own copy.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(tracks, id: \.self) { url in
+                        HStack {
+                            Text(url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Button("Remove", role: .destructive) { trackToRemove = url }
+                                .accessibilityLabel("Remove \(url.lastPathComponent)")
+                        }
+                    }
+                }
+                HStack {
+                    Button("Add Music…", action: addMusic)
+#if os(macOS)
+                    Button("Show in Finder", action: showInFinder)
+#endif
+                }
+                Text("Use only music you have the rights to use in your videos.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+        }
+        .onAppear(perform: reload)
+        .confirmationDialog("Remove \(trackToRemove?.lastPathComponent ?? "track")?",
+                            isPresented: Binding(get: { trackToRemove != nil },
+                                                 set: { if !$0 { trackToRemove = nil } }),
+                            titleVisibility: .visible) {
+            Button("Remove", role: .destructive) {
+                if let url = trackToRemove { perform { try MusicLibrary.removeTrack(url) } }
+                trackToRemove = nil
+            }
+        } message: {
+#if os(macOS)
+            Text("The file is moved to the Trash.")
+#else
+            Text("The app's copy is deleted. The original file isn't affected.")
+#endif
+        }
+        .alert("Music", isPresented: Binding(get: { errorMessage != nil },
+                                             set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+#if os(iOS)
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: MusicLibrary.audioExtensions.compactMap { UTType(filenameExtension: $0) },
+                      allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls): perform { for url in urls { try MusicLibrary.addTrack(from: url) } }
+            case .failure(let error): errorMessage = error.localizedDescription
+            }
+        }
+#endif
+    }
+
+    private func reload() { tracks = MusicLibrary.userTracks() }
+
+    /// Runs a library change, shows any error in plain words, then refreshes the list.
+    private func perform(_ change: () throws -> Void) {
+        do { try change() } catch { errorMessage = error.localizedDescription }
+        reload()
+    }
+
+    private func addMusic() {
+#if os(macOS)
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = MusicLibrary.audioExtensions.compactMap { UTType(filenameExtension: $0) }
+        if panel.runModal() == .OK {
+            perform { for url in panel.urls { try MusicLibrary.addTrack(from: url) } }
+        }
+#else
+        showImporter = true
+#endif
+    }
+
+#if os(macOS)
+    private func showInFinder() {
+        perform {
+            if let folder = try MusicLibrary.ensureUserFolder() { NSWorkspace.shared.open(folder) }
+        }
+    }
+#endif
 }
 
 // MARK: - Shared sub-views

@@ -1,5 +1,9 @@
+// ContentView.swift
+// Root screen: project list in the sidebar, the selected project on the right, and first-run setup.
+
 import SwiftUI
 
+/// The app's root split view. Shows onboarding when the projects or input folder isn't set.
 struct ContentView: View {
     @Environment(ProjectStore.self) private var projectStore
     @State private var showOnboarding = false
@@ -9,6 +13,7 @@ struct ContentView: View {
         settings.projectsRoot == nil || settings.inputBaseDir == nil
     }
 
+    /// Sidebar list plus the selected project's detail, or an empty-state prompt.
     var body: some View {
         NavigationSplitView {
             ProjectListView()

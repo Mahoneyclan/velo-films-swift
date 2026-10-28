@@ -1,3 +1,6 @@
+// ElevationRenderer.swift
+// Draws the elevation profile strip shown under the map, with the rider's position marked.
+
 import Foundation
 import CoreGraphics
 #if os(macOS)
@@ -6,22 +9,29 @@ import AppKit
 import UIKit
 #endif
 
-/// Renders the 948×75px elevation strip for a single clip.
-/// Mirrors elevation_prerenderer.py + matplotlib output:
+/// Renders the elevation strip (`AppConfig.HUD.elevW` × `elevH`, 390×75 px) for a single clip.
+/// Based on `elevation_prerenderer.py` in the original Python app:
 ///   - Distance-based x-axis (cumulative haversine km from flatten.jsonl start)
 ///   - Filled green area under line
 ///   - Yellow position marker dot
 ///   - Semi-transparent dark background
-///   - Labels: max elev (top-left), min elev (bottom-left), total dist (bottom-right)
+/// The Python version's text labels (max/min elevation, total distance) are not drawn.
 struct ElevationRenderer {
 
+    /// Draws the strip and saves it as a PNG.
+    /// - Parameters:
+    ///   - flattenRows: The whole ride at 1 Hz.
+    ///   - currentEpoch: The clip's time; the marker goes on the nearest point.
+    ///   - outputURL: Destination PNG (overwritten).
+    /// - Throws: `PipelineError.renderFailed` if drawing or PNG encoding fails; file write errors.
+    ///   Writes nothing if there are fewer than two points.
     static func render(flattenRows: [FlattenRow],
                        currentEpoch: Double,
                        outputURL: URL) throws {
         guard flattenRows.count >= 2 else { return }
 
-        let W = AppConfig.HUD.elevW   // 948
-        let H = AppConfig.HUD.elevH   // 75
+        let W = AppConfig.HUD.elevW
+        let H = AppConfig.HUD.elevH
         let ctx = try makeBitmapContext(width: W, height: H)
 
         // Background
@@ -87,9 +97,6 @@ struct ElevationRenderer {
             ctx.fillEllipse(in: CGRect(x: mx - r, y: my - r, width: r*2, height: r*2))
         }
 
-        // Labels (small white text)
-        // max elev top-left, min elev bottom-left, total dist bottom-right
-        // (label drawing omitted for brevity — add with CoreText as in GaugeRenderer)
 
         guard let cgImage = ctx.makeImage() else {
             throw PipelineError.renderFailed("ElevationRenderer: CGImage creation failed")

@@ -1,6 +1,10 @@
+// ImportView.swift
+// "Add Project" sheet: create a project from a folder of raw clips, or copy clips from the camera first.
+
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Lets the user pick a raw-video folder (creating a project for it) or open the camera copy screen.
 struct ImportView: View {
     @Environment(ProjectStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -8,6 +12,7 @@ struct ImportView: View {
     @State private var showFolderPicker = false
     @State private var errorMessage: String?
 
+    /// The two options and the platform folder picker.
     var body: some View {
         NavigationStack {
             List {

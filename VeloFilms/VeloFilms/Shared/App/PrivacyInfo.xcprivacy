@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PrivacyInfo.xcprivacy
+  Apple privacy manifest for Velo Films (required for App Store submission).
+  - No tracking and no data collected by the developer: rides are downloaded from the user's own Strava
+    account and stay on the user's devices. Keep App Store Connect privacy answers in sync ("Data Not Collected").
+  - Required-reason APIs, verified by searching the source on 2026-10-25:
+      UserDefaults / @AppStorage: app settings and Strava token expiry (CA92.1).
+      File timestamps/metadata: CopyVideosView reads clip modification dates to select a ride's clips;
+      ConcatStep reads the final reel's size. Both are in folders the user chose (3B52.1).
+  Update this file whenever code starts using another required-reason API (disk space, boot time, keyboards).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>3B52.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

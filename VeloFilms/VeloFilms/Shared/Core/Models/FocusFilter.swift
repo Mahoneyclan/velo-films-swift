@@ -1,17 +1,29 @@
+// FocusFilter.swift
+// Filters for the manual selection screen (climbs, descents, group riding, laps, etc.) and their matching rules.
+
 import Foundation
 
 /// View-level focus mode applied on top of AI clip selection in ManualSelectionView.
 /// Filters the visible list of moments without modifying AI scores, selection, or any pipeline step.
 enum FocusFilter: Hashable {
+    /// Every moment.
     case all
+    /// Moments in the opening part of the ride.
     case openingZone
+    /// Moments in the closing part of the ride.
     case closingZone
+    /// Moments at or above the climb gradient threshold.
     case climbs
+    /// Moments at or below the (negative) descent gradient threshold.
     case descents
+    /// Moments with at least the minimum number of riders in view.
     case groupRiding
+    /// Moments inside a Strava segment PR.
     case stravaPR
+    /// Moments inside the named Strava lap.
     case lap(name: String)
 
+    /// Name shown on the filter button.
     var label: String {
         switch self {
         case .all:          return "All Clips"
@@ -25,6 +37,7 @@ enum FocusFilter: Hashable {
         }
     }
 
+    /// SF Symbol name for the filter button.
     var icon: String {
         switch self {
         case .all:          return "square.grid.2x2"
@@ -44,15 +57,21 @@ enum FocusFilter: Hashable {
 /// Immutable snapshot of all values needed to evaluate a FocusFilter.
 /// Passed to `matches(_:in:)` to avoid accessing singletons in the hot path.
 struct FocusFilterContext {
+    /// Ride start, Unix seconds.
     let rideStartEpoch: Double
+    /// Ride duration in seconds.
     let rideDurationS: Double
+    /// Strava laps as named time ranges (Unix seconds).
     let lapEpochRanges: [(name: String, startEpoch: Double, endEpoch: Double)]
     /// Wall-clock epoch where the opening zone ends (from moving-time boundary in SelectStep).
     let startZoneEndEpoch: Double
     /// Wall-clock epoch where the closing zone begins (from moving-time boundary in SelectStep).
     let endZoneStartEpoch: Double
+    /// Climb threshold in percent.
     let climbGradientPct: Double
-    let descentGradientPct: Double   // stored as negative (e.g. -4.0)
+    /// Descent threshold in percent, stored as a negative number (e.g. -4.0).
+    let descentGradientPct: Double
+    /// Minimum rider count for the Group Riding filter.
     let groupMinDetections: Int
     /// momentIds of clips where SelectRow.stravaPR == true.
     let stravaPRMomentIds: Set<Int>
@@ -61,6 +80,12 @@ struct FocusFilterContext {
 // MARK: - Matching logic
 
 extension FocusFilter {
+    /// Whether `moment` passes this filter.
+    /// - Parameters:
+    ///   - moment: A grid point with the rows from one or both cameras.
+    ///   - ctx: Thresholds and ride timing captured when the screen loaded.
+    /// - Returns: `true` if the moment should be shown. Gradient filters use the primary camera's row and treat a
+    ///   missing gradient as 0.
     func matches(_ moment: PartnerMatcher.Moment, in ctx: FocusFilterContext) -> Bool {
         let t = Double(moment.momentId)
 
@@ -101,6 +126,8 @@ extension FocusFilter {
     /// a cyclist detected as both "person" and "bicycle" is one rider, not two.
     /// Taking the per-row max (not sum) avoids double-counting the same group
     /// viewed from two camera angles.
+    /// - Parameter moment: A moment with one or two camera rows.
+    /// - Returns: The estimated number of riders in view, 0 if nothing was detected.
     static func riderCount(for moment: PartnerMatcher.Moment) -> Int {
         return moment.rows.map { row in
             let classes = row.detectedClasses

@@ -1,5 +1,12 @@
+// ConcatStep.swift
+// Pipeline step 7: joins the highlight clips with crossfades and music, then adds the intro and outro.
+
 import Foundation
 import AVFoundation
+import os
+
+// Security: file names can contain ride names, so they are logged as private (hidden outside debugging).
+private let concatLog = Logger(subsystem: "com.velofilms", category: "ConcatStep")
 
 /// Phase 1: Joins clip_0001…N into _middle.mp4 with crossfade transitions and backing music.
 /// Phase 2: Joins _intro + _middle + _outro into {rideName}.mp4 (audio passthrough — each part
@@ -7,10 +14,18 @@ import AVFoundation
 /// macOS: FFmpeg xfade/acrossfade filter chain with timebase normalisation + amix (phase 1 only).
 /// iOS:   AVMutableComposition A/B opacity + audio volume ramps + music track (phase 1 only).
 struct ConcatStep: PipelineStep {
+    /// Step name used in logs.
     let name = "concat"
 
+    /// Creates the step.
     init() {}
 
+    /// Builds `clips/_middle.mp4` and then the final reel `{name}.mp4` in the project folder (both replaced).
+    /// The intro and outro are included only if they exist.
+    /// - Throws: `PipelineError.missingInput` if there are no rendered clips; FFmpeg (macOS), export or file errors.
+    /// - Parameters:
+    ///   - project: The ride project to process.
+    ///   - reporter: Receives progress updates for the pipeline screen.
     func run(project: Project, reporter: ProgressReporter) async throws {
         await reporter.report(current: 1, total: 5, message: "Collecting clips...")
 
@@ -28,7 +43,10 @@ struct ConcatStep: PipelineStep {
         }
 
         let prefs       = project.loadPreferences()
-        let musicTracks = musicPlaylist(preferred: prefs.selectedMusicTrack)
+        // Music-folder tracks may be in the cloud: download local copies of the first 10 in playlist order
+        // (10 tracks is far more music than any reel uses, and limits downloads).
+        let musicTracks = await MusicFolder.playableCopies(
+            of: Array(musicPlaylist(preferred: prefs.selectedMusicTrack).prefix(10)))
 
         // MARK: Phase 1 — clips → _middle.mp4 with backing music
 
@@ -110,6 +128,8 @@ struct ConcatStep: PipelineStep {
 
     // MARK: - FFmpeg xfade with music (macOS) — clips → _middle.mp4
 
+    /// Joins the clips with 0.5 s video/audio crossfades and mixes in the backing-music sequence, which fades out
+    /// over the last `AppConfig.musicFadeOutDuration` seconds (macOS, FFmpeg).
     private func xfadeConcat(parts: [URL], durations: [Double],
                               outputURL: URL, bridge: any FFmpegBridge,
                               musicTracks: [URL]) async throws {
@@ -192,7 +212,9 @@ struct ConcatStep: PipelineStep {
             let N      = parts.count
             let count  = musicSequence.count
             let durStr = String(format: "%.3f", totalDur)
-            // Concat the distinct tracks in sequence, trim to totalDur. Using explicit
+            let fadeDur = min(AppConfig.musicFadeOutDuration, totalDur)
+            let fadeStr = String(format: "t=out:st=%.3f:d=%.3f", totalDur - fadeDur, fadeDur)
+            // Concat the distinct tracks in sequence, trim to totalDur, fade out over the end. Using explicit
             // concat is more reliable than aloop (whose size parameter must match the
             // exact sample count of the file to loop correctly).
             let concatInputs = (0..<count).map { "[\(N + $0):a]" }.joined()
@@ -200,6 +222,7 @@ struct ConcatStep: PipelineStep {
                 "\(prevA)volume=\(rv)[rawA];" +
                 "\(concatInputs)concat=n=\(count):v=0:a=1," +
                 "atrim=end=\(durStr),asetpts=PTS-STARTPTS," +
+                "afade=\(fadeStr)," +
                 "volume=\(mv)[musicA];" +
                 "[rawA][musicA]amix=inputs=2:duration=longest:dropout_transition=0[aout]"
             )
@@ -209,7 +232,7 @@ struct ConcatStep: PipelineStep {
 
         let filter = filterParts.joined(separator: ";")
         let musicDesc = musicSequence.isEmpty ? "none" : musicSequence.map(\.lastPathComponent).joined(separator: " → ")
-        print("[ConcatStep] xfade middle: \(parts.count) clips, music=\(musicDesc) → \(outputURL.lastPathComponent)")
+        concatLog.info("xfade middle: \(parts.count, privacy: .public) clips, music=\(musicDesc, privacy: .private) → \(outputURL.lastPathComponent, privacy: .private)")
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
@@ -222,6 +245,7 @@ struct ConcatStep: PipelineStep {
 
     // MARK: - FFmpeg xfade passthrough (macOS) — intro + middle + outro → final
 
+    /// Joins intro, middle and outro with crossfades, keeping each part's own audio (macOS, FFmpeg).
     private func xfadeJoin(parts: [URL], durations: [Double],
                             outputURL: URL, bridge: any FFmpegBridge) async throws {
         let X   = AppConfig.concatXfadeDuration
@@ -279,7 +303,7 @@ struct ConcatStep: PipelineStep {
         filterParts.append("\(prevA)anull[aout]")
 
         let filter = filterParts.joined(separator: ";")
-        print("[ConcatStep] xfade join: \(parts.count) parts → \(outputURL.lastPathComponent)")
+        concatLog.info("xfade join: \(parts.count, privacy: .public) parts → \(outputURL.lastPathComponent, privacy: .private)")
         try await bridge.execute(arguments: inputs + [
             "-filter_complex", filter,
             "-map", "[vout]", "-map", "[aout]",
@@ -292,6 +316,9 @@ struct ConcatStep: PipelineStep {
 
     // MARK: - AVFoundation crossfade (iOS)
 
+    /// Joins parts with crossfades using AVFoundation (iOS). Clips alternate between two video and two audio
+    /// tracks so each transition can fade one out while the next fades in; music is added if supplied and fades
+    /// out over the last `AppConfig.musicFadeOutDuration` seconds.
     private func crossFadeConcatAVF(parts: [URL], durations: [Double],
                                      outputURL: URL, musicTracks: [URL]) async throws {
         let X   = AppConfig.concatXfadeDuration
@@ -419,7 +446,13 @@ struct ConcatStep: PipelineStep {
                 remaining = remaining - insert
             }
             let mp = AVMutableAudioMixInputParameters(track: mTrack)
-            mp.setVolume(Float(GlobalSettings.shared.musicVolume), at: .zero)
+            let musicVolume = Float(GlobalSettings.shared.musicVolume)
+            mp.setVolume(musicVolume, at: .zero)
+            // Fade the music out over the end so it doesn't cut off hard where the outro begins.
+            let fadeCM = CMTimeMinimum(
+                CMTime(seconds: AppConfig.musicFadeOutDuration, preferredTimescale: 600), totalDurCM)
+            mp.setVolumeRamp(fromStartVolume: musicVolume, toEndVolume: 0,
+                             timeRange: CMTimeRange(start: totalDurCM - fadeCM, duration: fadeCM))
             inputParams.append(mp)
         }
 
@@ -427,7 +460,7 @@ struct ConcatStep: PipelineStep {
         audioMix.inputParameters = inputParams
 
         let musicDesc = musicTracks.isEmpty ? "none" : musicTracks.map(\.lastPathComponent).joined(separator: " → ")
-        print("[ConcatStep] crossfade join (AVF): \(parts.count) parts, music=\(musicDesc) → \(outputURL.lastPathComponent)")
+        concatLog.info("crossfade join (AVF): \(parts.count, privacy: .public) parts, music=\(musicDesc, privacy: .private) → \(outputURL.lastPathComponent, privacy: .private)")
         try await VideoEncoder.export(composition: composition,
                                        videoComposition: videoComp,
                                        audioMix: audioMix,
@@ -437,30 +470,17 @@ struct ConcatStep: PipelineStep {
     // MARK: - Music lookup
 
     /// Ordered playlist to sequence through for backing music: starts at the preferred/random
-    /// pick, then walks the rest of the library in order so a long ride plays through
-    /// different tracks instead of looping the same one. A user-supplied global override
-    /// (GlobalSettings.musicURL) has no library to draw from, so it's played (and looped if
-    /// needed) on its own.
+    /// pick, then walks the rest of the library (built-in tracks plus My Music, see `MusicLibrary`)
+    /// in order so a long ride plays through different tracks instead of looping the same one.
+    /// A user-supplied global override (GlobalSettings.musicURL) has no library to draw from, so
+    /// it's played (and looped if needed) on its own.
     private func musicPlaylist(preferred: String = "") -> [URL] {
         if let url = GlobalSettings.shared.musicURL,
            FileManager.default.fileExists(atPath: url.path) {
             return [url]
         }
-        let extensions = ["mp3", "m4a", "aac", "wav"]
-        var candidates: [URL] = []
-        for ext in extensions {
-            candidates += Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: "music") ?? []
-        }
-        if candidates.isEmpty {
-            let splash = Set(["intro", "outro"])
-            for ext in extensions {
-                let rootURLs = (Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? [])
-                    .filter { !splash.contains($0.deletingPathExtension().lastPathComponent) }
-                candidates += rootURLs
-            }
-        }
+        let candidates = MusicLibrary.allTracks()
         guard !candidates.isEmpty else { return [] }
-        candidates.sort { $0.lastPathComponent < $1.lastPathComponent }
 
         let startIndex: Int
         if !preferred.isEmpty,

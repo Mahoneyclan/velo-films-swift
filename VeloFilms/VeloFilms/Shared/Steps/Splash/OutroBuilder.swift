@@ -1,12 +1,25 @@
+// OutroBuilder.swift
+// Builds the outro: photo collage with an animated "Velo Films" title, fading to black, with music.
+
 import Foundation
 import AVFoundation
 import CoreGraphics
 import QuartzCore
 
 /// Builds _outro.mp4: frame collage + animated "Velo Films" text → fade to black.
-/// Mirrors outro_builder.py. drawtext replaced with CATextLayer via AVVideoCompositionCoreAnimationTool.
+/// Same sequence as `outro_builder.py` in the original Python app; its FFmpeg `drawtext` is replaced with a
+/// CATextLayer via AVVideoCompositionCoreAnimationTool.
 enum OutroBuilder {
 
+    /// Builds `clips/_outro.mp4`: a 3.7 s collage with the title fading in at 1 s, cross-fading (0.7 s) into
+    /// 2 s of black, with the bundled `outro` music if present.
+    ///
+    /// Side effects: replaces `_outro.mp4` and writes working files to `splash_assets/`.
+    /// - Parameters:
+    ///   - project: The ride project.
+    ///   - selectRows: Used to pick collage photos.
+    ///   - flattenRows: Used for the ride statistics on the collage.
+    /// - Throws: `PipelineError.renderFailed` if the collage can't be reloaded; encoding or file errors.
     static func build(project: Project,
                       selectRows: [SelectRow],
                       flattenRows: [FlattenRow]) async throws {
@@ -69,7 +82,7 @@ enum OutroBuilder {
         let rawURL = assetsDir.appending(path: "outro_raw.mp4")
         try await IntroBuilder.crossDissolveChain(
             clips:    [collageClip, blackClip],
-            clipDur:  outroDuration,   // first clip duration
+            clipDur:  outroDuration,   // used for both clips, although the black clip is only blackDur long
             xfadeDur: fadeOutDur,
             outputURL: rawURL
         )

@@ -1,27 +1,43 @@
+// SceneDetector.swift
+// Scores how much the view has changed, per camera, by comparing small greyscale thumbnails.
+
 import Foundation
 import CoreGraphics
 import Accelerate
 
 /// Per-camera scene change detector.
-/// Mirrors scene_detector.py: maintains a circular buffer of the last
-/// SCENE_COMPARISON_WINDOW_S frames per camera; scores by mean absolute
-/// difference of grayscale 64×64 thumbnails.
+///
+/// Keeps a circular buffer of the last `windowSize` frames per camera and scores each new frame by the mean
+/// absolute difference of 64×64 greyscale thumbnails against the oldest buffered frame. `windowSize` is
+/// `windowSeconds / fps` frames; with the defaults (15 s, fps 1) that is 15 frames, which at the default 5-second
+/// sampling interval means frames 75 seconds apart. Ported from `scene_detector.py` in the original Python app.
+///
+/// Stateful and not thread-safe: feed frames for each camera in time order from one task.
 final class SceneDetector {
     private let windowSize: Int  // number of frames in comparison window
     private var cameras: [String: CameraBuffer] = [:]
     private static let graySpace = CGColorSpaceCreateDeviceGray()
 
+    /// Creates a detector.
+    /// - Parameters:
+    ///   - windowSeconds: Comparison window length.
+    ///   - fps: Frames per second the caller feeds; the window holds `windowSeconds / fps` frames (at least 1).
     init(windowSeconds: Double = AppConfig.sceneComparisonWindowS, fps: Double = 1.0) {
         windowSize = max(1, Int(windowSeconds / fps))
     }
 
-    /// Feed a frame and get a scene-change score in [0, 1].
-    /// Higher = more scene change from the oldest buffered frame.
+    /// Feeds a frame and returns a scene-change score in [0, 1].
+    /// Higher means more change from the oldest buffered frame. Returns 0 until the camera's buffer is full.
+    /// - Parameters:
+    ///   - frame: The new frame.
+    ///   - camera: Camera name; each camera has its own buffer.
+    /// - Returns: The score.
     func score(frame: CGImage, camera: String) -> Double {
         if cameras[camera] == nil {
             cameras[camera] = CameraBuffer(capacity: windowSize)
         }
         let thumb = thumbnail(frame)
+        // Safe: the entry is created just above if missing.
         var buf = cameras[camera]!
         let result = buf.oldest.map { meanAbsDiff($0, thumb) } ?? 0.0
         buf.push(thumb)

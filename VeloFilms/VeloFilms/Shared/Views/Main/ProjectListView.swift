@@ -1,10 +1,16 @@
+// ProjectListView.swift
+// Sidebar list of ride projects, with Add Project and Settings buttons.
+
 import SwiftUI
 
+/// The project sidebar. "Delete" (swipe) and "Remove from list" (context menu) both only remove the project
+/// from the list, without asking; its folder on disk is kept.
 struct ProjectListView: View {
     @Environment(ProjectStore.self) private var store
     @State private var showImport = false
     @State private var showSettings = false
 
+    /// The list, its toolbar and the Add Project and Settings sheets.
     var body: some View {
         @Bindable var store = store
         List(store.projects, selection: $store.selected) { project in

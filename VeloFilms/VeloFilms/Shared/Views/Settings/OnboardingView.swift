@@ -1,6 +1,10 @@
+// OnboardingView.swift
+// First-run setup: explains the app and asks for the projects folder and the input (clips) folder.
+
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Multi-page first-run setup. "Finish" is enabled once both required folders are chosen.
 struct OnboardingView: View {
     @State private var step = 0
     @Environment(\.dismiss) private var dismiss
@@ -15,6 +19,7 @@ struct OnboardingView: View {
         settings.projectsRoot != nil && settings.inputBaseDir != nil
     }
 
+    /// The current page with Back/Next navigation.
     var body: some View {
         VStack(spacing: 0) {
             stepDots

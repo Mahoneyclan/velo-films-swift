@@ -1,26 +1,48 @@
+// SelectRow.swift
+// Row model for select.jsonl, written by SelectStep and edited by the manual selection screen.
+
 import Foundation
 
 /// One row in select.jsonl — an EnrichRow plus selection metadata.
 ///
-/// Internally stores a single `base: EnrichRow` rather than repeating all 28
-/// enriched fields. The JSONL format is unchanged: encoding and decoding are
+/// Internally stores a single `base: EnrichRow` rather than repeating every
+/// enriched field. The JSONL format is unchanged: encoding and decoding are
 /// flat (no nested "base" key) via a custom Codable implementation.
 struct SelectRow: Codable {
+    /// The enriched row this selection decision is about.
     var base: EnrichRow
 
     // Selection output — fields that exist only in the select step
+    /// `true` if the clip will be used in the reel (manual choice if set, otherwise the automatic pick).
     var recommended: Bool
+    /// `true` if this time falls in a Strava segment effort ranked as a personal record.
     var stravaPR: Bool
+    /// `true` if only one camera has footage at this moment.
     var isSingleCamera: Bool
+    /// `true` if the other camera also has footage at this moment (used for picture-in-picture).
     var paired: Bool
+    /// Name of the Strava segment at this time, if any.
     var segmentName: String?
+    /// Segment length in metres.
     var segmentDistance: Double?
+    /// Segment average gradient in percent.
     var segmentGrade: Double?
     /// Set when the user manually overrides the AI recommendation in ManualSelectionView.
     /// Non-nil means the user has explicitly chosen (true) or excluded (false) this clip.
     /// SelectStep preserves this value on re-run so manual decisions survive re-scoring.
     var manualOverride: Bool?
 
+    /// Creates a row. Optional segment fields and `manualOverride` default to `nil`.
+    /// - Parameters:
+    ///   - base: The enriched row this selection is about.
+    ///   - recommended: Whether the clip is picked for the reel.
+    ///   - stravaPR: Whether the moment falls in a Strava PR effort.
+    ///   - isSingleCamera: Whether only one camera filmed this moment.
+    ///   - paired: Whether a partner row from the other camera was found.
+    ///   - segmentName: Name of the Strava segment covering the moment.
+    ///   - segmentDistance: That segment's length in metres.
+    ///   - segmentGrade: That segment's average gradient in percent.
+    ///   - manualOverride: The user's Fine Tune choice, or `nil` if untouched.
     init(base: EnrichRow,
          recommended: Bool,
          stravaPR: Bool,
@@ -84,6 +106,9 @@ struct SelectRow: Codable {
         case manualOverride   = "manual_override"
     }
 
+    /// Decodes the flat JSON format. Telemetry and selection detail fields are optional; the rest are required.
+    /// - Parameter decoder: Decoder positioned at one `select.jsonl` line.
+    /// - Throws: `DecodingError` if a required field is missing or has the wrong type.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         base = EnrichRow(
@@ -130,6 +155,9 @@ struct SelectRow: Codable {
         manualOverride  = try c.decodeIfPresent(Bool.self,   forKey: .manualOverride)
     }
 
+    /// Encodes in the flat JSON format; `nil` optionals are omitted.
+    /// - Parameter encoder: Encoder for one `select.jsonl` line.
+    /// - Throws: Encoding errors from the encoder.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(base.index,             forKey: .index)

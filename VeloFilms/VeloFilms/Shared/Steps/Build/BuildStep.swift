@@ -1,19 +1,38 @@
+// BuildStep.swift
+// Pipeline step 5: renders the map, elevation and gauge overlays and then each highlight clip.
+
 import Foundation
 import AVFoundation
 
-/// Orchestrates the build step: pre-render assets then composite clips.
-/// Mirrors build.py: minimaps → elevation strips → gauges → clip render.
+/// Orchestrates the build step: pre-render overlays, then composite each clip.
+/// Order: map base snapshot → minimaps → elevation strips → gauge frames → clip render
+/// (same as `build.py` in the original Python app).
 /// Segment concat and music mixing are handled by ConcatStep.
 struct BuildStep: PipelineStep {
+    /// Step name used in logs.
     let name = "build"
+    /// Input reader (injectable for testing).
     let jsonlReader: JSONLReader
+    /// YOLO model location. Stored but not used by this step.
     let yoloModelURL: URL
 
+    /// Creates the step.
+    /// - Parameters:
+    ///   - yoloModelURL: The bundled YOLO model.
+    ///   - jsonlReader: Reads `select.jsonl` and `flatten.jsonl`.
     init(yoloModelURL: URL, jsonlReader: JSONLReader = JSONLReader()) {
         self.jsonlReader = jsonlReader
         self.yoloModelURL = yoloModelURL
     }
 
+    /// Renders `clips/clip_NNNN.mp4` for every recommended moment, in time order.
+    ///
+    /// Side effects: first deletes earlier minimaps, elevation strips, rendered clips (`.mp4`/`.mov` in `clips/`,
+    /// including the intro and outro) and the final reel.
+    /// - Throws: `PipelineError.missingInput` if nothing is recommended; render, FFmpeg or file errors.
+    /// - Parameters:
+    ///   - project: The ride project to process.
+    ///   - reporter: Receives progress updates for the pipeline screen.
     func run(project: Project, reporter: ProgressReporter) async throws {
         try project.createOutputDirectories()
         await reporter.report(current: 0, total: 1, message: "Loading select.jsonl...")

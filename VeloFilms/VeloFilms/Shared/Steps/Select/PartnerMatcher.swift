@@ -1,16 +1,25 @@
+// PartnerMatcher.swift
+// Groups front and rear camera rows that were filmed at the same moment.
+
 import Foundation
 
 /// Matches front and rear camera rows that share the same moment_id (1-second bucket).
-/// Mirrors select.py dual-camera grouping logic.
+/// Same dual-camera grouping as `select.py` in the original Python app.
 struct PartnerMatcher {
 
+    /// One point in time with the rows from whichever cameras filmed it.
     struct Moment {
+        /// Grid time rounded to whole seconds.
         var momentId: Int
+        /// The rows at this time, one per camera.
         var rows: [EnrichRow]
 
+        /// The Fly12 Sport (front) row, if any.
         var fly12Row: EnrichRow? { rows.first { $0.camera == AppConfig.CameraName.fly12Sport.rawValue } }
+        /// The Fly6 Pro (rear) row, if any.
         var fly6Row:  EnrichRow? { rows.first { $0.camera == AppConfig.CameraName.fly6Pro.rawValue } }
 
+        /// `true` if only one camera has a row.
         var isSingleCamera: Bool { fly12Row == nil || fly6Row == nil }
 
         /// Best score for this moment, with dual-camera bonus applied.
@@ -21,7 +30,7 @@ struct PartnerMatcher {
             return isSingleCamera ? base : base + AppConfig.ScoreWeights.dualCamera
         }
 
-        /// The primary (higher-scoring) row.
+        /// The primary (higher-scoring) row; the front camera wins a tie.
         var primary: EnrichRow? {
             guard let r12 = fly12Row, let r6 = fly6Row else {
                 return fly12Row ?? fly6Row
@@ -36,7 +45,9 @@ struct PartnerMatcher {
         }
     }
 
-    /// Group enriched rows by moment_id.
+    /// Groups enriched rows by `momentId`.
+    /// - Parameter rows: Rows from both cameras.
+    /// - Returns: One moment per distinct `momentId`, in time order.
     static func group(_ rows: [EnrichRow]) -> [Moment] {
         var byMoment: [Int: [EnrichRow]] = [:]
         for row in rows {

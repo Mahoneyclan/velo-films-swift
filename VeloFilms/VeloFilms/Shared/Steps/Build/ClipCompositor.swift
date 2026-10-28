@@ -1,27 +1,42 @@
+// ClipCompositor.swift
+// Renders one highlight clip with its picture-in-picture, map, elevation and gauge overlays.
+
 import Foundation
 import AVFoundation
 import CoreGraphics
 
 /// Assembles each clip's HUD overlay.
-/// macOS: FFmpegBridge filter_complex + loudnorm (mirrors clip_renderer.py).
-/// iOS:   AVMutableComposition + ClipVideoCompositor (Metal GPU compositing, no FFmpeg).
+/// macOS: FFmpeg `filter_complex` with `loudnorm` audio levelling (same as `clip_renderer.py` in the original
+/// Python app).
+/// iOS:   AVMutableComposition + ClipVideoCompositor (Metal-backed Core Image compositing, no FFmpeg); camera audio is not
+/// loudness-normalised there.
 struct ClipCompositor: Sendable {
 #if os(macOS)
+    /// Runs FFmpeg.
     let bridge: any FFmpegBridge
+    /// Creates a compositor that writes clips to `outputDir`.
+    /// - Parameters:
+    ///   - bridge: Runs FFmpeg; pass a fake one to test without rendering.
+    ///   - outputDir: Folder for the rendered clips.
     init(bridge: any FFmpegBridge, outputDir: URL) {
         self.bridge = bridge
         self.outputDir = outputDir
     }
 #else
+    /// Creates a compositor that writes clips to `outputDir`.
+    /// - Parameter outputDir: Folder for the rendered clips.
     init(outputDir: URL) {
         self.outputDir = outputDir
     }
 #endif
+    /// Folder for `clip_NNNN.mp4` files.
     let outputDir: URL
 
     /// Re-derives a file URL from one of the bookmark-resolved parent URLs in GlobalSettings.
     /// Handles cross-platform projects: a path written on iPad resolves correctly on macOS
     /// (and vice versa) by matching on the parent folder's last path component.
+    /// - Parameter path: The clip path stored in the JSONL files.
+    /// - Returns: A URL under a matching settings folder, or the path unchanged if none matches.
     static func reanchorSourceURL(_ path: String) -> URL {
         let gs = GlobalSettings.shared
         let candidates = [gs.fly12SourceURL, gs.fly6SourceURL, gs.inputBaseDir].compactMap { $0 }
@@ -44,6 +59,16 @@ struct ClipCompositor: Sendable {
         return URL(fileURLWithPath: path)
     }
 
+    /// Renders one clip of `AppConfig.clipOutLenS` seconds, starting `clipPreRollS` before the moment.
+    /// - Parameters:
+    ///   - mainRow: The full-screen camera row.
+    ///   - pipRow: The other camera's row for picture-in-picture, or `nil`.
+    ///   - minimapPath: Map overlay PNG.
+    ///   - elevationPath: Elevation strip PNG.
+    ///   - gaugeDir: Folder of gauge frames `gauge_0001.png`… at one frame per second.
+    ///   - clipIndex: Number used in the output file name.
+    /// - Returns: The rendered clip's URL (overwritten if it exists).
+    /// - Throws: `PipelineError.ffmpegFailed` (macOS) or `.renderFailed`/export errors (iOS).
     @discardableResult
     func renderClip(
         mainRow:       EnrichRow,

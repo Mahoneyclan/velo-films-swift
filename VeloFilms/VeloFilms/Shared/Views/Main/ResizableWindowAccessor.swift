@@ -1,3 +1,6 @@
+// ResizableWindowAccessor.swift
+// macOS helper that makes Settings and sheet windows resizable; does nothing on iPadOS.
+
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -7,6 +10,7 @@ import AppKit
 /// SwiftUI's Settings scene and sheet presentations ignore .windowResizability;
 /// this bridges into AppKit to insert .resizable into the window's styleMask directly.
 struct ResizableWindowAccessor: View {
+    /// An invisible view that adjusts its window on macOS.
     var body: some View {
 #if os(macOS)
         _ResizableNSViewBridge()

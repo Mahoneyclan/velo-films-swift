@@ -1,3 +1,6 @@
+// GaugeRenderer.swift
+// Draws the strip of five round gauges (elevation, gradient, speed, heart rate, cadence) for each clip.
+
 import Foundation
 import CoreGraphics
 #if os(macOS)
@@ -6,24 +9,34 @@ import AppKit
 import UIKit
 #endif
 
-/// Renders the 5-cell gauge strip.
-/// Dynamic mode: one PNG per second of clip duration, compiled to ProRes 4444 .mov via FFmpeg.
-/// Mirrors gauge_prerenderer.py + draw_gauge.py.
+/// Renders the 5-cell gauge strip: one image per second of clip, so the needles move during the clip.
+/// macOS feeds the PNGs to FFmpeg as an image sequence; iOS loads them into the video compositor.
+/// Based on `gauge_prerenderer.py` and `draw_gauge.py` in the original Python app.
 ///
 /// Strip layout (L→R): elev | gradient | speed | hr | cadence
 /// Each cell: 194×194px. Total strip: 972×194px.
 struct GaugeRenderer {
 
+    /// Values for one frame; `nil` shows the gauge without a reading.
     struct GaugeTelemetry {
+        /// Elevation in metres.
         var elevM: Double?
+        /// Gradient in percent.
         var gradientPct: Double?
+        /// Speed in km/h.
         var speedKmh: Double?
+        /// Heart rate in bpm.
         var hrBpm: Double?
+        /// Cadence in rpm.
         var cadenceRpm: Double?
     }
 
-    /// Render per-second gauge frames as CGImages held in memory.
-    /// The compositor selects the frame for each video frame by elapsed second.
+    /// Renders per-second gauge frames as images held in memory. Not currently used (see `writeFramesToDisk`).
+    /// - Parameters:
+    ///   - flattenRows: The whole ride at 1 Hz.
+    ///   - clipEpoch: Time of the first frame.
+    /// - Returns: `ceil(clipOutLenS) + 1` frames.
+    /// - Throws: `PipelineError.renderFailed` if drawing fails.
     static func renderFrames(
         flattenRows: [FlattenRow],
         clipEpoch: Double
@@ -39,6 +52,12 @@ struct GaugeRenderer {
     /// Write per-second gauge frames to a temp directory as PNGs for FFmpeg input.
     /// Returns the directory URL; files are named gauge_0001.png, gauge_0002.png, …
     /// The caller is responsible for deleting the directory after FFmpeg finishes.
+    /// - Parameters:
+    ///   - flattenRows: The whole ride at 1 Hz.
+    ///   - clipEpoch: Time of the first frame.
+    ///   - clipIndex: Used in the folder name (`vf_gauge_N` in the temporary folder); an existing folder is replaced.
+    /// - Returns: The folder holding `ceil(clipOutLenS) + 1` frames.
+    /// - Throws: `PipelineError.renderFailed` or file errors.
     static func writeFramesToDisk(
         flattenRows: [FlattenRow],
         clipEpoch: Double,
@@ -74,7 +93,12 @@ struct GaugeRenderer {
 #endif
     }
 
-    /// Render a single gauge strip frame to a CGImage (no file I/O).
+    /// Renders a single gauge strip frame (no file I/O).
+    /// - Parameters:
+    ///   - telemetry: The values to show.
+    ///   - ranges: Scale of each gauge.
+    /// - Returns: A `gaugeCompositeW` × `gaugeCompositeH` image.
+    /// - Throws: `PipelineError.renderFailed` if the drawing context can't be created.
     static func renderStripImage(telemetry: GaugeTelemetry,
                                   ranges: GaugeRanges = GaugeRanges()) throws -> CGImage {
         let W = AppConfig.HUD.gaugeCompositeW
@@ -106,14 +130,23 @@ struct GaugeRenderer {
 
     // MARK: - Gauge ranges (data-driven, ±10% buffer — mirrors compute_gauge_ranges)
 
+    /// Minimum and maximum of each gauge's scale. Defaults are used for a ride with no data.
     struct GaugeRanges {
+        /// Speed scale, km/h.
         var speedMin: Double = 0;    var speedMax: Double = 60
+        /// Cadence scale, rpm.
         var cadenceMin: Double = 0;  var cadenceMax: Double = 120
+        /// Heart-rate scale, bpm.
         var hrMin: Double = 40;      var hrMax: Double = 160
+        /// Elevation scale, m.
         var elevMin: Double = 0;     var elevMax: Double = 2000
+        /// Gradient scale, %, symmetric around 0.
         var gradMin: Double = -20;   var gradMax: Double = 20
     }
 
+    /// Fits each gauge's scale to the ride's values with about 10% headroom, so the needles use the full arc.
+    /// - Parameter flattenRows: The whole ride.
+    /// - Returns: The ranges; gradient is made symmetric so 0% is at the top.
     static func computeRanges(flattenRows: [FlattenRow]) -> GaugeRanges {
         guard !flattenRows.isEmpty else { return GaugeRanges() }
 
@@ -184,15 +217,19 @@ struct GaugeRenderer {
 
     // MARK: - Single gauge cell
 
-    /// Arc geometry matches draw_gauge.py:
-    ///   PIL 150° → CG: PIL is CW from 3-o'clock; CG is CCW from 3-o'clock.
-    ///   PIL 150° (CW from E) = 180° - 150° + 180° offset... simplest: negate and convert.
-    ///   PIL start=150° → CG start = -(150° - 180°) = 30° ... actually:
-    ///   PIL 0°=E CW → CG 0°=E CCW. To convert PIL angle p to CG: CG = -p (in radians).
-    ///   PIL start=150° → CG = -150° * π/180
-    ///   PIL end=390°   → CG = -390° * π/180 (= -30° after mod, i.e. -π/6)
-    ///   Sweep: CG draws from startAngle to endAngle in the clockwise=false (CCW) direction.
-    ///   But PIL sweeps CW, so we need clockwise=true in CG with start=-150° end=-390°.
+    /// Draws one round gauge: dark disc, dim full arc, green arc for the value, value text, unit and label.
+    ///
+    /// Arc geometry matches `draw_gauge.py`: a 240° arc from 150° to 390° in PIL's convention (0° = 3 o'clock,
+    /// clockwise). Core Graphics measures counter-clockwise, so each PIL angle p becomes -p and the arc is drawn
+    /// with `clockwise: true` from -150° to -390°.
+    /// - Parameters:
+    ///   - ctx: The strip's drawing context.
+    ///   - rect: The cell to draw in.
+    ///   - value: The reading, or `nil` to show "--" with an empty arc.
+    ///   - minVal: Value at the start of the arc.
+    ///   - maxVal: Value at the end of the arc (values outside the range are clamped).
+    ///   - label: Name under the gauge, e.g. "SPEED".
+    ///   - unit: Unit under the value, e.g. "km/h".
     static func drawGaugeCell(in ctx: CGContext,
                                rect: CGRect,
                                value: Double?,

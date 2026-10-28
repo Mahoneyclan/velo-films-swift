@@ -1,3 +1,6 @@
+// VideoCompositor.swift (used for iPadOS clip rendering)
+// Custom AVFoundation compositor that draws the main video, picture-in-picture and HUD overlays for each frame.
+
 import Foundation
 import AVFoundation
 import CoreGraphics
@@ -10,23 +13,41 @@ import Metal
 /// AVFoundation passes this through the instruction chain to startRequest(_:).
 final class ClipCompositionInstruction: NSObject, AVVideoCompositionInstructionProtocol {
 
+    /// Time range this instruction covers.
     let timeRange:             CMTimeRange
+    /// Required by the protocol; post-processing is allowed.
     let enablePostProcessing:  Bool = true
+    /// `false`: overlays don't animate between frames, except the gauge image swap.
     let containsTweening:      Bool = false
+    /// No passthrough; every frame is composited.
     let passthroughTrackID:    CMPersistentTrackID = kCMPersistentTrackID_Invalid
 
+    /// Track of the full-screen camera.
     let mainTrackID:   CMPersistentTrackID
+    /// Track of the picture-in-picture camera, if any.
     let pipTrackID:    CMPersistentTrackID?
+    /// Map overlay.
     let minimapImage:  CGImage
+    /// Elevation strip overlay.
     let elevImage:     CGImage
-    let gaugeImages:   [CGImage]   // one per second of the clip
+    /// Gauge strip images, one per second of the clip.
+    let gaugeImages:   [CGImage]
 
+    /// The tracks AVFoundation must decode for this instruction.
     var requiredSourceTrackIDs: [NSValue]? {
         var ids: [NSValue] = [NSNumber(value: mainTrackID)]
         if let pip = pipTrackID { ids.append(NSNumber(value: pip)) }
         return ids
     }
 
+    /// Creates an instruction for one clip.
+    /// - Parameters:
+    ///   - timeRange: The span of the composition this instruction covers.
+    ///   - mainTrackID: Track of the main camera.
+    ///   - pipTrackID: Track of the picture-in-picture camera, or `nil` for one camera.
+    ///   - minimapImage: Map overlay.
+    ///   - elevImage: Elevation strip overlay.
+    ///   - gaugeImages: One gauge image per second of the clip.
     init(timeRange: CMTimeRange,
          mainTrackID: CMPersistentTrackID,
          pipTrackID:  CMPersistentTrackID?,
@@ -49,16 +70,21 @@ final class ClipCompositionInstruction: NSObject, AVVideoCompositionInstructionP
 ///
 /// Coordinate system: CIImage origin is bottom-left.
 /// FFmpeg "H-h-75" (top-left origin) → y=75 in CIImage coordinates.
+///
+/// AVFoundation calls this on its own background queues. The project's default main-actor isolation also
+/// applies to this class, and the lazily created `ciContext` is not synchronised.
 final class ClipVideoCompositor: NSObject, AVVideoCompositing {
 
     // AVFoundation requires a single pixel format value — not an array.
     // IOSurface backing enables Metal compositing without deprecated OpenGL key.
-    // [String: any Sendable] matches the NS_SWIFT_SENDABLE NSDictionary protocol requirement in Swift 6.
+    // [String: any Sendable] matches the protocol's NS_SWIFT_SENDABLE dictionary type under strict concurrency.
+    /// Pixel format the compositor accepts from the source tracks (camera 4:2:0 video, IOSurface-backed).
     var sourcePixelBufferAttributes: [String: any Sendable]? = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
         kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
     ]
 
+    /// Pixel format of the output frames (32-bit BGRA, IOSurface-backed).
     var requiredPixelBufferAttributesForRenderContext: [String: any Sendable] = [
         kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
         kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
@@ -72,8 +98,13 @@ final class ClipVideoCompositor: NSObject, AVVideoCompositing {
         return CIContext(options: [.workingColorSpace: CGColorSpaceCreateDeviceRGB()])
     }()
 
+    /// No action needed; the output size is fixed.
+    /// - Parameter newRenderContext: The new context (ignored).
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {}
 
+    /// Composites one output frame: main video, PiP, map, elevation strip and the gauge image for the current
+    /// second. Finishes the request with an error if the instruction or main frame is missing.
+    /// - Parameter request: The frame request from AVFoundation; called on a background queue.
     func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
         guard let instr = request.videoCompositionInstruction as? ClipCompositionInstruction else {
             request.finish(with: makeError("Invalid instruction type"))
@@ -111,7 +142,7 @@ final class ClipVideoCompositor: NSObject, AVVideoCompositing {
                 y:            CGFloat(AppConfig.HUD.mapPipBottom)))
         composite = mapCI.composited(over: composite)
 
-        // 4. Elevation strip — 948×75, flush at bottom (y=0)
+        // 4. Elevation strip — 390×75, flush at bottom (y=0)
         let elevCI = CIImage(cgImage: instr.elevImage)
             .transformed(by: CGAffineTransform(
                 translationX: CGFloat(AppConfig.HUD.elevX),
@@ -142,6 +173,7 @@ final class ClipVideoCompositor: NSObject, AVVideoCompositing {
         request.finish(withComposedVideoFrame: outBuf)
     }
 
+    /// No queued work to cancel; each request finishes synchronously in `startRequest`.
     func cancelAllPendingVideoCompositionRequests() {}
 
     // MARK: - Helpers

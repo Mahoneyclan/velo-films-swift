@@ -1,16 +1,28 @@
+// FlattenStep.swift
+// Pipeline step 1: turns the ride GPX into one telemetry point per second (flatten.jsonl).
+
 import Foundation
 
 /// Parses the GPX file and writes flatten.jsonl.
-/// Mirrors flatten.py: locate GPX → parse → resample to 1Hz → write JSONL.
+/// Steps: locate GPX → parse → resample to 1 Hz → write JSONL (same as `flatten.py` in the original Python app, not in this repo).
 struct FlattenStep: PipelineStep {
+    /// Step name used in logs.
     let name = "flatten"
+    /// Writer for the output file (injectable for testing).
     let jsonlWriter: JSONLWriter
     private static let isoFmt = ISO8601DateFormatter()
 
+    /// Creates the step.
+    /// - Parameter jsonlWriter: Output writer; defaults to a standard `JSONLWriter`.
     init(jsonlWriter: JSONLWriter = JSONLWriter()) {
         self.jsonlWriter = jsonlWriter
     }
 
+    /// Reads the GPX, applies the user's GPX time offset and writes `flatten.jsonl`.
+    /// - Throws: `PipelineError.missingInput` if no GPX is found or it has no usable points; XML or file errors.
+    /// - Parameters:
+    ///   - project: The ride project to process.
+    ///   - reporter: Receives progress updates for the pipeline screen.
     func run(project: Project, reporter: ProgressReporter) async throws {
         try project.createOutputDirectories()
         await reporter.report(current: 0, total: 3, message: "Locating GPX file...")
@@ -44,7 +56,7 @@ struct FlattenStep: PipelineStep {
         await reporter.report(current: 3, total: 3, message: "Flatten complete — \(rows.count) rows")
     }
 
-    // MARK: - GPX location logic (mirrors flatten.py)
+    // MARK: - GPX location logic (same search order as flatten.py in the original Python app, not in this repo)
 
     private func locateGPX(for project: Project) throws -> URL {
         // 1. project working dir

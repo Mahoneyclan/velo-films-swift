@@ -1,18 +1,37 @@
+// IntroBuilder.swift
+// Builds the intro sequence (logo, ride map with stats, photo collage) and holds drawing and resource helpers
+// shared with OutroBuilder and ClipCompositor.
+
 import Foundation
 import AVFoundation
 import CoreGraphics
 import MapKit
 import CoreLocation
+import os
 #if os(macOS)
 import AppKit
 #else
 import UIKit
 #endif
 
+private let introLog = Logger(subsystem: "com.velofilms", category: "IntroBuilder")
+
 /// Builds _intro.mp4: logo → map+banner → collage crossfade chain, with music.
-/// Mirrors intro_builder.py. All rendering via AVFoundation + Core Graphics.
+/// Same sequence as `intro_builder.py` in the original Python app. All rendering via AVFoundation + Core Graphics.
+///
+/// Privacy: the map image is an Apple Maps snapshot of the ride area.
 enum IntroBuilder {
 
+    /// Renders the intro still images, turns each into a 3-second clip, cross-fades them (1.2 s) and adds the
+    /// bundled `intro` music if present.
+    ///
+    /// Side effects: replaces `clips/_intro.mp4` and writes working files to `splash_assets/`. The logo slide is
+    /// skipped if the `velo_films` image isn't bundled.
+    /// - Parameters:
+    ///   - project: The ride project.
+    ///   - selectRows: Used to pick collage photos from recommended clips.
+    ///   - flattenRows: Used for the map and ride statistics.
+    /// - Throws: `PipelineError.renderFailed` if the stills can't be reloaded; encoding or file errors.
     static func build(project: Project,
                       selectRows: [SelectRow],
                       flattenRows: [FlattenRow]) async throws {
@@ -86,6 +105,15 @@ enum IntroBuilder {
     // MARK: - Cross-dissolve chain (shared with OutroBuilder)
 
     /// Joins N video clips with cross-dissolve transitions using AVMutableComposition.
+    ///
+    /// Clips alternate between two video tracks so each transition can fade one out while fading the next in.
+    /// Audio from the clips is not carried over.
+    /// - Parameters:
+    ///   - clips: Clip files in order; each must be at least `clipDur` long.
+    ///   - clipDur: Length used from each clip, in seconds.
+    ///   - xfadeDur: Overlap between consecutive clips, in seconds.
+    ///   - outputURL: Destination file. With one clip it is copied as-is; with none, nothing is written.
+    /// - Throws: Export or file errors.
     static func crossDissolveChain(clips: [URL], clipDur: Double, xfadeDur: Double,
                                     outputURL: URL) async throws {
         guard clips.count >= 2 else {
@@ -171,7 +199,14 @@ enum IntroBuilder {
 
     // MARK: - Music mix (replaces silent track with music audio)
 
-    /// Replace or add audio from musicURL into an existing video file.
+    /// Writes a copy of a video with its audio replaced by music, looped to fill `duration`.
+    /// - Parameters:
+    ///   - videoURL: Source video (its own audio is dropped).
+    ///   - musicURL: Music file.
+    ///   - duration: Output length in seconds.
+    ///   - musicVolume: Music volume, 0–1.
+    ///   - outputURL: Destination file.
+    /// - Throws: Asset loading or export errors.
     static func mixAudio(videoURL: URL, musicURL: URL,
                           duration: Double, musicVolume: Float,
                           outputURL: URL) async throws {
@@ -224,6 +259,10 @@ enum IntroBuilder {
 
     // MARK: - Resource lookup
 
+    /// Finds a bundled `.png` or `.jpg` resource by name, also checking the `Shared/Resources` and `Resources`
+    /// subfolders.
+    /// - Returns: The file URL, or `nil` if not bundled (logged as an error).
+    /// - Parameter name: Resource name without the extension.
     static func findResourceImage(named name: String) -> URL? {
         let exts = ["png", "jpg"]
         let subdirs: [String?] = [nil, "Shared/Resources", "Resources"]
@@ -234,10 +273,13 @@ enum IntroBuilder {
                 }
             }
         }
-        print("[IntroBuilder] findResourceImage: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
+        introLog.error("Bundled image '\(name, privacy: .public)' not found")
         return nil
     }
 
+    /// Finds a bundled audio file (`mp3`, `m4a`, `aac`, `wav`) by name, as `findResourceImage` does.
+    /// - Returns: The file URL, or `nil` if not bundled (logged as an error).
+    /// - Parameter name: Resource name without the extension, e.g. `"intro"`.
     static func findResourceAudio(named name: String) -> URL? {
         let exts = ["mp3", "m4a", "aac", "wav"]
         let subdirs: [String?] = [nil, "Shared/Resources", "Resources"]
@@ -248,12 +290,16 @@ enum IntroBuilder {
                 }
             }
         }
-        print("[IntroBuilder] findResourceAudio: '\(name)' not found in bundle \(Bundle.main.bundlePath)")
+        introLog.error("Bundled audio '\(name, privacy: .public)' not found")
         return nil
     }
 
     // MARK: - Ride stats
 
+    /// Totals for the ride: distance, elapsed time (including stops), average speed over elapsed time, and
+    /// ascent (sum of every rise between 1-second points, so GPS noise inflates it slightly).
+    /// - Parameter flattenRows: The 1 Hz track.
+    /// - Returns: The stats, or zeros for fewer than two points.
     static func computeRideStats(flattenRows: [FlattenRow]) -> RideStats {
         guard flattenRows.count >= 2 else { return RideStats() }
         var totalDistM = 0.0, totalClimb = 0.0
@@ -270,6 +316,12 @@ enum IntroBuilder {
 
     // MARK: - Frame collection
 
+    /// Picks collage photos from the saved frame thumbnails.
+    /// - Parameters:
+    ///   - dir: The project's `frames/` folder.
+    ///   - selectRows: Thumbnails of recommended rows are preferred.
+    ///   - max: Maximum number of photos.
+    /// - Returns: Up to `max` JPEGs in name order; any thumbnails if none match a recommended row.
     static func collectFrames(from dir: URL, selectRows: [SelectRow], max: Int) -> [URL] {
         let recommended = Set(selectRows.filter { $0.recommended }.map { $0.base.index })
         let all = (try? FileManager.default.contentsOfDirectory(
@@ -284,6 +336,17 @@ enum IntroBuilder {
 
     // MARK: - Map + banner
 
+    /// Renders the intro map slide: an Apple Maps snapshot with the route, a banner with name and stats, and the
+    /// Strava description if any. Never throws; if the snapshot fails the slide is drawn without map tiles.
+    /// - Parameters:
+    ///   - flattenRows: The 1 Hz track.
+    ///   - stats: Ride totals for the banner.
+    ///   - project: Supplies the title.
+    ///   - description: Lines from the Strava description, or `nil`.
+    ///   - outputURL: Destination PNG.
+    ///   - width: Image width in pixels.
+    ///   - height: Image height in pixels.
+    ///   - bannerHeight: Banner height in pixels.
     static func renderMapBanner(flattenRows: [FlattenRow], stats: RideStats,
                                   project: Project, description: [String]?,
                                   outputURL: URL,
@@ -393,6 +456,16 @@ enum IntroBuilder {
 
     // MARK: - Collage
 
+    /// Renders the collage slide: up to 5 columns of centre-cropped photos plus the title and stats banner.
+    /// - Parameters:
+    ///   - frames: Photo files; unreadable ones leave a black tile.
+    ///   - outputURL: Destination PNG (written even with no photos, as a black slide).
+    ///   - width: Image width in pixels.
+    ///   - height: Image height in pixels.
+    ///   - bannerHeight: Banner height in pixels.
+    ///   - stats: Ride totals for the banner.
+    ///   - project: Supplies the title.
+    /// - Throws: `PipelineError.renderFailed` if the PNG can't be written.
     static func renderCollage(frames: [URL], outputURL: URL,
                                width: Int, height: Int, bannerHeight: Int,
                                stats: RideStats, project: Project) throws {
@@ -446,6 +519,13 @@ enum IntroBuilder {
 
     // MARK: - Drawing helpers
 
+    /// Draws white text with its baseline start at (`x`, `y`) in the system font.
+    /// - Parameters:
+    ///   - text: Text to draw.
+    ///   - ctx: Destination context.
+    ///   - x: Left edge in pixels.
+    ///   - y: Baseline in pixels.
+    ///   - fontSize: Font size in points.
     static func drawLeftAligned(_ text: String, in ctx: CGContext,
                                  x: Int, y: Int, fontSize: CGFloat) {
         let font  = CTFontCreateWithName("SFNS-Regular" as CFString, fontSize, nil)
@@ -459,8 +539,10 @@ enum IntroBuilder {
         CTLineDraw(line, ctx)
     }
 
-    /// Loads description.txt and strips third-party tool sections (Wandrer, myWindsock).
+    /// Loads description.txt, dropping blank lines and lines starting with "--".
     /// Returns nil when the file doesn't exist or has no usable lines.
+    /// - Parameter url: Location of `description.txt`.
+    /// - Returns: The kept lines, or `nil`.
     static func loadFilteredDescription(from url: URL) -> [String]? {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let lines = raw.components(separatedBy: "\n")
@@ -469,6 +551,14 @@ enum IntroBuilder {
         return lines.isEmpty ? nil : Array(lines)
     }
 
+    /// Draws white text centred on (`x`, `y`) in the system font, regular or bold.
+    /// - Parameters:
+    ///   - text: Text to draw.
+    ///   - ctx: Destination context.
+    ///   - x: Horizontal centre in pixels.
+    ///   - y: Vertical centre in pixels.
+    ///   - fontSize: Font size in points.
+    ///   - bold: `true` for the bold system font.
     static func drawCentred(_ text: String, in ctx: CGContext,
                              x: Int, y: Int, fontSize: CGFloat, bold: Bool) {
         let fontName = bold ? "SFNS-Bold" : "SFNS-Regular"
@@ -485,6 +575,11 @@ enum IntroBuilder {
         CTLineDraw(line, ctx)
     }
 
+    /// Creates an RGBA drawing context. The force-unwrap is safe for these fixed, valid parameters.
+    /// - Parameters:
+    ///   - width: Width in pixels.
+    ///   - height: Height in pixels.
+    /// - Returns: An empty context.
     static func makeBitmapContext(width: Int, height: Int) -> CGContext {
         CGContext(data: nil, width: width, height: height,
                   bitsPerComponent: 8, bytesPerRow: 0,
@@ -492,6 +587,9 @@ enum IntroBuilder {
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     }
 
+    /// Loads an image file.
+    /// - Returns: The image, or `nil` if the file is missing or not an image.
+    /// - Parameter url: Image file to read.
     static func loadCGImage(from url: URL) -> CGImage? {
 #if os(macOS)
         guard let img = NSImage(contentsOf: url) else { return nil }
@@ -502,6 +600,10 @@ enum IntroBuilder {
 #endif
     }
 
+    /// Saves the context's current image as a PNG. Failures are ignored.
+    /// - Parameters:
+    ///   - ctx: Context holding the image.
+    ///   - url: Destination file (replaced).
     static func savePNG(_ ctx: CGContext, to url: URL) {
         guard let img = ctx.makeImage() else { return }
 #if os(macOS)
@@ -517,9 +619,14 @@ enum IntroBuilder {
     }
 }
 
+/// Ride totals shown on the intro and outro.
 struct RideStats {
+    /// Distance in km.
     var distanceKm:   Double = 0
+    /// Elapsed time in seconds.
     var durationS:    Double = 0
+    /// Average speed over elapsed time, km/h.
     var avgSpeedKmh:  Double = 0
+    /// Total ascent in metres.
     var totalClimbM:  Double = 0
 }

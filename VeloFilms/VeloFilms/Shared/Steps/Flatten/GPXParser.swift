@@ -1,25 +1,49 @@
+// GPXParser.swift
+// GPX parsing, 1 Hz resampling with speed and gradient, distance maths, and fast nearest-time lookup.
+
 import Foundation
 
-/// A single resampled GPX telemetry point (1Hz grid).
+/// A single resampled GPX telemetry point on the 1 Hz grid.
 struct GPXPoint {
-    var epoch: Double        // Unix timestamp (seconds)
+    /// Unix time in seconds (whole seconds after resampling).
+    var epoch: Double
+    /// Latitude in degrees.
     var lat: Double
+    /// Longitude in degrees.
     var lon: Double
-    var elevation: Double    // metres
+    /// Elevation in metres (0 where the GPX has none).
+    var elevation: Double
+    /// Heart rate in bpm, if recorded.
     var hr: Double?
+    /// Cadence in rpm, if recorded.
     var cadence: Double?
-    var speedKmh: Double     // computed from haversine + Δt
-    var gradientPct: Double  // Strava grade_smooth if available, else 30-second window
-    var stravaGradePct: Double?  // interpolated from gpxtpx:grade; nil for non-Strava GPX
+    /// Speed in km/h, from the distance to the previous point (0 for the first point).
+    var speedKmh: Double
+    /// Gradient in percent: Strava's smoothed grade if available, otherwise measured over a 30-second window.
+    var gradientPct: Double
+    /// Strava's smoothed grade interpolated from `gpxtpx:grade`; `nil` for GPX files not built by StravaClient.
+    var stravaGradePct: Double?
 }
 
 /// Parses a .gpx file using XMLParser and resamples to a 1Hz timeline.
-/// Mirrors flatten.py: gpxpy parse → 1-second rows with speed + gradient.
+/// Same output as `flatten.py` in the original Python app: 1-second rows with speed and gradient.
+///
+/// Not thread-safe; use the static `parse(url:gpxTimeOffsetS:)`, which creates a fresh parser each call.
 final class GPXParser: NSObject, XMLParserDelegate {
 
     // MARK: - Public API
 
-    /// Parse a GPX file and return 1Hz-resampled telemetry points.
+    /// Parses a GPX file and returns telemetry resampled to one point per second.
+    ///
+    /// Only `trkpt` elements with latitude, longitude and a parseable time are used. Values between recorded
+    /// points are linearly interpolated.
+    /// - Parameters:
+    ///   - url: The `.gpx` file.
+    ///   - gpxTimeOffsetS: Seconds added to every GPX time to line up with the camera clock.
+    /// - Returns: Points in time order, or an empty array if fewer than two usable points were found.
+    /// - Throws: File read errors or the XML parser's error.
+    /// - Note: Memory and time grow with the ride's duration in seconds; a GPX with a corrupt far-off timestamp
+    ///   produces a very long timeline.
     static func parse(url: URL, gpxTimeOffsetS: Double = AppConfig.gpxTimeOffsetS) throws -> [GPXPoint] {
         let parser = GPXParser(gpxTimeOffsetS: gpxTimeOffsetS)
         return try parser.parse(url: url)
@@ -54,6 +78,13 @@ final class GPXParser: NSObject, XMLParserDelegate {
 
     // MARK: - XMLParserDelegate
 
+    /// Starts a new track point and reads its coordinates.
+    /// - Parameters:
+    ///   - parser: The XML parser.
+    ///   - elementName: Element being opened; only `trkpt` starts a point.
+    ///   - namespaceURI: Unused.
+    ///   - qualifiedName: Unused.
+    ///   - attributes: The element's attributes (`lat`, `lon` on `trkpt`).
     func parser(_ parser: XMLParser, didStartElement elementName: String,
                 namespaceURI: String?, qualifiedName: String?,
                 attributes: [String: String] = [:]) {
@@ -65,6 +96,10 @@ final class GPXParser: NSObject, XMLParserDelegate {
         }
     }
 
+    /// Collects element text for the current track point.
+    /// - Parameters:
+    ///   - parser: The XML parser.
+    ///   - string: A chunk of element text (may arrive in several pieces).
     func parser(_ parser: XMLParser, foundCharacters string: String) {
         let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return }
@@ -78,6 +113,12 @@ final class GPXParser: NSObject, XMLParserDelegate {
         }
     }
 
+    /// Stores the finished track point if it has coordinates and a valid time.
+    /// - Parameters:
+    ///   - parser: The XML parser.
+    ///   - elementName: Element being closed.
+    ///   - namespaceURI: Unused.
+    ///   - qualifiedName: Unused.
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName: String?) {
         if elementName == "trkpt",
@@ -94,6 +135,10 @@ final class GPXParser: NSObject, XMLParserDelegate {
         currentElement = ""
     }
 
+    /// Records the first XML error so `parse` can throw it.
+    /// - Parameters:
+    ///   - parser: The XML parser.
+    ///   - parseError: The error XMLParser reported.
     func parser(_ parser: XMLParser, parseErrorOccurred parseError: Error) {
         self.parseError = parseError
     }
@@ -102,7 +147,7 @@ final class GPXParser: NSObject, XMLParserDelegate {
 
     private func resample(_ raw: [RawPoint]) -> [GPXPoint] {
         guard raw.count >= 2 else { return [] }
-        let sorted = raw.sorted { $0.epoch < $1.epoch }
+        let sorted = Self.removingStationaryElevationChanges(raw.sorted { $0.epoch < $1.epoch })
         let startEpoch = sorted[0].epoch.rounded(.down)
         let endEpoch   = sorted[sorted.count - 1].epoch.rounded(.up)
 
@@ -152,6 +197,34 @@ final class GPXParser: NSObject, XMLParserDelegate {
         return out
     }
 
+    /// Below this average speed between two recorded points the rider counts as stationary (same 1 km/h
+    /// threshold ScoreCalculator uses for "moving").
+    private static let stationarySpeedKmh = 1.0
+
+    /// Removes elevation changes recorded while the rider wasn't moving, keeping the profile continuous.
+    ///
+    /// Owner rule: elevation can't change while stationary, so any change between two points with almost no
+    /// movement is bad data. A common cause is a barometric altimeter recalibrating during a long stop (seen as a
+    /// 91 m drop over a 12-minute stop with 6 m of movement). Each such change is subtracted from every later
+    /// point, so heights before the stop are kept and the shape of every hill after it is unchanged. Steep but
+    /// moving sections are never altered or smoothed.
+    /// - Parameter points: Recorded points in time order.
+    /// - Returns: The same points with stationary elevation changes removed.
+    private static func removingStationaryElevationChanges(_ points: [RawPoint]) -> [RawPoint] {
+        guard points.count >= 2 else { return points }
+        var out = points
+        var offset = 0.0
+        for i in 1..<points.count {
+            let prev = points[i - 1], curr = points[i]
+            let dt = curr.epoch - prev.epoch
+            let moved = haversineM(prev.lat, prev.lon, curr.lat, curr.lon)
+            let stationary = dt > 0 && (moved / dt) * 3.6 < stationarySpeedKmh
+            if stationary { offset -= curr.elevation - prev.elevation }
+            out[i].elevation = curr.elevation + offset
+        }
+        return out
+    }
+
     private func surrounding(_ t: Double, in sorted: [RawPoint]) -> (RawPoint, RawPoint)? {
         // Binary search for insertion point
         var lo = 0, hi = sorted.count - 1
@@ -173,9 +246,8 @@ final class GPXParser: NSObject, XMLParserDelegate {
 
     private func iso8601Epoch(_ str: String) -> Double? {
         let s = str
-        // Cycliq UTC bug: cameras record local time tagged as 'Z'.
-        // We reinterpret 'Z' using each camera's known timezone in ExtractStep;
-        // here we just parse the timestamp at face value and let ExtractStep fix it.
+        // GPX times are parsed at face value. Camera clock corrections (the Cycliq local-time-tagged-as-UTC
+        // issue) are applied to the video side in ExtractStep, not here.
         let fmt = ISO8601DateFormatter()
         fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fmt.date(from: s) { return date.timeIntervalSince1970 }
@@ -187,6 +259,13 @@ final class GPXParser: NSObject, XMLParserDelegate {
 
 // MARK: - Haversine distance
 
+/// Great-circle distance between two coordinates, in metres (haversine formula, Earth radius 6,371 km).
+/// - Parameters:
+///   - lat1: First latitude in degrees.
+///   - lon1: First longitude in degrees.
+///   - lat2: Second latitude in degrees.
+///   - lon2: Second longitude in degrees.
+/// - Returns: Distance in metres.
 func haversineM(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
     let R = 6_371_000.0
     let dLat = (lat2 - lat1) * .pi / 180
@@ -197,10 +276,16 @@ func haversineM(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) 
 
 // MARK: - GPX index for O(log n) epoch lookup
 
+/// Time-sorted GPX points with binary-search lookup by time.
 struct GPXIndex {
+    /// The points, which must be sorted by `epoch`.
     let points: [GPXPoint]
 
-    /// Returns the point whose epoch is closest to `epoch`, or nil if |delta| > tolerance.
+    /// Returns the point whose time is closest to `epoch`.
+    /// - Parameters:
+    ///   - epoch: Unix time in seconds.
+    ///   - tolerance: Largest allowed time difference in seconds.
+    /// - Returns: The nearest point, or `nil` if none is within `tolerance`.
     func nearest(epoch: Double, tolerance: Double = AppConfig.gpxTolerance) -> GPXPoint? {
         guard !points.isEmpty else { return nil }
         var lo = 0, hi = points.count - 1

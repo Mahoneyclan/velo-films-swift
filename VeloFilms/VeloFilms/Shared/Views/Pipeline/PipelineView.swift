@@ -1,10 +1,17 @@
+// PipelineView.swift
+// Older per-step pipeline list with Run All and Cancel. Not currently shown anywhere (ProjectDetailView replaced it).
+
 import SwiftUI
 
+/// A list of the seven pipeline steps with run buttons and progress. Not currently used.
 struct PipelineView: View {
+    /// The project to run.
     let project: Project
+    /// Runs the steps.
     var executor: PipelineExecutor
     @State private var completedSteps: Set<StepName> = []
 
+    /// The header buttons and one row per step.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -46,9 +53,7 @@ struct PipelineView: View {
             }
 
             if let error = executor.lastError {
-                Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.caption)
+                ErrorMessageView(error: error)
                     .padding(.top, 6)
             }
         }

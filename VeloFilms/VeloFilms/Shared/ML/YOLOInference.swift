@@ -1,3 +1,6 @@
+// YOLOInference.swift
+// On-device object detection (people, bicycles, vehicles) with a YOLO Core ML model, used by EnrichStep.
+
 import Foundation
 import CoreML
 import CoreGraphics
@@ -5,15 +8,24 @@ import CoreVideo
 
 /// Detection result for a single frame.
 struct YOLODetection {
+    /// COCO class name, e.g. "bicycle".
     var className: String
+    /// COCO class ID.
     var classIndex: Int
+    /// Model confidence, 0–1.
     var confidence: Float
-    var boundingBox: CGRect   // normalised [0,1] coordinates
+    /// Box in normalised [0, 1] coordinates.
+    var boundingBox: CGRect
 }
 
 /// Core ML YOLO inference engine.
 /// Uses MLModel directly (no Vision) to decode the raw [1, 84, 8400] output tensor
 /// from the nms=False export. Applies per-class NMS in Swift.
+/// Vision's VNCoreMLRequest isn't used because it doesn't handle this raw output format.
+///
+/// Only classes enabled in Settings are kept. Person shares the bicycle on/off switch, so turning bicycles off
+/// also drops people (and the pedestrian setting then has no effect). Thread-safety: model loading is locked;
+/// `detect` itself is meant to be called from one task at a time. Runs entirely on device.
 final class YOLODetector {
     private var mlModel: MLModel?
     private let modelURL: URL
@@ -48,6 +60,8 @@ final class YOLODetector {
         5: "bus", 7: "truck",
     ]
 
+    /// Creates a detector. The model is loaded on the first `detect` call.
+    /// - Parameter modelURL: The compiled `.mlmodelc`.
     init(modelURL: URL) {
         self.modelURL = modelURL
     }
@@ -62,7 +76,12 @@ final class YOLODetector {
         return model
     }
 
-    /// Run inference on a single frame. Returns detections and the scalar detect_score.
+    /// Runs inference on a single frame.
+    /// - Parameter image: The frame; it is resized to 640×640 (aspect ratio not preserved).
+    /// - Returns: Detections after NMS; `detectScore` = highest confidence × class weight (people without a
+    ///   bicycle in frame use the pedestrian weight); `bboxArea` = summed area of person/bicycle boxes as a
+    ///   fraction of the frame. All zero if the model output can't be read.
+    /// - Throws: Core ML errors loading the model or running the prediction.
     func detect(image: CGImage) throws -> (detections: [YOLODetection], detectScore: Double, bboxArea: Double) {
         let model = try loadModel()
         guard let outName = outputName else { return ([], 0, 0) }

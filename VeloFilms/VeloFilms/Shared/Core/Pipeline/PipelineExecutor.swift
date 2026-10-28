@@ -1,36 +1,59 @@
+// PipelineExecutor.swift
+// Runs pipeline steps in order, skipping finished prerequisites, and publishes status to the project screen.
+
 import Foundation
 import Observation
 import os
 
 /// Runs pipeline steps sequentially, enforces dependencies, handles cancellation.
-/// Mirrors pipeline_executor.py. Progress is reported via AsyncStream.
+/// Progress is reported via `ProgressReporter`. Same role as `pipeline_executor.py` in the original Python app.
+///
+/// Main-actor isolated: its properties drive the UI.
 @Observable
 @MainActor
 final class PipelineExecutor {
+    /// The step running now, if any.
     var runningStep: StepName?
+    /// Steps finished during this executor's lifetime (not read from disk).
     var completedSteps: Set<StepName> = []
+    /// The step that failed in the last run, if any.
     var failedStep: StepName?
+    /// The error from the last failed run.
     var lastError: Error?
+    /// Latest progress from the running step.
     var currentProgress: ProgressEvent?
+    /// `true` while a run is in progress. A new run is ignored until it ends.
     var isRunning: Bool = false
 
     private var task: Task<Void, Error>?
     private let log = Logger(subsystem: "com.velofilms", category: "PipelineExecutor")
+    /// Registered step implementations.
     var steps: [StepName: any PipelineStep] = [:]
 
+    /// Registers the implementation for a step, replacing any earlier one.
+    /// - Parameters:
+    ///   - step: The implementation to run.
+    ///   - name: The pipeline step it implements.
     func register(_ step: any PipelineStep, for name: StepName) {
         steps[name] = step
     }
 
+    /// Runs `stepName`, first running any prerequisite steps whose output is missing. Returns immediately.
+    ///
+    /// `stepName` itself always runs, even if its output exists. On failure the error is stored in `lastError`
+    /// and appended to `pipeline.log` in the project folder.
+    /// - Parameters:
+    ///   - stepName: The step to run.
+    ///   - project: The project to run it on.
     func run(_ stepName: StepName, project: Project) {
         guard !isRunning else { return }
         isRunning = true
         failedStep = nil
         lastError = nil
 
-        // Snapshot chain + step impls on MainActor now, then detach so heavy
-        // encode/decode work runs on the cooperative thread pool — Task.sleep and
-        // copyNextSampleBuffer never block the UI thread.
+        // Snapshot chain + step impls on MainActor now, then run them in a detached task.
+        // Note: the project's default isolation is MainActor, so the step implementations are main-actor
+        // isolated too. Their synchronous work runs on the main thread; only their awaits release it.
         let chain      = dependencyChain(for: stepName, project: project)
         let stepImpls  = steps   // [StepName: any PipelineStep] captured by value
 
@@ -93,6 +116,7 @@ final class PipelineExecutor {
         }
     }
 
+    /// Cancels the current run. Steps stop at their next cancellation check.
     func cancel() {
         task?.cancel()
     }
@@ -110,18 +134,33 @@ final class PipelineExecutor {
     }
 }
 
+/// Errors raised by pipeline steps.
 enum PipelineError: LocalizedError {
     case stepNotRegistered(String)
     case missingInput(String)
     case renderFailed(String)
     case ffmpegFailed(Int32, String)
 
+    /// Plain message shown on the project screen. Technical text is kept out of it and offered separately
+    /// through `technicalDetails`; the full error is also written to `pipeline.log`.
     var errorDescription: String? {
         switch self {
-        case .stepNotRegistered(let name):         return "Step '\(name)' is not registered"
-        case .missingInput(let detail):            return "Missing input: \(detail)"
-        case .renderFailed(let detail):            return "Render failed: \(detail)"
-        case .ffmpegFailed(let code, let stderr):  return "FFmpeg exited \(code): \(stderr)"
+        case .stepNotRegistered(let name): return "Step '\(name)' is not available in this version of the app."
+        case .missingInput(let detail):    return "Missing input: \(detail)"
+        case .renderFailed:                return "The video couldn't be rendered. See Details, or try running the step again."
+        case .ffmpegFailed:                return "FFmpeg couldn't render the video. See Details, or check that FFmpeg is installed (brew install ffmpeg)."
+        }
+    }
+
+    /// Technical text for the Details disclosure, or `nil` when the message says it all.
+    /// For `ffmpegFailed` this is the exit code and the last 40 lines of FFmpeg's output, where the cause is.
+    var technicalDetails: String? {
+        switch self {
+        case .stepNotRegistered, .missingInput: return nil
+        case .renderFailed(let detail):         return detail
+        case .ffmpegFailed(let code, let stderr):
+            let tail = stderr.split(separator: "\n", omittingEmptySubsequences: false).suffix(40)
+            return "FFmpeg exit code \(code)\n" + tail.joined(separator: "\n")
         }
     }
 }

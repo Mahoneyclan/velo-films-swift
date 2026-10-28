@@ -1,6 +1,14 @@
+// CopyVideosView.swift
+// Copies one day's clips from the Cycliq cameras (SD cards or folders) into the input folder and creates a project.
+
 import SwiftUI
 
+/// Scans the configured camera folders, groups clips by day (file modification date), and copies the chosen
+/// day's clips into `{inputBaseDir}/{folder name}` with a progress log.
+///
+/// Note: an existing file with the same name in the destination is deleted before copying it again.
 struct CopyVideosView: View {
+    /// Called after a successful copy, e.g. to close the parent sheet.
     var onComplete: (() -> Void)? = nil
 
     @Environment(ProjectStore.self) private var store
@@ -63,6 +71,7 @@ struct CopyVideosView: View {
 
     // MARK: - Body
 
+    /// Setup form, progress view, or a "not configured" message.
     var body: some View {
         NavigationStack {
             Group {
