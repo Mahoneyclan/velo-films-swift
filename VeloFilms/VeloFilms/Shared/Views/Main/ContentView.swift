@@ -22,7 +22,15 @@ struct ContentView: View {
 #endif
         } detail: {
             if let project = projectStore.selected {
-                ProjectDetailView(project: project)
+                if project.isFolderAvailable {
+                    ProjectDetailView(project: project)
+                } else {
+                    ContentUnavailableView {
+                        Label("Drive not connected", systemImage: "externaldrive.badge.xmark")
+                    } description: {
+                        Text("Connect the drive holding \(project.name), then select it again.\n\(project.folderURL.path)")
+                    }
+                }
             } else {
                 emptyDetail
             }

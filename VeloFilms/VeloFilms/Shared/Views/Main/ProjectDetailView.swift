@@ -71,7 +71,8 @@ struct ProjectDetailView: View {
             }
         }
         #if os(iOS)
-        .sheet(isPresented: $showFineTune) {
+        // Full screen, not a sheet: an iPad sheet is a smaller centred card that cut off the film strip.
+        .fullScreenCover(isPresented: $showFineTune) {
             FineTuneView(project: project)
         }
         #endif
@@ -372,7 +373,7 @@ struct ProjectDetailView: View {
     }
 
     /// Opens Fine Tune: its own resizable window on the Mac (a sheet can't be taller than the window it is
-    /// attached to), a full-screen sheet on iPad and iPhone.
+    /// attached to), full screen on iPad and iPhone.
     private func openFineTune() {
         #if os(macOS)
         openWindow(id: FineTuneView.windowID, value: project.id)

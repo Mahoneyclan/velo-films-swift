@@ -37,7 +37,11 @@ struct FineTuneView: View {
             Group {
                 if let model {
                     GeometryReader { geo in
-                        if geo.size.width >= Self.wideLayoutMinWidth { wide(model) } else { compact(model) }
+                        if geo.size.width >= Self.wideLayoutMinWidth {
+                            wide(model, stackFrames: geo.size.height > geo.size.width)
+                        } else {
+                            compact(model)
+                        }
                     }
                 } else if loadFailed {
                     ContentUnavailableView("Nothing to fine-tune yet", systemImage: "film.stack",
@@ -64,9 +68,6 @@ struct FineTuneView: View {
         }
         #if os(macOS)
         .frame(minWidth: 740, minHeight: 560)
-        #else
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
         #endif
         .task { load() }
         .onDisappear(perform: finish)
@@ -118,12 +119,16 @@ struct FineTuneView: View {
         }
     }
 
-    /// iPad and Mac: timeline across the top, large frame beside a details panel, film strip along the bottom.
-    private func wide(_ model: FineTuneModel) -> some View {
+    /// iPad and Mac: timeline across the top, the frames beside a details panel, film strip along the bottom.
+    /// - Parameter stackFrames: `true` when the screen is taller than wide (iPad portrait): front above rear fills
+    ///   the height instead of two small frames side by side.
+    /// The timeline and film strip keep their full height; the frames shrink to fit what is left, so the strip's
+    /// rows are never pushed off the bottom of the screen.
+    private func wide(_ model: FineTuneModel, stackFrames: Bool) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             timeline(model)
             HStack(alignment: .top, spacing: 16) {
-                frame(model, stacked: false)
+                frame(model, stacked: stackFrames)
                     .frame(maxWidth: .infinity, alignment: .top)
                 VStack(alignment: .leading, spacing: 14) {
                     chips(model, wrap: true)
@@ -137,6 +142,8 @@ struct FineTuneView: View {
             }
             .frame(maxHeight: .infinity)
             FilmStripView(model: model, framesDir: project.framesDir, thumbWidth: 128, twoRows: true) { confirmReset = true }
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
         }
         .padding(20)
     }

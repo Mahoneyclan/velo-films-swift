@@ -71,8 +71,9 @@ Only one run happens at a time, so GPX import and analysis Re-run are disabled w
 or pressing Re-run deletes all four analysis outputs, so the next analysis starts again from the GPX.
 The **Fine Tune** screen edits `select.jsonl` between Select and Build. On the Mac it opens in its own resizable
 window (`FineTuneWindow`, a `WindowGroup` keyed by project id; a sheet can't grow taller than its parent window); on
-iPad and iPhone it is a full-screen sheet. `FineTuneView` lays it out (stacked below 760 pt wide, side panel above);
-the open moment shows its front and rear frames together (side by side, stacked on iPhone) and tapping a frame puts
+iPad and iPhone it covers the full screen (an iPad sheet is a smaller card that cut off the film strip). `FineTuneView`
+lays it out (stacked below 760 pt wide, side panel above; the frames shrink so the film strip always fits);
+the open moment shows its front and rear frames together (side by side, stacked on iPhone and iPad portrait) and tapping a frame puts
 that camera's clip in the reel. The film strip has a front row above a rear row on iPad and Mac (one row on iPhone). `FineTuneModel` holds the rules (in/out of the reel, camera per clip,
 filters, reset, save) with no view code; `FineTuneData` reads the picks, laps and elevation; `MomentReasons` writes
 the "Why this moment" lines; `RideTimelineView`, `MomentDetailView`, `FilmStripView` and `FrameImage` are the parts.
@@ -101,7 +102,7 @@ normalised. A moment filmed by both cameras gets an extra dual-camera bonus duri
 |---|---|---|
 | Project folder | `{projectsRoot}/{name}/` on an external drive | `working/` (GPX, JSONL, Strava files), `frames/`, `minimaps/`, `elevation/`, `splash_assets/`, `clips/`, `preferences.json`, `pipeline.log`, final reel |
 | Raw clips | `{inputBaseDir}/{name}/` or a folder chosen at project creation | Read only by the pipeline; written by Copy from Camera |
-| Project list | UserDefaults `projectStoreV1` | Name, ID and paths only |
+| Project list | UserDefaults `projectStoreV1` (name, id, paths) | Projects made earlier are added back with **+ → Open existing project** (a folder with `working/`); projects whose drive isn't connected stay listed as "Drive not connected" |
 | App settings | UserDefaults (keys in `GlobalSettings`) | Key names are permanent |
 | Music folder | Wherever the user chose (iCloud Drive, Dropbox…); security-scoped bookmark `musicFolderBookmark` | Read in place; tracks used by a reel are copied to a temporary cache first |
 | Added songs ("My Music" in code) | Mac: `~/Music/Velo Films/`; iPhone/iPad: the app's Application Support `Music/` | Listed by `MusicLibrary`; tracks are matched by file name |
@@ -129,9 +130,9 @@ main-actor isolated too: their synchronous work runs on the main thread and only
 
 ## Testing
 
-`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 70 tests:
+`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 75 tests:
 clip selection (`ClipSelectorTests`), the Fine Tune rules and data (`FineTuneModelTests`, `FineTuneDataTests`,
-`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing) and the moment filters (`FocusFilterTests`, XCTest). Run with
+`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing), opening existing projects (`OpenProjectTests`) and the moment filters (`FocusFilterTests`, XCTest). Run with
 `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'`. No test touches the network or the footage drives. Screens are hand-tested; the steps
 for each change are recorded in `docs/review/PROGRESS.md`.
 

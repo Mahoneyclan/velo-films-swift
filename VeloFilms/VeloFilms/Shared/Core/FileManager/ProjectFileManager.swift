@@ -24,6 +24,16 @@ enum ProjectFileManager {
         }
     }
 
+    /// Whether a folder is a Velo Films project: it holds a `working/` folder (created with every project and
+    /// where the pipeline writes its files). Used by "Open Existing Project" to reject raw-clip folders.
+    /// - Parameter url: The folder the user picked.
+    /// - Returns: `true` if `url/working` exists and is a folder.
+    static func isProjectFolder(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.appending(path: "working").path, isDirectory: &isDir)
+            && isDir.boolValue
+    }
+
     /// Lists every subfolder of `root` as a project, newest name first. Not currently used.
     /// - Parameter root: The projects root folder.
     /// - Returns: One `Project` per subfolder.

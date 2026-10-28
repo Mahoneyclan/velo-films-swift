@@ -64,7 +64,7 @@ struct ProjectListView: View {
                 ContentUnavailableView {
                     Label("No Projects Yet", systemImage: "film.stack")
                 } description: {
-                    Text("Insert your Cycliq SD card, then tap **+** → Copy from Camera to create your first ride project.")
+                    Text("Insert your Cycliq SD card, then tap **+** → Copy from Camera to create your first ride project. Made one before? Tap **+** → Open existing project.")
                 } actions: {
                     Button("Add Project") { showImport = true }
                         .buttonStyle(.borderedProminent)
@@ -80,17 +80,22 @@ private struct ProjectRow: View {
     var artifacts: ProjectArtifacts { ProjectArtifacts.check(project) }
 
     var body: some View {
+        let available = project.isFolderAvailable
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name).font(.headline)
-                Text(statusLabel).font(.caption).foregroundStyle(.secondary)
+                Text(available ? statusLabel : "Drive not connected").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if artifacts.finalReelExists {
+            if !available {
+                Image(systemName: "externaldrive.badge.xmark").foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            } else if artifacts.finalReelExists {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
             }
         }
         .padding(.vertical, 4)
+        .opacity(available ? 1 : 0.6)
     }
 
     private var statusLabel: String {

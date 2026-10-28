@@ -6,7 +6,7 @@ and renders with map, gauge and elevation overlays.
 ## Build (verified 2026-10-28: iOS and macOS builds and tests OK)
 - macOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS' build`
 - iPad/iOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=iOS Simulator,name=iPhone 17' build`
-- Tests: `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'` (70 tests in `VeloFilms/VeloFilmsTests/`; also passes on the iPhone 17 simulator).
+- Tests: `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'` (75 tests in `VeloFilms/VeloFilmsTests/`; also passes on the iPhone 17 simulator).
 
 ## Layout
 - `VeloFilms/VeloFilms/`: app source; `VeloFilms/VeloFilmsTests/`: unit tests (the two folders in the build)

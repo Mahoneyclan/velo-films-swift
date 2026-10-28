@@ -74,6 +74,10 @@ extension Project {
 }
 
 extension Project {
+    /// `true` if the project folder can be reached now; `false` when its drive isn't connected.
+    /// - Note: Synchronous file system check; cheap, but don't call it in a tight loop.
+    var isFolderAvailable: Bool { FileManager.default.fileExists(atPath: folderURL.path) }
+
     /// Creates the project folder and its output subfolders.
     /// - Throws: File system errors, e.g. when the drive is not mounted.
     func createOutputDirectories() throws {
@@ -162,6 +166,39 @@ final class ProjectStore {
         save()
     }
 
+    /// Adds an existing project folder to the list, or finds it if it's already there, and selects it.
+    /// - Parameter folderURL: A folder that `ProjectFileManager.isProjectFolder` accepts.
+    /// - Returns: The project now selected.
+    @discardableResult
+    func open(folderURL: URL) -> Project {
+        if let existing = Self.project(at: folderURL, in: projects) {
+            selected = existing
+            return existing
+        }
+        let project = Project(name: folderURL.lastPathComponent, folderURL: folderURL)
+        add(project)
+        selected = project
+        return project
+    }
+
+    /// The project whose folder is `folderURL`, comparing standardized paths (so a trailing slash or `..`
+    /// doesn't create a duplicate).
+    /// - Parameters:
+    ///   - folderURL: The folder to look for.
+    ///   - projects: The list to search.
+    /// - Returns: The matching project, or `nil`.
+    static func project(at folderURL: URL, in projects: [Project]) -> Project? {
+        let target = comparablePath(folderURL)
+        return projects.first { comparablePath($0.folderURL) == target }
+    }
+
+    /// `url`'s path with `..`/`.` resolved and no trailing slash (folder URLs from pickers end in "/").
+    private static func comparablePath(_ url: URL) -> String {
+        var path = url.standardizedFileURL.path(percentEncoded: false)
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
+
     /// Removes a project from the list (its folder is not deleted) and saves the list.
     /// - Parameter project: The project to remove (matched by `id`).
     func remove(_ project: Project) {
@@ -193,9 +230,8 @@ final class ProjectStore {
                   let idStr = record["id"],
                   let id = UUID(uuidString: idStr),
                   let path = record["path"] else { return nil }
-            // Projects whose folder is missing (e.g. drive not mounted) are skipped. The next add/remove saves the
-        // list without them, so they disappear from the list permanently.
-        guard FileManager.default.fileExists(atPath: path) else { return nil }
+            // Projects whose drive isn't connected are kept; the list shows them as "Drive not connected"
+            // (`Project.isFolderAvailable`).
             let url       = Self.reanchor(path: path, under: root)
             let sourceURL = record["sourcePath"].map { Self.reanchor(path: $0, under: srcBase) }
             return Project(id: id, name: name, folderURL: url, sourceVideoURL: sourceURL)
