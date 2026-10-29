@@ -60,7 +60,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how each step works and which files i
 - **Copy from Camera** — plug in the Cycliq SD card; the importer detects cameras, filters to the selected date, and copies clips
 - **Open existing project** — **+ → Open existing project…** and pick a ride's project folder (made on this or
   another device) to add it back to the list. Projects on a drive that isn't connected stay in the list as
-  "Drive not connected".
+  "Drive not connected". A ride analysed on the Mac can be built on the iPad (and the other way round): the app
+  finds its videos in this device's Input Videos folder (Settings) under the ride's name, e.g. `Fly_Raw/[Name]`.
 - **Strava** — downloads the ride's GPX, segment efforts, laps, and activity description
 - **Your own `.gpx` file** — save it as `working/ride.gpx` inside the project folder (the project screen looks for that name)
 

@@ -10,8 +10,8 @@ import SwiftUI
 struct FilmStripView: View {
     /// The Fine Tune state.
     let model: FineTuneModel
-    /// The project's `frames/` folder.
-    let framesDir: URL
+    /// The project: its `frames/` folder, and its video folder for frames missing there.
+    let project: Project
     /// Thumbnail width; height follows at 16:9.
     let thumbWidth: CGFloat
     /// `true` for a front row above a rear row; `false` for one row showing the camera in the reel (or the
@@ -113,7 +113,7 @@ struct FilmStripView: View {
     private func cell(_ row: EnrichRow?, inReel: Bool, clock: String?) -> some View {
         ZStack {
             if let row {
-                FrameImage(row: row, framesDir: framesDir, maxPixel: 360)
+                FrameImage(row: row, project: project, maxPixel: 360)
             } else {
                 Rectangle().fill(.quaternary)
                 Image(systemName: "video.slash").foregroundStyle(.secondary)

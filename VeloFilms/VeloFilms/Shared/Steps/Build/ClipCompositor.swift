@@ -32,37 +32,12 @@ struct ClipCompositor: Sendable {
     /// Folder for `clip_NNNN.mp4` files.
     let outputDir: URL
 
-    /// Re-derives a file URL from one of the bookmark-resolved parent URLs in GlobalSettings.
-    /// Handles cross-platform projects: a path written on iPad resolves correctly on macOS
-    /// (and vice versa) by matching on the parent folder's last path component.
-    /// - Parameter path: The clip path stored in the JSONL files.
-    /// - Returns: A URL under a matching settings folder, or the path unchanged if none matches.
-    static func reanchorSourceURL(_ path: String) -> URL {
-        let gs = GlobalSettings.shared
-        let candidates = [gs.fly12SourceURL, gs.fly6SourceURL, gs.inputBaseDir].compactMap { $0 }
-        for parent in candidates {
-            let parentPath = parent.path(percentEncoded: false)
-            if path.hasPrefix(parentPath) {
-                let relative = String(path.dropFirst(parentPath.count)).drop(while: { $0 == "/" })
-                if !relative.isEmpty { return parent.appending(path: String(relative)) }
-                return parent
-            }
-            let anchor = parent.lastPathComponent
-            if !anchor.isEmpty {
-                let needle = "/\(anchor)/"
-                if let r = path.range(of: needle) {
-                    let relative = String(path[r.upperBound...])
-                    if !relative.isEmpty { return parent.appending(path: relative) }
-                }
-            }
-        }
-        return URL(fileURLWithPath: path)
-    }
-
     /// Renders one clip of `AppConfig.clipOutLenS` seconds, starting `clipPreRollS` before the moment.
     /// - Parameters:
     ///   - mainRow: The full-screen camera row.
     ///   - pipRow: The other camera's row for picture-in-picture, or `nil`.
+    ///   - videoURL: Where a row's camera video is on this device (`Project.videoURL(forStoredPath:)`); the
+    ///     stored path is from whichever device analysed the ride.
     ///   - minimapPath: Map overlay PNG.
     ///   - elevationPath: Elevation strip PNG.
     ///   - gaugeDir: Folder of gauge frames `gauge_0001.png`… at one frame per second.
@@ -73,6 +48,7 @@ struct ClipCompositor: Sendable {
     func renderClip(
         mainRow:       EnrichRow,
         pipRow:        EnrichRow?,
+        videoURL:      (EnrichRow) -> URL,
         minimapPath:   URL,
         elevationPath: URL,
         gaugeDir:      URL,
@@ -87,14 +63,14 @@ struct ClipCompositor: Sendable {
         // -framerate 1 must appear before -i when using an image sequence
         var inputs: [String] = [
             "-ss", String(tStartMain), "-t", String(duration),
-            "-i", Self.reanchorSourceURL(mainRow.videoPath).path,
+            "-i", videoURL(mainRow).path,
         ]
 
         let filterComplex: String
         if let pip = pipRow {
             let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
             inputs += ["-ss", String(tStartPip), "-t", String(duration),
-                       "-i", Self.reanchorSourceURL(pip.videoPath).path]
+                       "-i", videoURL(pip).path]
             // map=2, elev=3, gauge=4
             inputs += ["-i", minimapPath.path,
                        "-i", elevationPath.path,
@@ -147,7 +123,7 @@ struct ClipCompositor: Sendable {
         }
 
         let composition = AVMutableComposition()
-        let mainAsset   = AVURLAsset(url: URL(fileURLWithPath: mainRow.videoPath))
+        let mainAsset   = AVURLAsset(url: videoURL(mainRow))
 
         guard let mainVSrc = try await mainAsset.loadTracks(withMediaType: .video).first else {
             throw PipelineError.renderFailed("ClipCompositor: no video track in main clip")
@@ -161,7 +137,7 @@ struct ClipCompositor: Sendable {
             let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
             let pipStart  = CMTimeMakeWithSeconds(tStartPip, preferredTimescale: ts)
             let pipRange  = CMTimeRange(start: pipStart, duration: durCM)
-            let pipAsset  = AVURLAsset(url: URL(fileURLWithPath: pip.videoPath))
+            let pipAsset  = AVURLAsset(url: videoURL(pip))
             if let pipVSrc = try? await pipAsset.loadTracks(withMediaType: .video).first {
                 let pipTrack = composition.addMutableTrack(
                     withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!

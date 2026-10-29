@@ -107,7 +107,7 @@ struct FineTuneView: View {
                 timeline(model)
                 chips(model, wrap: false)
                 detail(model)
-                FilmStripView(model: model, framesDir: project.framesDir, thumbWidth: 112, twoRows: false) { confirmReset = true }
+                FilmStripView(model: model, project: project, thumbWidth: 112, twoRows: false) { confirmReset = true }
             }
             .padding(.horizontal, 12)
             .padding(.top, 4)
@@ -141,7 +141,7 @@ struct FineTuneView: View {
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
             }
             .frame(maxHeight: .infinity)
-            FilmStripView(model: model, framesDir: project.framesDir, thumbWidth: 128, twoRows: true) { confirmReset = true }
+            FilmStripView(model: model, project: project, thumbWidth: 128, twoRows: true) { confirmReset = true }
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
         }
@@ -209,7 +209,7 @@ struct FineTuneView: View {
     private func frame(_ model: FineTuneModel, stacked: Bool) -> some View {
         if let m = model.current {
             MomentFrames(rows: model.cameraRows(of: m), reelCamera: model.reelCamera(of: m.momentId),
-                         framesDir: project.framesDir, clock: model.clock(Double(m.momentId)),
+                         project: project, clock: model.clock(Double(m.momentId)),
                          status: model.status(of: m.momentId), stacked: stacked) { model.tapCamera($0) }
         } else {
             ContentUnavailableView {

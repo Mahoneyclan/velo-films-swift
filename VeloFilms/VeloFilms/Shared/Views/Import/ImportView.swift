@@ -14,6 +14,15 @@ struct ImportView: View {
         case rawVideos
         /// A project folder made earlier; it is added to the list as it is.
         case existingProject
+
+        /// Where the picker starts: the Projects folder for an existing project, the Input Videos folder for raw
+        /// clips (both from Settings), so the two same-named ride folders aren't mixed up.
+        var startFolder: URL? {
+            switch self {
+            case .rawVideos:       return GlobalSettings.shared.inputBaseDir
+            case .existingProject: return GlobalSettings.shared.projectsRoot
+            }
+        }
     }
 
     @Environment(ProjectStore.self) private var store
@@ -69,6 +78,7 @@ struct ImportView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+            .fileDialogDefaultDirectory(folderPurpose.startFolder)
 #endif
         }
         .frame(minWidth: 360, minHeight: 300)
@@ -90,6 +100,7 @@ struct ImportView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = purpose == .existingProject ? "Open Project" : "Choose"
+        panel.directoryURL = purpose.startFolder
         if panel.runModal() == .OK, let url = panel.url {
             handlePicked(url)
         }

@@ -11,8 +11,8 @@ struct MomentFrames: View {
     let rows: [EnrichRow]
     /// The camera whose clip is in the reel, if any.
     let reelCamera: String?
-    /// The project's `frames/` folder.
-    let framesDir: URL
+    /// The project: its `frames/` folder, and its video folder for frames missing there.
+    let project: Project
     /// Clock text, e.g. "0:16:05".
     let clock: String
     /// How the moment came to be in or out of the reel.
@@ -44,7 +44,7 @@ struct MomentFrames: View {
         let inReel = row.camera == reelCamera
         let name = CameraNames.label(for: row.camera)
         return Button { onTap(row.camera) } label: {
-            FrameImage(row: row, framesDir: framesDir, maxPixel: 1600)
+            FrameImage(row: row, project: project, maxPixel: 1600)
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange, lineWidth: inReel ? 4 : 0))

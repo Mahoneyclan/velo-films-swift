@@ -78,6 +78,29 @@ extension Project {
     /// - Note: Synchronous file system check; cheap, but don't call it in a tight loop.
     var isFolderAvailable: Bool { FileManager.default.fileExists(atPath: folderURL.path) }
 
+    /// This project's camera-video folder on this device: the folder chosen when the project was created, else the
+    /// Input Videos folder from Settings plus the project name (e.g. `Fly_Raw/[Name]`).
+    /// - Parameter inputBase: The Input Videos folder (injectable for tests).
+    /// - Returns: The folder, or `nil` when neither is set.
+    func videoFolder(inputBase: URL? = GlobalSettings.shared.inputBaseDir) -> URL? {
+        sourceVideoURL ?? inputBase.map { sourceVideosDir(inputBase: $0) }
+    }
+
+    /// Where a clip named in the project's files is on this device.
+    ///
+    /// The stored `video_path` is a full path on whichever device analysed the ride (`/Volumes/AData/…` on the Mac,
+    /// `/private/var/mobile/…` on iPad), and the same drive appears at a different path on the other device. Only
+    /// its file name is used, looked up in `videoFolder(inputBase:)`.
+    /// - Parameters:
+    ///   - path: `video_path` from a project file.
+    ///   - inputBase: The Input Videos folder (injectable for tests).
+    /// - Returns: The clip's URL in this device's video folder, or `path` unchanged when no folder is set.
+    func videoURL(forStoredPath path: String, inputBase: URL? = GlobalSettings.shared.inputBaseDir) -> URL {
+        let stored = URL(fileURLWithPath: path)
+        guard let folder = videoFolder(inputBase: inputBase) else { return stored }
+        return folder.appending(path: stored.lastPathComponent)
+    }
+
     /// Creates the project folder and its output subfolders.
     /// - Throws: File system errors, e.g. when the drive is not mounted.
     func createOutputDirectories() throws {
@@ -123,9 +146,7 @@ struct ProjectArtifacts {
     static func check(_ project: Project, inputBase: URL? = GlobalSettings.shared.inputBaseDir) -> ProjectArtifacts {
         let fm = FileManager.default
         var videoCount = 0
-        let srcDir: URL? = project.sourceVideoURL
-            ?? inputBase.map { project.sourceVideosDir(inputBase: $0) }
-        if let srcDir {
+        if let srcDir = project.videoFolder(inputBase: inputBase) {
             let contents = (try? fm.contentsOfDirectory(at: srcDir,
                                                          includingPropertiesForKeys: nil,
                                                          options: .skipsHiddenFiles)) ?? []

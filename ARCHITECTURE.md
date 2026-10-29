@@ -101,7 +101,7 @@ normalised. A moment filmed by both cameras gets an extra dual-camera bonus duri
 | What | Where | Notes |
 |---|---|---|
 | Project folder | `{projectsRoot}/{name}/` on an external drive | `working/` (GPX, JSONL, Strava files), `frames/`, `minimaps/`, `elevation/`, `splash_assets/`, `clips/`, `preferences.json`, `pipeline.log`, final reel |
-| Raw clips | `{inputBaseDir}/{name}/` or a folder chosen at project creation | Read only by the pipeline; written by Copy from Camera |
+| Raw clips | `{inputBaseDir}/{name}/` or a folder chosen at project creation | Read only by the pipeline; written by Copy from Camera. The JSONL `video_path` is a full path from the device that ran Extract, so videos are opened by file name inside this device's folder (`Project.videoURL(forStoredPath:)`); the same drive can move between Mac and iPad. Build checks every reel video is reachable before it deletes or renders anything |
 | Project list | UserDefaults `projectStoreV1` (name, id, paths) | Projects made earlier are added back with **+ → Open existing project** (a folder with `working/`); projects whose drive isn't connected stay listed as "Drive not connected" |
 | App settings | UserDefaults (keys in `GlobalSettings`) | Key names are permanent |
 | Music folder | Wherever the user chose (iCloud Drive, Dropbox…); security-scoped bookmark `musicFolderBookmark` | Read in place; tracks used by a reel are copied to a temporary cache first |
@@ -130,9 +130,9 @@ main-actor isolated too: their synchronous work runs on the main thread and only
 
 ## Testing
 
-`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 75 tests:
+`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 81 tests:
 clip selection (`ClipSelectorTests`), the Fine Tune rules and data (`FineTuneModelTests`, `FineTuneDataTests`,
-`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing), opening existing projects (`OpenProjectTests`) and the moment filters (`FocusFilterTests`, XCTest). Run with
+`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing), opening existing projects (`OpenProjectTests`), finding camera videos on the other device (`VideoLocationTests`) and the moment filters (`FocusFilterTests`, XCTest). Run with
 `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'`. No test touches the network or the footage drives. Screens are hand-tested; the steps
 for each change are recorded in `docs/review/PROGRESS.md`.
 

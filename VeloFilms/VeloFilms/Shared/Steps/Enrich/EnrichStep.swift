@@ -85,7 +85,7 @@ struct EnrichStep: PipelineStep {
             while clipEnd < sorted.count && sorted[clipEnd].videoPath == clipPath { clipEnd += 1 }
 
             let generator = FrameSampler.makeGenerator(
-                for: ClipCompositor.reanchorSourceURL(clipPath))
+                for: project.videoURL(forStoredPath: clipPath))
 
             for rowIdx in clipStart..<clipEnd {
                 let row = sorted[rowIdx]

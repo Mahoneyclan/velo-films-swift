@@ -9,8 +9,8 @@ import ImageIO
 struct FrameImage: View {
     /// The camera row whose frame is shown.
     let row: EnrichRow
-    /// The project's `frames/` folder.
-    let framesDir: URL
+    /// The project: its `frames/` folder, and its video folder for frames missing there.
+    let project: Project
     /// Longest side in pixels after decoding; small for film-strip thumbnails, large for the open moment.
     let maxPixel: Int
 
@@ -31,27 +31,28 @@ struct FrameImage: View {
         .clipped()
         .task(id: row.index) {
             image = nil
-            image = await Self.load(row: row, framesDir: framesDir, maxPixel: maxPixel)
+            image = await Self.load(row: row, project: project, maxPixel: maxPixel)
         }
     }
 
     /// Loads the frame: the saved JPEG if present, otherwise the video at the moment's time.
     /// - Parameters:
     ///   - row: The camera row.
-    ///   - framesDir: The project's `frames/` folder.
+    ///   - project: The project holding the frame and the video.
     ///   - maxPixel: Longest side after decoding.
     /// - Returns: The image, or `nil` if neither source could be read.
-    static func load(row: EnrichRow, framesDir: URL, maxPixel: Int) async -> CGImage? {
+    static func load(row: EnrichRow, project: Project, maxPixel: Int) async -> CGImage? {
         // Security: the index comes from a project file; keep only its last path component so it can't point
         // outside frames/.
         let name = URL(fileURLWithPath: row.index).lastPathComponent
-        let jpeg = framesDir.appending(path: "\(name).jpg")
+        let jpeg = project.framesDir.appending(path: "\(name).jpg")
         let decoded = await Task.detached(priority: .userInitiated) {
             decode(jpeg, maxPixel: maxPixel)
         }.value
         if let decoded { return decoded }
         let second = max(0, row.absTimeEpoch - row.clipStartEpoch - AppConfig.clipPreRollS)
-        return await FrameSampler.extractFrame(videoURL: URL(fileURLWithPath: row.videoPath), atSecond: second)
+        return await FrameSampler.extractFrame(videoURL: project.videoURL(forStoredPath: row.videoPath),
+                                                atSecond: second)
     }
 
     /// Decodes a JPEG scaled down to `maxPixel` (ImageIO thumbnails avoid decoding the full 2560-pixel frame).

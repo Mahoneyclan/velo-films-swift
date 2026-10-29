@@ -58,6 +58,8 @@ struct BuildStep: PipelineStep {
             .sorted { ($0.primary?.absTimeEpoch ?? 0) < ($1.primary?.absTimeEpoch ?? 0) }
         let total          = moments.count
 
+        try Self.checkVideosReachable(moments.compactMap(\.primary), in: project)
+
         clearDirectory(project.minimapsDir)
         clearDirectory(project.elevationDir)
         clearClips(in: project.clipsDir)
@@ -115,6 +117,7 @@ struct BuildStep: PipelineStep {
             try await compositor.renderClip(
                 mainRow:       primary,
                 pipRow:        moment.secondary,
+                videoURL:      { project.videoURL(forStoredPath: $0.videoPath) },
                 minimapPath:   minimap,
                 elevationPath: elev,
                 gaugeDir:      gaugeDir,
@@ -124,6 +127,29 @@ struct BuildStep: PipelineStep {
         }
 
         await reporter.report(current: total, total: total, message: "Build complete")
+    }
+
+    // MARK: - Checks
+
+    /// Stops the build before anything is deleted or rendered when a clip's camera video can't be found on this
+    /// device, e.g. the drive isn't connected or its raw videos were archived.
+    /// - Parameters:
+    ///   - rows: The camera row of every clip in the reel.
+    ///   - project: The project, which knows its video folder on this device.
+    ///   - inputBase: The Input Videos folder (injectable for tests).
+    /// - Throws: `PipelineError.missingInput` naming the first missing video and the folder searched.
+    static func checkVideosReachable(_ rows: [EnrichRow], in project: Project,
+                                     inputBase: URL? = GlobalSettings.shared.inputBaseDir) throws {
+        let fm = FileManager.default
+        for row in rows {
+            let url = project.videoURL(forStoredPath: row.videoPath, inputBase: inputBase)
+            if !fm.fileExists(atPath: url.path(percentEncoded: false)) {
+                throw PipelineError.missingInput(
+                    "Can't find the camera video \(url.lastPathComponent) in "
+                    + "\(url.deletingLastPathComponent().path(percentEncoded: false)). Connect the drive with "
+                    + "this ride's raw videos, or check the Input Videos folder in Settings.")
+            }
+        }
     }
 
     // MARK: - Directory cleanup
