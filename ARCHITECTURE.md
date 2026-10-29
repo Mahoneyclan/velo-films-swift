@@ -50,7 +50,9 @@ Views (SwiftUI)  ──>  PipelineExecutor  ──>  Steps (Flatten … Concat) 
 - **Views** show state and start actions. `ProjectDetailView` is the main screen; it owns a `PipelineExecutor` and
   registers the seven step implementations.
 - **PipelineExecutor** runs a step and any prerequisite whose output file is missing, publishes progress, and
-  appends failures to `pipeline.log` in the project folder.
+  appends failures to `pipeline.log` in the project folder. It first re-opens folder access and checks the
+  project's `working/` folder can be read; if not, it stops with a plain message (an unreadable folder would
+  otherwise look like nothing had run and restart the analysis).
 - **Steps** read the previous step's file and write their own. Each conforms to `PipelineStep`.
 - **Settings** are read through `AppConfig` (fixed constants plus pass-throughs to `GlobalSettings`).
 
@@ -119,7 +121,7 @@ JSONL key names match the original Python app's files and are permanent.
 | Clip render | FFmpeg `filter_complex` + `loudnorm` (`ClipCompositor`) | AVFoundation + `ClipVideoCompositor` (Metal-backed Core Image), no loudness normalisation |
 | Concat | FFmpeg `xfade`/`acrossfade` | AVFoundation opacity and volume ramps |
 | Intro/outro | AVFoundation (`VideoEncoder`) | Same |
-| Folder access | Unsandboxed file access | Security-scoped folder picker (`FilePickerBridge`) |
+| Folder access | Unsandboxed file access | Security-scoped folder picker (`FilePickerBridge`); bookmarks re-opened at launch, when the app comes to the front and before each run |
 | Keychain | Login keychain | Data-protection keychain, this device only |
 
 ## Concurrency
@@ -131,9 +133,9 @@ main-actor isolated too: their synchronous work runs on the main thread and only
 
 ## Testing
 
-`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 81 tests:
+`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 84 tests:
 clip selection (`ClipSelectorTests`), the Fine Tune rules and data (`FineTuneModelTests`, `FineTuneDataTests`,
-`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing), opening existing projects (`OpenProjectTests`), finding camera videos on the other device (`VideoLocationTests`) and the moment filters (`FocusFilterTests`, XCTest). Run with
+`MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing), opening existing projects (`OpenProjectTests`), finding camera videos on the other device (`VideoLocationTests`), stopping when a project can't be read (`ProjectFolderAccessTests`) and the moment filters (`FocusFilterTests`, XCTest). Run with
 `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'`. No test touches the network or the footage drives. Screens are hand-tested; the steps
 for each change are recorded in `docs/review/PROGRESS.md`.
 

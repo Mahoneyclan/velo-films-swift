@@ -12,6 +12,7 @@ Keep this file current whenever storage, sign-in or network code changes.
 | Ride GPS tracks (GPX, JSONL) | Project folders on the external drives | Default file permissions only; reveal home location. Open finding (Medium). |
 | Camera footage and rendered videos | External drives | Default file permissions. |
 | App settings | UserDefaults / @AppStorage | Not sensitive. |
+| Folder permissions (iPad) | Bookmarks of the folders picked in Settings, in UserDefaults | Give access only to those folders. Re-opened at launch, when the app comes to the front, and before each pipeline run (`GlobalSettings.restoreFolderAccess`), so a drive plugged in later is picked up. |
 | User's own music (My Music) | Mac: `~/Music/Velo Films/`; iPad: inside the app | Default file permissions. Never bundled: only royalty-free music ships in the app (commercial tracks removed 2026-10-26). `.gitignore` keeps loose tracks in `Resources/music/` out of git; checked 2026-10-26 that no commercial track was ever committed. |
 
 The app has no analytics or tracking. Data is sent only to Strava and (map tiles / snapshots) Apple Maps.

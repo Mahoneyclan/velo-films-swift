@@ -8,6 +8,7 @@ import SwiftUI
 @main
 struct VeloFilmsApp: App {
     @State private var projectStore = ProjectStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Runs once at launch, before any window appears.
     init() {
@@ -31,6 +32,15 @@ struct VeloFilmsApp: App {
             ContentView()
                 .environment(projectStore)
         }
+#if os(iOS)
+        // A drive plugged in while the app was in the background isn't readable until folder access is re-opened;
+        // then the project screens re-check which files exist.
+        .onChange(of: scenePhase) {
+            guard scenePhase == .active else { return }
+            GlobalSettings.shared.restoreFolderAccess()
+            projectStore.lastPipelineUpdate = .now
+        }
+#endif
 #if os(macOS)
         .windowStyle(.titleBar)
         .commands {

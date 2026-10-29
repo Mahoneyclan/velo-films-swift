@@ -47,9 +47,19 @@ final class PipelineExecutor {
     ///   - project: The project to run it on.
     func run(_ stepName: StepName, project: Project) {
         guard !isRunning else { return }
-        isRunning = true
         failedStep = nil
         lastError = nil
+
+        // An unreadable project folder looks like one whose steps never ran, which would start the analysis over
+        // from the GPX. Re-open folder access (a drive plugged in after launch) and stop with a plain message if
+        // the files still can't be read.
+        GlobalSettings.shared.restoreFolderAccess()
+        if let problem = Self.projectFolderProblem(project) {
+            failedStep = stepName
+            lastError = problem
+            return
+        }
+        isRunning = true
 
         // Snapshot chain + step impls on MainActor now, then run them in a detached task.
         // Note: the project's default isolation is MainActor, so the step implementations are main-actor
@@ -116,6 +126,15 @@ final class PipelineExecutor {
         }
     }
 
+    /// Checks that the project's `working/` folder can be read.
+    /// - Parameter project: The project about to run.
+    /// - Returns: `PipelineError.projectFolderUnreadable` when it can't be listed (drive not connected, or no
+    ///   permission on iPad), otherwise `nil`.
+    static func projectFolderProblem(_ project: Project) -> PipelineError? {
+        let listed = try? FileManager.default.contentsOfDirectory(at: project.workingDir, includingPropertiesForKeys: nil)
+        return listed == nil ? .projectFolderUnreadable(project.folderURL.path(percentEncoded: false)) : nil
+    }
+
     /// Cancels the current run. Steps stop at their next cancellation check.
     func cancel() {
         task?.cancel()
@@ -140,6 +159,8 @@ enum PipelineError: LocalizedError {
     case missingInput(String)
     case renderFailed(String)
     case ffmpegFailed(Int32, String)
+    /// The project's files can't be read; the associated value is the project folder's path.
+    case projectFolderUnreadable(String)
 
     /// Plain message shown on the project screen. Technical text is kept out of it and offered separately
     /// through `technicalDetails`; the full error is also written to `pipeline.log`.
@@ -149,6 +170,7 @@ enum PipelineError: LocalizedError {
         case .missingInput(let detail):    return "Missing input: \(detail)"
         case .renderFailed:                return "The video couldn't be rendered. See Details, or try running the step again."
         case .ffmpegFailed:                return "FFmpeg couldn't render the video. See Details, or check that FFmpeg is installed (brew install ffmpeg)."
+        case .projectFolderUnreadable:     return "Can't read this ride's files. Check the drive is connected, then try again. If it is, close and reopen the app."
         }
     }
 
@@ -157,6 +179,7 @@ enum PipelineError: LocalizedError {
     var technicalDetails: String? {
         switch self {
         case .stepNotRegistered, .missingInput: return nil
+        case .projectFolderUnreadable(let folder): return "Project folder: \(folder)"
         case .renderFailed(let detail):         return detail
         case .ffmpegFailed(let code, let stderr):
             let tail = stderr.split(separator: "\n", omittingEmptySubsequences: false).suffix(40)

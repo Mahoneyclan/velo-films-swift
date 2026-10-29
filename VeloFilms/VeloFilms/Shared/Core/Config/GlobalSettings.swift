@@ -297,31 +297,52 @@ final class GlobalSettings {
     }
 
     private func loadURL(pathKey: String, bookmarkKey: String) -> URL? {
-        if let data = UserDefaults.standard.data(forKey: bookmarkKey) {
-            var stale = false
-            if let url = try? URL(resolvingBookmarkData: data,
-                                  options: Self.bookmarkResolutionOptions,
-                                  relativeTo: nil,
-                                  bookmarkDataIsStale: &stale) {
-#if os(iOS)
-                _ = url.startAccessingSecurityScopedResource()
-#endif
-                if stale {
-                    if let fresh = try? url.bookmarkData(options: Self.bookmarkCreationOptions,
-                                                         includingResourceValuesForKeys: nil,
-                                                         relativeTo: nil) {
-                        UserDefaults.standard.set(fresh, forKey: bookmarkKey)
-                        UserDefaults.standard.set(url.path, forKey: pathKey)
-                    }
-                }
-                return url
-            }
-        }
+        if let url = resolveBookmark(pathKey: pathKey, bookmarkKey: bookmarkKey) { return url }
         // Fall back to plain path for migration from older builds
         if let p = UserDefaults.standard.string(forKey: pathKey) {
             return URL(fileURLWithPath: p)
         }
         return nil
+    }
+
+    /// Resolves a saved folder bookmark and, on iOS, opens access to it; refreshes a stale bookmark.
+    /// - Returns: The folder, or `nil` when there is no bookmark or it can't be resolved (e.g. drive not connected).
+    private func resolveBookmark(pathKey: String, bookmarkKey: String) -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data,
+                                 options: Self.bookmarkResolutionOptions,
+                                 relativeTo: nil,
+                                 bookmarkDataIsStale: &stale) else { return nil }
+#if os(iOS)
+        // Security: access is limited to the folders the user picked; it is never released because the pipeline
+        // reads from them for the whole session.
+        _ = url.startAccessingSecurityScopedResource()
+#endif
+        if stale, let fresh = try? url.bookmarkData(options: Self.bookmarkCreationOptions,
+                                                     includingResourceValuesForKeys: nil,
+                                                     relativeTo: nil) {
+            UserDefaults.standard.set(fresh, forKey: bookmarkKey)
+            UserDefaults.standard.set(url.path, forKey: pathKey)
+        }
+        return url
+    }
+
+    /// Re-opens access to the Input Videos and Projects folders and the camera folders.
+    ///
+    /// On iPad a bookmark only gives access if the drive was connected when it was resolved, and the app resolves
+    /// them at launch. Calling this when the app comes to the front picks up a drive plugged in since then.
+    /// A folder whose drive is still missing is left as it is.
+    /// - Note: Main actor; reads UserDefaults and touches the file system.
+    func restoreFolderAccess() {
+        if let url = resolveBookmark(pathKey: "inputBaseDirPath", bookmarkKey: "inputBaseDirBookmark"),
+           url != inputBaseDir { inputBaseDir = url }
+        if let url = resolveBookmark(pathKey: "projectsRootPath", bookmarkKey: "projectsRootBookmark"),
+           url != projectsRoot { projectsRoot = url }
+        if let url = resolveBookmark(pathKey: "fly12SourcePath", bookmarkKey: "fly12SourceBookmark"),
+           url != fly12SourceURL { fly12SourceURL = url }
+        if let url = resolveBookmark(pathKey: "fly6SourcePath", bookmarkKey: "fly6SourceBookmark"),
+           url != fly6SourceURL { fly6SourceURL = url }
     }
 }
 
