@@ -30,6 +30,9 @@ struct FineTuneView: View {
     /// Below this width the screen stacks vertically (iPhone, narrow windows); above it the details move into a
     /// side panel beside a larger frame.
     private static let wideLayoutMinWidth: CGFloat = 760
+    /// The side-panel layout doesn't scroll, so it also needs this much height (the Mac window's minimum). iPhone
+    /// landscape is wide enough but only about 400 pt tall, and gets the scrolling layout instead.
+    private static let wideLayoutMinHeight: CGFloat = 560
 
     /// Loading, empty or the review layout, with Cancel and Save in the toolbar.
     var body: some View {
@@ -37,10 +40,10 @@ struct FineTuneView: View {
             Group {
                 if let model {
                     GeometryReader { geo in
-                        if geo.size.width >= Self.wideLayoutMinWidth {
+                        if geo.size.width >= Self.wideLayoutMinWidth && geo.size.height >= Self.wideLayoutMinHeight {
                             wide(model, stackFrames: geo.size.height > geo.size.width)
                         } else {
-                            compact(model)
+                            compact(model, stackFrames: geo.size.height > geo.size.width)
                         }
                     }
                 } else if loadFailed {
@@ -99,14 +102,24 @@ struct FineTuneView: View {
 
     // MARK: - Layouts
 
-    /// iPhone and narrow windows: everything stacked and scrollable (large text never cuts anything off), with the
-    /// controls pinned at the bottom in thumb reach.
-    private func compact(_ model: FineTuneModel) -> some View {
+    /// iPhone, short or narrow windows: everything stacked and scrollable (large text never cuts anything off), with
+    /// the controls pinned at the bottom in thumb reach.
+    /// - Parameter stackFrames: `true` in portrait (front above rear); side by side in landscape.
+    private func compact(_ model: FineTuneModel, stackFrames: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                timeline(model)
-                chips(model, wrap: false)
-                detail(model)
+                if stackFrames {
+                    timeline(model)
+                    chips(model, wrap: false)
+                    frame(model, stacked: true)
+                } else {
+                    // Phone landscape is only ~400 pt tall: show the frames first so they're visible without
+                    // scrolling, with the timeline and filters below.
+                    frame(model, stacked: false)
+                    timeline(model)
+                    chips(model, wrap: false)
+                }
+                info(model)
                 FilmStripView(model: model, project: project, thumbWidth: 112, twoRows: false) { confirmReset = true }
             }
             .padding(.horizontal, 12)
@@ -195,13 +208,6 @@ struct FineTuneView: View {
         } else {
             ScrollView(.horizontal) { HStack(spacing: 8) { buttons } }.scrollIndicators(.hidden)
         }
-    }
-
-    /// Frame and info stacked (iPhone).
-    @ViewBuilder
-    private func detail(_ model: FineTuneModel) -> some View {
-        frame(model, stacked: true)
-        info(model)
     }
 
     /// The open moment's camera frames (stacked or side by side), or an empty state when the filter matches nothing.

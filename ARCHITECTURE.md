@@ -72,7 +72,8 @@ or pressing Re-run deletes all four analysis outputs, so the next analysis start
 The **Fine Tune** screen edits `select.jsonl` between Select and Build. On the Mac it opens in its own resizable
 window (`FineTuneWindow`, a `WindowGroup` keyed by project id; a sheet can't grow taller than its parent window); on
 iPad and iPhone it covers the full screen (an iPad sheet is a smaller card that cut off the film strip). `FineTuneView`
-lays it out (stacked below 760 pt wide, side panel above; the frames shrink so the film strip always fits);
+lays it out (side panel when at least 760 × 560 pt, so iPad and Mac; otherwise a scrolling stack, so iPhone, with the
+frames first in phone landscape; in the side-panel layout the frames shrink so the film strip always fits);
 the open moment shows its front and rear frames together (side by side, stacked on iPhone and iPad portrait) and tapping a frame puts
 that camera's clip in the reel. The film strip has a front row above a rear row on iPad and Mac (one row on iPhone). `FineTuneModel` holds the rules (in/out of the reel, camera per clip,
 filters, reset, save) with no view code; `FineTuneData` reads the picks, laps and elevation; `MomentReasons` writes
