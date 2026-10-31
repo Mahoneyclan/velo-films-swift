@@ -1,15 +1,18 @@
 // EnrichStep.swift
-// Pipeline step 3: scores every grid point (objects, scene change, speed, gradient, Strava segments).
+// Pipeline step 3: scores every grid point (objects, action, speed, gradient, Strava segments).
 
 import Foundation
 import AVFoundation
 import CoreGraphics
 
-/// Runs YOLO detection, scene scoring, GPS enrichment and composite scoring, and writes `enriched.jsonl`.
+/// Runs YOLO detection, GPS enrichment and composite scoring, and writes `enriched.jsonl`.
 /// Also saves a JPEG thumbnail per row in `frames/` for the manual selection screen.
-/// Same approach as `enrich.py` in the original Python app (not in this repo).
 ///
-/// The slowest analysis step: one frame decode plus one YOLO run per row.
+/// Two passes. Pass 1 (as `enrich.py` in the original Python app, not in this repo) scores every row from one
+/// frame at its clip start, with speed and gradient averaged over the clip. Pass 2 (`ClipRefiner`) re-scores
+/// the shortlisted moments on several frames across the clip and slides each clip towards the action.
+///
+/// The slowest analysis step: one frame decode plus one YOLO run per row, plus about 15% more for pass 2.
 struct EnrichStep: PipelineStep {
     /// Step name used in logs.
     let name = "enrich"
@@ -35,8 +38,8 @@ struct EnrichStep: PipelineStep {
 
     /// Scores every row of `extract.jsonl` and writes `enriched.jsonl`.
     /// - Throws: `PipelineError.missingInput` if extract output is empty or names an unknown camera; file errors.
-    /// - Note: A frame that can't be decoded, or a YOLO failure, scores 0 for detection and scene change rather
-    ///   than failing the step. The segment score uses the same Strava time-zone correction as SelectStep and
+    /// - Note: A frame that can't be decoded, or a YOLO failure, scores 0 for detection rather than failing the
+    ///   step. The action score is 0 until pass 2 sets it for a shortlisted moment. The segment score uses the same Strava time-zone correction as SelectStep and
     ///   the Fine Tune screen (`SegmentMatcher.stravaOffset`), because Cycliq times are local time stamped as UTC.
     /// - Parameters:
     ///   - project: The ride project to process.
@@ -53,7 +56,6 @@ struct EnrichStep: PipelineStep {
         }
 
         let gpsEnricher    = GPSEnricher(flattenRows: flattenRows)
-        let sceneDetector  = SceneDetector()
         let segmentMatcher = SegmentMatcher(segmentsURL: project.segmentsJSON)
         // Strava efforts are true UTC; grid times are camera local time stamped as UTC. Shift by the whole-hour
         // difference before matching, as SelectStep does.
@@ -63,7 +65,8 @@ struct EnrichStep: PipelineStep {
         // call then is reused; NSLock inside loadModel() makes it safe if ever called concurrently.
         let yolo = YOLODetector(modelURL: yoloModelURL)
 
-        // Sort by camera + timestamp for scene continuity (as enrich.py did in the original Python app, not in this repo)
+        // Sort by camera + timestamp (as enrich.py did in the original Python app, not in this repo), so rows from
+        // the same video file are adjacent.
         let sorted = extractRows.sorted {
             if $0.camera != $1.camera { return $0.camera < $1.camera }
             return $0.absTimeEpoch < $1.absTimeEpoch
@@ -71,6 +74,7 @@ struct EnrichStep: PipelineStep {
 
         var enrichedRows: [EnrichRow] = []
         enrichedRows.reserveCapacity(sorted.count)
+        var firstPass: [String: ClipRefiner.FirstPassFrame] = [:]
 
         let isoFmt = ISO8601DateFormatter()
         let total  = sorted.count
@@ -92,7 +96,7 @@ struct EnrichStep: PipelineStep {
 
                 if globalIdx % 50 == 0 {
                     await reporter.report(current: globalIdx, total: total,
-                                          message: "Enriching frame \(globalIdx)/\(total)...")
+                                          message: "Step 1 of 2 · Scoring frame \(globalIdx)/\(total)...")
                 }
                 globalIdx += 1
 
@@ -113,10 +117,12 @@ struct EnrichStep: PipelineStep {
                     numDetections    = result.detections.count
                     bboxArea         = result.bboxArea
                     detectedClasses  = result.detections.map { $0.className }.joined(separator: ",")
+                    firstPass[row.index] = .init(detectScore: result.detectScore, presence: result.presence)
                 }
 
-                let sceneBoost = frame.map { sceneDetector.score(frame: $0, camera: row.camera) } ?? 0.0
-                let gps        = gpsEnricher.enrich(epoch: row.absTimeEpoch)
+                let windowStart = row.absTimeEpoch - AppConfig.clipPreRollS
+                let gps        = gpsEnricher.enrich(epoch: row.absTimeEpoch,
+                                                    over: windowStart...(windowStart + AppConfig.clipOutLenS))
                 let segBoost   = segmentMatcher.boost(epoch: row.absTimeEpoch - stravaOffset)
 
                 guard let camera = AppConfig.CameraName(rawValue: row.camera) else {
@@ -124,7 +130,7 @@ struct EnrichStep: PipelineStep {
                 }
                 let composite = ScoreCalculator.composite(ScoreCalculator.Input(
                     detectScore:  detectScore,
-                    sceneBoost:   sceneBoost,
+                    actionScore:  0,
                     speedKmh:     gps?.speedKmh    ?? 0,
                     gradientPct:  gps?.gradientPct ?? 0,
                     segmentBoost: segBoost,
@@ -144,7 +150,7 @@ struct EnrichStep: PipelineStep {
                     detectScore: detectScore, numDetections: numDetections,
                     bboxArea: bboxArea, detectedClasses: detectedClasses,
                     objectDetected: numDetections > 0,
-                    sceneBoost: sceneBoost,
+                    actionScore: 0,
                     gpxEpoch: gps?.epoch, gpxTimeUtc: gps.map { isoFmt.string(from: Date(timeIntervalSince1970: $0.epoch)) },
                     lat: gps?.lat, lon: gps?.lon, elevation: gps?.elevation,
                     hrBpm: gps?.hr, cadenceRpm: gps?.cadence,
@@ -157,6 +163,9 @@ struct EnrichStep: PipelineStep {
             generator.cancelAllCGImageGeneration()
             clipStart = clipEnd
         }
+
+        enrichedRows = await ClipRefiner.refine(rows: enrichedRows, firstPass: firstPass, project: project,
+                                                yolo: yolo, gps: gpsEnricher, reporter: reporter)
 
         await reporter.report(current: total, total: total,
                               message: "Writing enriched.jsonl (\(enrichedRows.count) rows)...")

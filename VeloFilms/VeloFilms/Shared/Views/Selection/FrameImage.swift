@@ -35,7 +35,7 @@ struct FrameImage: View {
         }
     }
 
-    /// Loads the frame: the saved JPEG if present, otherwise the video at the moment's time.
+    /// Loads the frame: the saved JPEG if present, otherwise the video at the start of the moment's clip.
     /// - Parameters:
     ///   - row: The camera row.
     ///   - project: The project holding the frame and the video.
@@ -50,7 +50,7 @@ struct FrameImage: View {
             decode(jpeg, maxPixel: maxPixel)
         }.value
         if let decoded { return decoded }
-        let second = max(0, row.absTimeEpoch - row.clipStartEpoch - AppConfig.clipPreRollS)
+        let second = max(0, row.clipAnchorEpoch - row.clipStartEpoch - AppConfig.clipPreRollS)
         return await FrameSampler.extractFrame(videoURL: project.videoURL(forStoredPath: row.videoPath),
                                                 atSecond: second)
     }

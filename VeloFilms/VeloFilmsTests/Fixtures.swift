@@ -23,7 +23,7 @@ enum Fixtures {
             source: "test", fps: 30,
             detectScore: 0, numDetections: 0, bboxArea: 0,
             detectedClasses: classes, objectDetected: !classes.isEmpty,
-            sceneBoost: 0,
+            actionScore: 0,
             gpxEpoch: Double(t), gpxTimeUtc: nil,
             lat: nil, lon: nil, elevation: nil,
             hrBpm: nil, cadenceRpm: nil,

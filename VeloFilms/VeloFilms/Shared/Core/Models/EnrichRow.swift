@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// One row in `enriched.jsonl`: an `ExtractRow` plus YOLO detections, scene change, GPS telemetry and scores.
+/// One row in `enriched.jsonl`: an `ExtractRow` plus YOLO detections, action, GPS telemetry and scores.
 /// JSON keys match `enrich.py` in the original Python app; they are permanent.
 struct EnrichRow: Codable {
     // From ExtractRow (same meaning as there)
@@ -47,10 +47,11 @@ struct EnrichRow: Codable {
     /// `true` when at least one object was detected.
     var objectDetected: Bool
 
-    // Scene detection
-    /// Scene-change score, 0–1: how different this frame is from an earlier frame of the same camera
-    /// (see `SceneDetector`). 0 for the first frames of each camera.
-    var sceneBoost: Double
+    // Action
+    /// Action score, 0–1: how much objects grew or shrank in view during the clip (`ClipWindowScorer`). Set only
+    /// for the camera refined in Enrich's second pass; 0 elsewhere. Stored under the permanent key `scene_boost`,
+    /// from when this field held a scene-change score.
+    var actionScore: Double
 
     // GPS (may be absent if no GPX match within tolerance)
     /// Time of the matched GPX point.
@@ -82,6 +83,12 @@ struct EnrichRow: Codable {
     /// `absTimeEpoch` rounded to whole seconds. Rows from both cameras at the same grid point share it, which
     /// is how front and rear footage are paired.
     var momentId: Int
+    /// Seconds the clip start was moved towards the action (negative is earlier), the same for both cameras of a
+    /// moment. `nil` in files analysed before clip refinement existed, meaning no shift.
+    var clipShiftS: Double? = nil
+
+    /// The moment's time after the shift: the clip, map marker and gauges start `clipPreRollS` before it.
+    var clipAnchorEpoch: Double { absTimeEpoch + (clipShiftS ?? 0) }
 
     /// JSON key names (snake_case). Permanent: existing files use them.
     enum CodingKeys: String, CodingKey {
@@ -101,7 +108,7 @@ struct EnrichRow: Codable {
         case bboxArea         = "bbox_area"
         case detectedClasses  = "detected_classes"
         case objectDetected   = "object_detected"
-        case sceneBoost       = "scene_boost"
+        case actionScore      = "scene_boost"
         case gpxEpoch         = "gpx_epoch"
         case gpxTimeUtc       = "gpx_time_utc"
         case lat, lon, elevation
@@ -113,5 +120,6 @@ struct EnrichRow: Codable {
         case scoreWeighted    = "score_weighted"
         case segmentBoost     = "segment_boost"
         case momentId         = "moment_id"
+        case clipShiftS       = "clip_shift_s"
     }
 }

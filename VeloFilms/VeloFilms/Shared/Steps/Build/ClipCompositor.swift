@@ -32,7 +32,8 @@ struct ClipCompositor: Sendable {
     /// Folder for `clip_NNNN.mp4` files.
     let outputDir: URL
 
-    /// Renders one clip of `AppConfig.clipOutLenS` seconds, starting `clipPreRollS` before the moment.
+    /// Renders one clip of `AppConfig.clipOutLenS` seconds, starting `clipPreRollS` before the moment's
+    /// `clipAnchorEpoch` (the moment moved towards the action by Enrich).
     /// - Parameters:
     ///   - mainRow: The full-screen camera row.
     ///   - pipRow: The other camera's row for picture-in-picture, or `nil`.
@@ -57,7 +58,7 @@ struct ClipCompositor: Sendable {
         let outputURL = outputDir.appending(path: String(format: "clip_%04d.mp4", clipIndex))
 
 #if os(macOS)
-        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let tStartMain = max(0.0, mainRow.clipAnchorEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
         let duration   = AppConfig.clipOutLenS
 
         // -framerate 1 must appear before -i when using an image sequence
@@ -68,7 +69,7 @@ struct ClipCompositor: Sendable {
 
         let filterComplex: String
         if let pip = pipRow {
-            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
+            let tStartPip = max(0.0, pip.clipAnchorEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
             inputs += ["-ss", String(tStartPip), "-t", String(duration),
                        "-i", videoURL(pip).path]
             // map=2, elev=3, gauge=4
@@ -99,7 +100,7 @@ struct ClipCompositor: Sendable {
 #else
         // iOS: AVMutableComposition + ClipVideoCompositor (Metal GPU compositing, no FFmpeg)
         let ts         = CMTimeScale(600)
-        let tStartMain = max(0.0, mainRow.absTimeEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
+        let tStartMain = max(0.0, mainRow.clipAnchorEpoch - mainRow.clipStartEpoch - AppConfig.clipPreRollS)
         let duration   = AppConfig.clipOutLenS
         let startCM    = CMTimeMakeWithSeconds(tStartMain, preferredTimescale: ts)
         let durCM      = CMTimeMakeWithSeconds(duration,   preferredTimescale: ts)
@@ -134,7 +135,7 @@ struct ClipCompositor: Sendable {
 
         var pipTrackID: CMPersistentTrackID? = nil
         if let pip = pipRow {
-            let tStartPip = max(0.0, pip.absTimeEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
+            let tStartPip = max(0.0, pip.clipAnchorEpoch - pip.clipStartEpoch - AppConfig.clipPreRollS)
             let pipStart  = CMTimeMakeWithSeconds(tStartPip, preferredTimescale: ts)
             let pipRange  = CMTimeRange(start: pipStart, duration: durCM)
             let pipAsset  = AVURLAsset(url: videoURL(pip))

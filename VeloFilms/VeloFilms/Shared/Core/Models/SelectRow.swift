@@ -83,7 +83,7 @@ struct SelectRow: Codable {
         case bboxArea         = "bbox_area"
         case detectedClasses  = "detected_classes"
         case objectDetected   = "object_detected"
-        case sceneBoost       = "scene_boost"
+        case actionScore      = "scene_boost"
         case gpxEpoch         = "gpx_epoch"
         case gpxTimeUtc       = "gpx_time_utc"
         case lat, lon, elevation
@@ -95,6 +95,7 @@ struct SelectRow: Codable {
         case scoreWeighted    = "score_weighted"
         case segmentBoost     = "segment_boost"
         case momentId         = "moment_id"
+        case clipShiftS       = "clip_shift_s"
         // Selection fields
         case recommended
         case stravaPR         = "strava_pr"
@@ -130,7 +131,7 @@ struct SelectRow: Codable {
             bboxArea:          try c.decode(Double.self,  forKey: .bboxArea),
             detectedClasses:   try c.decode(String.self,  forKey: .detectedClasses),
             objectDetected:    try c.decode(Bool.self,    forKey: .objectDetected),
-            sceneBoost:        try c.decode(Double.self,  forKey: .sceneBoost),
+            actionScore:       try c.decode(Double.self,  forKey: .actionScore),
             gpxEpoch:          try c.decodeIfPresent(Double.self, forKey: .gpxEpoch),
             gpxTimeUtc:        try c.decodeIfPresent(String.self, forKey: .gpxTimeUtc),
             lat:               try c.decodeIfPresent(Double.self, forKey: .lat),
@@ -143,7 +144,8 @@ struct SelectRow: Codable {
             scoreComposite:    try c.decode(Double.self,  forKey: .scoreComposite),
             scoreWeighted:     try c.decode(Double.self,  forKey: .scoreWeighted),
             segmentBoost:      try c.decode(Double.self,  forKey: .segmentBoost),
-            momentId:          try c.decode(Int.self,     forKey: .momentId)
+            momentId:          try c.decode(Int.self,     forKey: .momentId),
+            clipShiftS:        try c.decodeIfPresent(Double.self, forKey: .clipShiftS)
         )
         recommended    = try c.decode(Bool.self,   forKey: .recommended)
         stravaPR       = try c.decode(Bool.self,   forKey: .stravaPR)
@@ -178,7 +180,7 @@ struct SelectRow: Codable {
         try c.encode(base.bboxArea,          forKey: .bboxArea)
         try c.encode(base.detectedClasses,   forKey: .detectedClasses)
         try c.encode(base.objectDetected,    forKey: .objectDetected)
-        try c.encode(base.sceneBoost,        forKey: .sceneBoost)
+        try c.encode(base.actionScore,       forKey: .actionScore)
         try c.encodeIfPresent(base.gpxEpoch,    forKey: .gpxEpoch)
         try c.encodeIfPresent(base.gpxTimeUtc,  forKey: .gpxTimeUtc)
         try c.encodeIfPresent(base.lat,         forKey: .lat)
@@ -192,6 +194,7 @@ struct SelectRow: Codable {
         try c.encode(base.scoreWeighted,     forKey: .scoreWeighted)
         try c.encode(base.segmentBoost,      forKey: .segmentBoost)
         try c.encode(base.momentId,          forKey: .momentId)
+        try c.encodeIfPresent(base.clipShiftS, forKey: .clipShiftS)
         try c.encode(recommended,            forKey: .recommended)
         try c.encode(stravaPR,               forKey: .stravaPR)
         try c.encode(isSingleCamera,         forKey: .isSingleCamera)

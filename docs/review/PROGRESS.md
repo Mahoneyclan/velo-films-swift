@@ -6,6 +6,19 @@
 Fine Tune screen, test target and docs are uncommitted). Open question: CLAUDE.md line 2 still says "paid App Store
 product". Then item 4: stray-folder guard in ImportView and the remaining scorecard bugs.
 
+### Whole-clip scoring (2026-10-31, uncommitted)
+Review found each clip was judged by its first frame only, and detection barely separated moments (50–73% of
+group-ride frames ≥ 0.7). The owner's Fine Tune removals were mostly steep but empty road; additions had more in view.
+- Enrich pass 2 (`ClipRefiner`, `ClipWindowScorer`): shortlist 1.5 × target, up to 9 frames per clip on the leading
+  camera, reuse pass 1 frames; detection = mean of the 2 best frames; action = change in weighted box area
+  (noise 0.05, full at +0.25, checked on 4 rides); clip slides ±2 s (inside the files), both cameras together;
+  strongest frame becomes the thumbnail. Speed and gradient averaged over the clip. Scene change removed.
+- New default weights: gradient 0.20 → 0.10, action (old scene slot, key `scoreWeightScene`) 0.10 → 0.20.
+- Tests: 8 new (`ClipWindowScorerTests`); 92 pass on macOS and iPhone 17 simulator.
+- **Hand test:** Settings → AI Scoring → Reset to defaults; Re-run analysis on Brymaroo Saturday (note Enrich time vs
+  before, expected ~15% longer); Build; check overtakes/passing riders are caught, thumbnails show the action, PiP
+  in sync.
+
 ### Earlier notes (saved 2026-10-28, before a reboot)
 
 **Objective changed 2026-10-28:** not a paid app any more — "just make it awesome" (reel quality + UX). The App
@@ -194,7 +207,7 @@ Deferred: nothing yet.
 
 ### Bugs found (not fixed — owner decides)
 From the round 1 scorecard (15), plus found during Part A:
-16. Scene change compares frames 75 s apart, not 15 s (SceneDetector assumes 1 sample/s; grid is 5 s).
+16. ~~Scene change compares frames 75 s apart, not 15 s.~~ Scene change removed 2026-10-31 (replaced by the action score).
 17. Per-project "highlight target" override is saved but never used; selection uses the global setting.
 18. EnrichStep segment score ignores the Strava time-zone offset that SelectStep applies.
 19. OutroBuilder passes the 3.7 s duration for the 2 s black clip to crossDissolveChain.

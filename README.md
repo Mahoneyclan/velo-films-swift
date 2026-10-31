@@ -2,7 +2,7 @@
 
 Turn your [Cycliq](https://cycliq.com) ride footage into a polished highlight reel, automatically scored and synced to your GPS route — on your Mac or iPad.
 
-Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear) camera, matches them against a GPX file from Strava, samples the ride every 5 seconds (adjustable) and scores each moment using speed, gradient, YOLO object detection, scene change and Strava segments, then assembles the top clips into a highlight reel with a minimap, speed/cadence gauges, elevation strip, and intro/outro splash screens.
+Velo Films takes raw MP4 files from a Fly12 Sport (front) and/or Fly6 Pro (rear) camera, matches them against a GPX file from Strava, samples the ride every 5 seconds (adjustable) and scores each moment using speed, gradient, YOLO object detection, action (objects coming closer or pulling away during the clip) and Strava segments, then assembles the top clips into a highlight reel with a minimap, speed/cadence gauges, elevation strip, and intro/outro splash screens.
 
 ## Screenshots
 
@@ -38,7 +38,7 @@ without the App Sandbox, so it can't go on the Mac App Store as is).
 |------|-------------|
 | **Flatten** | Parse the GPX into one point per second, with speed and gradient |
 | **Extract** | Build the 5-second sampling grid and match each point to the camera clip that covers it (reads clip timestamps; no frames yet) |
-| **Enrich** | Grab a frame at each point; YOLO detection, scene change, GPS telemetry, composite scoring |
+| **Enrich** | Grab a frame at each point; YOLO detection, GPS telemetry averaged over the clip, composite scoring; then a close look at the shortlist: several frames per clip, clip slid up to 2 s towards the action |
 | **Select** | Pick the best moments spread across the whole ride (no picks while stopped, gap between picks grows with ride length, always one from the first and last 5 minutes); review and change picks on the **Fine Tune** screen |
 | **Build** | Composite each clip with minimap, gauges, elevation, optional PiP |
 | **Splash** | Render intro (map card + collage) and outro |

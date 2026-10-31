@@ -164,7 +164,8 @@ enum FrameSampler {
         }
     }
 
-    /// Convenience overload that creates (and cancels) its own generator. Not currently used.
+    /// Convenience overload that creates (and cancels) its own generator, for a single frame from a clip
+    /// (`ClipRefiner`'s picture-in-picture thumbnail, the Fine Tune screen's fallback).
     /// - Returns: The frame, or `nil` on failure or timeout.
     /// - Parameters:
     ///   - videoURL: The clip file.

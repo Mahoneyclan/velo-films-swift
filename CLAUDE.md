@@ -1,12 +1,16 @@
 # Velo Films
-Mac + iPad + iPhone app (iPad/iPhone = paid App Store product that must meet every App Store requirement, see docs/APP_STORE.md; Mac = owner's personal build, lower bar, uses Homebrew FFmpeg) that turns Cycliq bike-camera footage into a highlight reel: matches clips
-to a Strava GPX (or a .gpx file placed in the project), scores them (speed, gradient, YOLO object detection, scene change),
+## Standards level: Friends
+This repo follows the owner's engineering standards (~/.claude/engineering-standards.md)
+at the Friends level. The rules below are only what's specific to this project.
+
+Mac + iPad + iPhone app (iPad/iPhone shared with friends via TestFlight, owner's decision 2026-10-28; docs/APP_STORE.md is reference only; Mac = owner's personal build, uses Homebrew FFmpeg) that turns Cycliq bike-camera footage into a highlight reel: matches clips
+to a Strava GPX (or a .gpx file placed in the project), scores them (speed, gradient, YOLO object detection, action across the clip),
 and renders with map, gauge and elevation overlays.
 
 ## Build (verified 2026-10-28: iOS and macOS builds and tests OK)
 - macOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS' build`
-- iPad/iOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=iOS Simulator,name=iPhone 17' build`
-- Tests: `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'` (84 tests in `VeloFilms/VeloFilmsTests/`; also passes on the iPhone 17 simulator).
+- iPad/iOS: `xcodebuild -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=iOS Simulator,id=1D18D7D9-E7A0-43E5-8A1B-AAFFA2DC0F46' build`
+- Tests: `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'` (92 tests in `VeloFilms/VeloFilmsTests/`; also passes on the iPhone 17 simulator).
 
 ## Layout
 - `VeloFilms/VeloFilms/`: app source; `VeloFilms/VeloFilmsTests/`: unit tests (the two folders in the build)
@@ -23,7 +27,7 @@ and renders with map, gauge and elevation overlays.
 ## Rules
 - The Python scripts in `Scripts/` are build-time tooling (e.g. CoreML export), not a
   runtime backend. (inferred)
-- Footage lives on external drives (/Volumes/VDrive, /Volumes/AData). Never delete
+- Footage lives on the external drive /Volumes/AData (there is no VDrive any more). Never delete
   anything there without asking. (inferred from past permission history)
 - Build for both macOS and iOS when touching shared code. (inferred)
 

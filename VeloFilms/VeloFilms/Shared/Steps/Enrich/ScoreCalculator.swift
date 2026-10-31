@@ -12,8 +12,8 @@ enum ScoreCalculator {
     struct Input {
         /// YOLO detection score, 0–1.
         var detectScore: Double
-        /// Scene-change score, 0–1.
-        var sceneBoost: Double
+        /// Action score, 0–1 (`ClipWindowScorer`).
+        var actionScore: Double
         /// Speed in km/h.
         var speedKmh: Double
         /// Gradient in percent.
@@ -38,7 +38,7 @@ enum ScoreCalculator {
 
         let w = AppConfig.ScoreWeights.self
         return input.detectScore  * w.detectScore
-             + input.sceneBoost   * w.sceneBoost
+             + input.actionScore  * w.action
              + speedNorm          * w.speedKmh
              + gradNorm           * w.gradient
              + input.segmentBoost * w.segmentBoost

@@ -75,7 +75,7 @@ struct BuildStep: PipelineStep {
             let outURL = project.minimapsDir.appending(
                 path: String(format: "minimap_%04d.png", i+1))
             try MinimapRenderer.render(base: baseSnapshot, gpxPoints: gpxPoints,
-                                       currentEpoch: primary.absTimeEpoch, outputURL: outURL)
+                                       currentEpoch: primary.clipAnchorEpoch, outputURL: outURL)
             minimapPaths[i+1] = outURL
         }
 
@@ -86,7 +86,7 @@ struct BuildStep: PipelineStep {
             let outURL = project.elevationDir.appending(
                 path: String(format: "elev_%04d.png", i+1))
             try ElevationRenderer.render(flattenRows: flattenRows,
-                                         currentEpoch: primary.absTimeEpoch, outputURL: outURL)
+                                         currentEpoch: primary.clipAnchorEpoch, outputURL: outURL)
             elevPaths[i+1] = outURL
         }
 
@@ -95,7 +95,7 @@ struct BuildStep: PipelineStep {
         for (i, moment) in moments.enumerated() {
             guard let primary = moment.primary else { continue }
             gaugeDirs[i+1] = try GaugeRenderer.writeFramesToDisk(
-                flattenRows: flattenRows, clipEpoch: primary.absTimeEpoch, clipIndex: i + 1)
+                flattenRows: flattenRows, clipEpoch: primary.clipAnchorEpoch, clipIndex: i + 1)
         }
 
         await reporter.report(current: 0, total: total, message: "Rendering clips...")

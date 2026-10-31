@@ -424,7 +424,7 @@ private struct ScoringTab: View {
                 // Score weights — collapsed by default (advanced)
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
-                        let sum = settings.scoreWeightDetect + settings.scoreWeightScene
+                        let sum = settings.scoreWeightDetect + settings.scoreWeightAction
                             + settings.scoreWeightSpeed + settings.scoreWeightGradient
                             + settings.scoreWeightSegment + settings.scoreWeightDualCamera
                         let balanced = abs(sum - 1.0) < 0.01
@@ -432,7 +432,7 @@ private struct ScoringTab: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 ScoreProportionBar(weights: [
                                     (.green,  settings.scoreWeightDetect),
-                                    (.purple, settings.scoreWeightScene),
+                                    (.purple, settings.scoreWeightAction),
                                     (.blue,   settings.scoreWeightSpeed),
                                     (.orange, settings.scoreWeightGradient),
                                     (.teal,   settings.scoreWeightSegment),
@@ -440,16 +440,16 @@ private struct ScoringTab: View {
                                 ])
                                 WeightSliderRow(label: "YOLO detections", icon: "eye",               color: .green,
                                                 value: $settings.scoreWeightDetect)    { settings.save() }
-                                    .help("Clips with cyclists/people detected score higher. Default: 35%")
-                                WeightSliderRow(label: "Scene change",    icon: "camera.aperture",   color: .purple,
-                                                value: $settings.scoreWeightScene)     { settings.save() }
-                                    .help("Bonus for visually interesting transitions. Default: 10%")
+                                    .help("Clips with cyclists/people detected score higher. Default: 30%")
+                                WeightSliderRow(label: "Action",          icon: "arrow.up.left.and.arrow.down.right", color: .purple,
+                                                value: $settings.scoreWeightAction)    { settings.save() }
+                                    .help("Riders, cars and other objects coming closer or pulling away during the clip, such as an overtake. Default: 20%")
                                 WeightSliderRow(label: "Speed",           icon: "speedometer",       color: .blue,
                                                 value: $settings.scoreWeightSpeed)     { settings.save() }
                                     .help("Faster clips score higher. Normalised to 60 km/h. Default: 20%")
                                 WeightSliderRow(label: "Gradient",        icon: "arrow.up.right",    color: .orange,
                                                 value: $settings.scoreWeightGradient)  { settings.save() }
-                                    .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 20%")
+                                    .help("Steeper climbs and descents score higher. Normalised to 8%. Default: 10%")
                                 WeightSliderRow(label: "Strava segment",  icon: "location",          color: .teal,
                                                 value: $settings.scoreWeightSegment)   { settings.save() }
                                     .help("Bonus for your Strava PRs (full) and 2nd/3rd best efforts (70%). Ordinary segment efforts score nothing. Default: 15%")

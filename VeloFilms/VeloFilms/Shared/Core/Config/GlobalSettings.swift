@@ -117,12 +117,13 @@ final class GlobalSettings {
     enum DefaultScoreWeights {
         /// YOLO detection.
         static let detect     = 0.30
-        /// Scene change.
-        static let scene      = 0.10
+        /// Action (objects growing or shrinking in view during the clip). 0.20 (was 0.10 for the old scene-change
+        /// score, 2026-10-31): moments the owner added by hand had the most going on in view.
+        static let action     = 0.20
         /// Speed.
         static let speed      = 0.20
-        /// Gradient.
-        static let gradient   = 0.20
+        /// Gradient. 0.10 (was 0.20, 2026-10-31): steep but empty road was the most common pick the owner removed.
+        static let gradient   = 0.10
         /// Strava PR / top-3 effort. 0.15 (raised from 0.05 on 2026-10-27, when segment scoring started working)
         /// lets a PR count about as much as a strong detection without forcing it into the reel.
         static let segment    = 0.15
@@ -132,8 +133,9 @@ final class GlobalSettings {
 
     /// Weight of the YOLO detection score.
     var scoreWeightDetect: Double    = DefaultScoreWeights.detect
-    /// Weight of the scene-change score.
-    var scoreWeightScene: Double     = DefaultScoreWeights.scene
+    /// Weight of the action score. Saved under the permanent key `scoreWeightScene`, from when this slot held
+    /// the scene-change score.
+    var scoreWeightAction: Double    = DefaultScoreWeights.action
     /// Weight of speed.
     var scoreWeightSpeed: Double     = DefaultScoreWeights.speed
     /// Weight of gradient (climbs and descents).
@@ -146,7 +148,7 @@ final class GlobalSettings {
     /// Restores every score weight to `DefaultScoreWeights` and saves.
     func resetScoreWeights() {
         scoreWeightDetect     = DefaultScoreWeights.detect
-        scoreWeightScene      = DefaultScoreWeights.scene
+        scoreWeightAction     = DefaultScoreWeights.action
         scoreWeightSpeed      = DefaultScoreWeights.speed
         scoreWeightGradient   = DefaultScoreWeights.gradient
         scoreWeightSegment    = DefaultScoreWeights.segment
@@ -209,7 +211,7 @@ final class GlobalSettings {
         yoloEnableTruck        = (UserDefaults.standard.object(forKey: "yoloEnableTruck")        as? Bool)   ?? true
         yoloWeightTruck        = (UserDefaults.standard.object(forKey: "yoloWeightTruck")        as? Double) ?? 0.2
         scoreWeightDetect     = (UserDefaults.standard.object(forKey: "scoreWeightDetect")     as? Double) ?? scoreWeightDetect
-        scoreWeightScene      = (UserDefaults.standard.object(forKey: "scoreWeightScene")      as? Double) ?? scoreWeightScene
+        scoreWeightAction     = (UserDefaults.standard.object(forKey: "scoreWeightScene")      as? Double) ?? scoreWeightAction
         scoreWeightSpeed      = (UserDefaults.standard.object(forKey: "scoreWeightSpeed")      as? Double) ?? scoreWeightSpeed
         scoreWeightGradient   = (UserDefaults.standard.object(forKey: "scoreWeightGradient")   as? Double) ?? scoreWeightGradient
         scoreWeightSegment    = (UserDefaults.standard.object(forKey: "scoreWeightSegment")    as? Double) ?? scoreWeightSegment
@@ -256,7 +258,7 @@ final class GlobalSettings {
         UserDefaults.standard.set(yoloEnableTruck,         forKey: "yoloEnableTruck")
         UserDefaults.standard.set(yoloWeightTruck,         forKey: "yoloWeightTruck")
         UserDefaults.standard.set(scoreWeightDetect,        forKey: "scoreWeightDetect")
-        UserDefaults.standard.set(scoreWeightScene,         forKey: "scoreWeightScene")
+        UserDefaults.standard.set(scoreWeightAction,        forKey: "scoreWeightScene")
         UserDefaults.standard.set(scoreWeightSpeed,         forKey: "scoreWeightSpeed")
         UserDefaults.standard.set(scoreWeightGradient,      forKey: "scoreWeightGradient")
         UserDefaults.standard.set(scoreWeightSegment,       forKey: "scoreWeightSegment")

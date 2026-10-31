@@ -34,10 +34,23 @@ enum AppConfig {
     /// Number of clips needed to fill the global target length, rounded down.
     static var targetClips: Int { Int((GlobalSettings.shared.highlightTargetMinutes * 60) / clipOutLenS) }
 
-    // MARK: - Scene detection
-    /// Scene-change comparison window. SceneDetector treats it as a number of samples (it assumes 1 sample per
-    /// second), so with the default 5-second sampling interval it compares frames 75 seconds apart.
-    static let sceneComparisonWindowS: Double = 15.0
+    // MARK: - Clip refinement (Enrich pass 2, `ClipRefiner`)
+    /// Shortlist size as a multiple of the clips wanted. 1.5 leaves Select room to choose while keeping the
+    /// extra frame reads to about 15% of the first pass at default settings.
+    static let refineShortlistFactor: Double = 1.5
+    /// Largest shift, in seconds, of a clip's start towards the action. Two seconds stays clear of the next
+    /// 5-second grid point's own clip.
+    static let clipMaxShiftS: Double = 2.0
+    /// Most frames read per shortlisted moment. Nine gives one frame a second at the default 3.5 s clip
+    /// (−2 s … +5 s); longer clips space the frames further apart, so the cost doesn't grow with clip length.
+    static let refineMaxFrames: Int = 9
+    /// Change in weighted box area (fraction of the frame) that YOLO jitter causes in a steady scene; changes
+    /// up to this size don't count as action. On four of the owner's rides (2026-10-31), half of all changes
+    /// between neighbouring samples on group rides were below 0.03–0.05.
+    static let actionNoiseArea: Double = 0.05
+    /// Change in weighted box area beyond the noise that scores full action: a rider growing from nothing to
+    /// about a third of the frame. On the same rides about 5% of changes reached that.
+    static let actionFullScaleArea: Double = 0.25
 
     // MARK: - Selection
     /// When `true`, moments without GPS would be excluded from selection. Not currently used.
@@ -76,8 +89,8 @@ enum AppConfig {
     enum ScoreWeights {
         /// Weight of the detection score.
         static var detectScore: Double  { GlobalSettings.shared.scoreWeightDetect }
-        /// Weight of the scene-change score.
-        static var sceneBoost: Double   { GlobalSettings.shared.scoreWeightScene }
+        /// Weight of the action score (objects moving in view during the clip).
+        static var action: Double       { GlobalSettings.shared.scoreWeightAction }
         /// Weight of speed.
         static var speedKmh: Double     { GlobalSettings.shared.scoreWeightSpeed }
         /// Weight of gradient.

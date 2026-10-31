@@ -22,7 +22,7 @@ enum StepName: String, CaseIterable {
     case flatten  = "flatten"
     /// Sampling grid matched to camera clips (`extract.jsonl`).
     case extract  = "extract"
-    /// YOLO detection, scene change, GPS and scores (`enriched.jsonl`).
+    /// YOLO detection, action, GPS and scores (`enriched.jsonl`).
     case enrich   = "enrich"
     /// Picks the highlight clips (`select.jsonl`).
     case select   = "select"

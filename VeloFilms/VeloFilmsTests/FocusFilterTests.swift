@@ -24,7 +24,7 @@ private func makeRow(
         source: "test", fps: 30,
         detectScore: 0, numDetections: numDetections, bboxArea: 0,
         detectedClasses: detectedClasses, objectDetected: numDetections > 0,
-        sceneBoost: 0,
+        actionScore: 0,
         gpxEpoch: absTimeEpoch, gpxTimeUtc: nil,
         lat: nil, lon: nil, elevation: nil,
         hrBpm: nil, cadenceRpm: nil,

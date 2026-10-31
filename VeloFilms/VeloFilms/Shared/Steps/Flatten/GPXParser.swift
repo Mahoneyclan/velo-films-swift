@@ -304,6 +304,20 @@ struct GPXIndex {
         guard let best, bestDiff <= tolerance else { return nil }
         return best
     }
+
+    /// The points whose time falls inside `range`, in time order.
+    /// - Parameter range: Unix times in seconds.
+    /// - Returns: The matching points; empty if none.
+    func points(in range: ClosedRange<Double>) -> ArraySlice<GPXPoint> {
+        var lo = 0, hi = points.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if points[mid].epoch < range.lowerBound { lo = mid + 1 } else { hi = mid }
+        }
+        var end = lo
+        while end < points.count && points[end].epoch <= range.upperBound { end += 1 }
+        return points[lo..<end]
+    }
 }
 
 // MARK: - Private helpers

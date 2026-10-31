@@ -80,15 +80,18 @@ final class YOLODetector {
     /// - Parameter image: The frame; it is resized to 640×640 (aspect ratio not preserved).
     /// - Returns: Detections after NMS; `detectScore` = highest confidence × class weight (people without a
     ///   bicycle in frame use the pedestrian weight); `bboxArea` = summed area of person/bicycle boxes as a
-    ///   fraction of the frame. All zero if the model output can't be read.
+    ///   fraction of the frame; `presence` = summed (box area × class weight) over all boxes, capped at 1, which
+    ///   `ClipWindowScorer` compares across a clip to spot objects coming closer or pulling away. All zero if the
+    ///   model output can't be read.
     /// - Throws: Core ML errors loading the model or running the prediction.
-    func detect(image: CGImage) throws -> (detections: [YOLODetection], detectScore: Double, bboxArea: Double) {
+    func detect(image: CGImage) throws -> (detections: [YOLODetection], detectScore: Double, bboxArea: Double,
+                                           presence: Double) {
         let model = try loadModel()
-        guard let outName = outputName else { return ([], 0, 0) }
+        guard let outName = outputName else { return ([], 0, 0, 0) }
 
         let sz = AppConfig.yoloImageSize
         guard let pb = Self.pixelBuffer(from: image, width: sz, height: sz) else {
-            return ([], 0, 0)
+            return ([], 0, 0, 0)
         }
         let input = try MLDictionaryFeatureProvider(dictionary: [
             "image": MLFeatureValue(pixelBuffer: pb)
@@ -96,7 +99,7 @@ final class YOLODetector {
         let output = try model.prediction(from: input)
 
         guard let raw = output.featureValue(for: outName)?.multiArrayValue else {
-            return ([], 0, 0)
+            return ([], 0, 0, 0)
         }
 
         let detections = decodeYOLO(raw)
@@ -108,11 +111,13 @@ final class YOLODetector {
         let bboxClasses = Self.bboxAreaClasses
         let hasBicycle = detections.contains { $0.classIndex == 1 }
         let pedestrianW: Float = s2.yoloEnablePedestrian ? Float(s2.yoloWeightPedestrian) : 0.0
-        let detectScore = detections.map { det -> Double in
-            var w = postWeights[det.classIndex] ?? 1.0
-            if det.classIndex == 0 && !hasBicycle { w = pedestrianW }
-            return Double(det.confidence * w)
-        }.max() ?? 0.0
+        let weight = { (det: YOLODetection) -> Float in
+            det.classIndex == 0 && !hasBicycle ? pedestrianW : (postWeights[det.classIndex] ?? 1.0)
+        }
+        let detectScore = detections.map { Double($0.confidence * weight($0)) }.max() ?? 0.0
+        let presence = min(1, detections.reduce(0.0) { sum, det in
+            sum + Double(det.boundingBox.width * det.boundingBox.height) * Double(weight(det))
+        })
 
         // bbox_area = sum of person+bicycle detection areas as a frame fraction (0–1).
         // Restricted to cycling-relevant classes so a large passing car doesn't inflate the score.
@@ -122,7 +127,7 @@ final class YOLODetector {
                 : sum
         }
 
-        return (detections, detectScore, bboxArea)
+        return (detections, detectScore, bboxArea, presence)
     }
 
     // MARK: - Pixel buffer

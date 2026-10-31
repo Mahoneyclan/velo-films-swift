@@ -62,7 +62,7 @@ Views (SwiftUI)  ──>  PipelineExecutor  ──>  Steps (Flatten … Concat) 
 |---|---|---|---|---|
 | 1 | Flatten | first `.gpx` in `working/`, else in the clip folder, else in the project folder | `flatten.jsonl` | Parse GPX, remove elevation changes recorded while stationary (bad data, e.g. altimeter recalibrating at a stop), resample to 1 point per second, compute speed and gradient. Steep hills are never smoothed |
 | 2 | Extract | flatten, source clips | `extract.jsonl` | Build a sampling grid (default every 5 s) over the ride and match each grid point to the clip covering it, using each clip's corrected recording time. No frames are read yet |
-| 3 | Enrich | extract, flatten, `segments.json` | `enriched.jsonl`, `frames/*.jpg` | Grab a frame per row; YOLO detection, scene change, GPS telemetry, Strava segment score, composite score |
+| 3 | Enrich | extract, flatten, `segments.json` | `enriched.jsonl`, `frames/*.jpg` | Pass 1: one frame per row at its clip start; YOLO detection, GPS telemetry (speed and gradient averaged over the clip), Strava segment score, composite score. Pass 2 (`ClipRefiner`): shortlist 1.5 × the clips wanted using Select's rules, read up to 9 frames across each shortlisted clip (leading camera only, reusing pass 1 frames), score the whole clip, slide it up to 2 s towards the action, and save the strongest frame as the thumbnail |
 | 4 | Select | enriched, existing select | `select.jsonl` | Pair front/rear rows by time; ignore stopped moments; best moment from every stretch of riding (one stretch per 3 clips), then best-first, with a gap that scales with the ride (min 30 s); always one moment from the first and last 5 minutes; keep manual overrides |
 | 5 | Build | select, flatten | `clips/clip_NNNN.mp4`, overlay PNGs | Render map, elevation and gauge overlays and composite each clip (with picture-in-picture when both cameras filmed it) |
 | 6 | Splash | select, flatten, frames | `clips/_intro.mp4`, `_outro.mp4` | Intro (logo, map with stats, collage) and outro (collage, title, fade to black) |
@@ -86,9 +86,17 @@ the moment's rows so re-running Select keeps it. When Fine Tune closes, `ReviewC
 
 ### Scoring
 
-`ScoreCalculator.composite` is a weighted sum of detection, scene change, speed (capped at 60 km/h), gradient
+`ScoreCalculator.composite` is a weighted sum of detection, action, speed (capped at 60 km/h), gradient
 (capped at 8%, counted only when moving) and Strava segment score (PRs full, 2nd/3rd best 70%, other efforts nothing). The weights are user settings and are not
 normalised. A moment filmed by both cameras gets an extra dual-camera bonus during selection (`PartnerMatcher`).
+
+For shortlisted moments (`ClipWindowScorer`), detection is the mean of the clip's two best frames, and action is how
+much the weighted box area of riders, cars and other objects changes during the clip (an overtake, a rider coming
+past or pulling away), ignoring changes below YOLO's jitter. Other moments keep their single-frame detection and
+score no action. The clip shift is stored as `clip_shift_s` (the same for both cameras of a moment) and
+`EnrichRow.clipAnchorEpoch` applies it; Build, the map marker, the gauges and the Fine Tune frame all start from it.
+Files analysed before 2026-10-31 have no shift and old scene-change values in `scene_boost`; Re-run the analysis to
+use the new scoring.
 
 ### Clocks and time zones
 
@@ -133,8 +141,8 @@ main-actor isolated too: their synchronous work runs on the main thread and only
 
 ## Testing
 
-`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 84 tests:
-clip selection (`ClipSelectorTests`), the Fine Tune rules and data (`FineTuneModelTests`, `FineTuneDataTests`,
+`VeloFilmsTests` (unit tests hosted in the app, macOS and iOS; shared scheme `VeloFilms`) holds 92 tests:
+clip selection (`ClipSelectorTests`), whole-clip scoring and clip-averaged GPS (`ClipWindowScorerTests`), the Fine Tune rules and data (`FineTuneModelTests`, `FineTuneDataTests`,
 `MomentReasonsTests`, `ReviewCompletionTests`, Swift Testing), opening existing projects (`OpenProjectTests`), finding camera videos on the other device (`VideoLocationTests`), stopping when a project can't be read (`ProjectFolderAccessTests`) and the moment filters (`FocusFilterTests`, XCTest). Run with
 `xcodebuild test -project VeloFilms/VeloFilms.xcodeproj -scheme VeloFilms -destination 'platform=macOS'`. No test touches the network or the footage drives. Screens are hand-tested; the steps
 for each change are recorded in `docs/review/PROGRESS.md`.
